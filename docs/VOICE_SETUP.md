@@ -168,3 +168,82 @@ Knobs if that needs to be cheaper:
 
 Two rules are enforced everywhere and must stay true: **the API key only ever exists server-side**,
 and **the whole knowledge base stays server-side**.
+
+---
+
+## 7. Go live, click by click
+
+The live site deploys from `main`, so the voice layer has to reach `main` before Netlify can serve
+it. Then it is one environment variable and one redeploy.
+
+### Step A - get the code onto main (5 minutes)
+
+| # | Where | Do this | You should see |
+|---|---|---|---|
+| A1 | This repo | Open a pull request from `arena/01a0b0bc-ai` to `main` | A PR with the voice layer, already merged with the hardening work |
+| A2 | The PR | If Netlify is connected, a **Deploy Preview** link appears on the PR | A working copy of the site with the voice call |
+| A3 | The PR | Merge it | `main` moves and Netlify starts a production deploy |
+| A4 | Netlify | Deploys -> watch the newest deploy | "Published" |
+
+If your site only builds the production branch, skip to A3: the merge is what production waits for.
+
+### Step B - create the OpenAI key (5 minutes, once)
+
+| # | Where | Do this |
+|---|---|---|
+| B1 | [platform.openai.com](https://platform.openai.com) | Sign in or sign up. A ChatGPT Plus subscription does **not** fund API calls, it is a separate product |
+| B2 | Settings -> **Billing** | Add a payment method and buy the minimum credit (USD 5 is the documented minimum, the default is 10). New API accounts are prepaid |
+| B3 | Settings -> **Limits** | Optional: set a monthly budget so a runaway script cannot overspend |
+| B4 | Settings -> **API keys**, inside the project you want | **Create new secret key**, name it `pipelinesync-voice`. Copy it once (it starts `sk-`) |
+| B5 | Settings -> **Projects** | Confirm the key belongs to the project you expect. Keys are project-scoped |
+
+Never paste the key into a chat, an email, or a file that gets committed. If it leaks, revoke it on
+the same screen and create a new one.
+
+### Step C - put the key in Netlify (2 minutes)
+
+| # | Where | Do this |
+|---|---|---|
+| C1 | Netlify -> your site -> **Site configuration** | Open **Environment variables** |
+| C2 | Environment variables | **Add a variable**: key `OPENAI_API_KEY`, value your `sk-...` key. Leave the scopes at their default so **Functions** can read it (a variable scoped to Builds only will not reach the functions) |
+| C3 | Same screen | Add `PS_TOKEN_SECRET` if it is not there yet: any long random string (`openssl rand -hex 16`). It signs the login tokens and the voice call tickets |
+| C4 | Netlify -> **Deploys** | **Trigger deploy -> Clear cache and deploy site**. Environment changes only reach functions on a new deploy |
+
+Optional, to change how it sounds or what it costs:
+
+| Variable | Example | Effect |
+|---|---|---|
+| `OPENAI_TTS_VOICE` | `sage` | A different interviewer voice (alloy, ash, ballad, coral, echo, sage, shimmer, verse) |
+| `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | The speech model (default) |
+| `VOICE_TTS_INSTRUCTIONS` | `Speak a little slower and warmer` | Delivery notes for the speech model |
+| `OPENAI_STT_MODEL` | `gpt-4o-mini-transcribe` | Cheaper transcription when server-side transcription is forced |
+| `VOICE_STT` | `auto` | Keep `auto`: the browser transcribes free whenever it can |
+| `VOICE_MAX_TURNS` | `30` | Hard cap per call |
+
+### Step D - prove it is live (2 minutes)
+
+| # | Where | Do this | You should see |
+|---|---|---|---|
+| D1 | Open your site | Log in, tick the disclaimer, agree | The AI speaks immediately, no text box |
+| D2 | The call screen | The badge in the "This call" card | **ChatGPT voice**, not "Simulated voice" |
+| D3 | Same card | Read the model line | `gpt-4o-mini-tts`, voice `alloy`, and the transcription model |
+| D4 | Finish the call | Answer out loud, then structure the answers | The sidebar captured the fields and the three required numbers are filled |
+| D5 | Netlify -> **Functions** -> `voice` -> **Logs** | Watch a turn go past | `[voice] turn 7 mode=openai ...` |
+| D6 | Unlock the PDF, then open `/dev/outbox` | Find your lead | A `voice_call` block with provider, models, turns, and `audio_retained: false` |
+
+If D2 says **Simulated voice**, the function cannot see the key: check the scope from C2, then
+redeploy as in C4. The line under the badge names the reason.
+
+### Step E - test locally first (optional)
+
+1. Copy `.env.example` to `.env` (gitignored) and put your key in `OPENAI_API_KEY`.
+2. `node server.js`. The startup log prints `Discovery call voice: openai (chat ..., speech ..., transcription ...)`.
+3. Open the app, agree to the disclaimer, and the AI speaks with the OpenAI voice.
+4. `node test/voice-openai.js` runs the same journey against a mock endpoint, proving the plumbing
+   without spending anything.
+
+### Rolling back
+
+Set `VOICE_PROVIDER=simulated` in Netlify and redeploy: the call still runs end to end, worded by the
+built-in interviewer and spoken by the browser voice, with no OpenAI spend. Set it back to `openai`
+(or remove the variable) to switch ChatGPT on again.
