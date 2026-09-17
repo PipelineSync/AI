@@ -12,6 +12,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+require('./lib/env').load(); // local .env (gitignored); Netlify supplies its own env
 const core = require('./lib/core');
 const voice = require('./lib/voice');
 const { handleVoice, clampVoiceMeta } = require('./lib/voice-api');
@@ -262,5 +263,6 @@ server.listen(PORT, HOST, () => {
     (vm.mode === 'openai'
       ? ' (chat ' + vm.models.chat + ', speech ' + vm.models.tts + ' voice ' + vm.voice + ', transcription ' + vm.models.stt + ')'
       : ' - ' + vm.why));
+  if (process.env.OPENAI_API_KEY) console.log('OpenAI key detected (' + String(process.env.OPENAI_API_KEY).slice(0, 7) + '...); run `npm run check:openai` to verify credit and models.');
   if (!process.env.PS_TOKEN_SECRET) console.log('Note: PS_TOKEN_SECRET not set; using the built-in dev secret (fine for local + test deploys). Set PS_TOKEN_SECRET in production.');
 });

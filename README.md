@@ -4,7 +4,9 @@ Runnable prototype of the app described in `PipelineSync_AI_Developer_Brief.pdf`
 tested end to end in the browser. External services are simulated and clearly marked, so nothing
 blocks on credentials - with one exception that matters: **the discovery call voice layer is real.**
 ChatGPT words each turn, OpenAI speaks it, and the answers are captured against the Section 7 data
-contract. See `docs/VOICE_SETUP.md` for the one environment variable that switches it on.
+contract. See `docs/VOICE_SETUP.md` for the one environment variable that switches it on. With a key in hand:
+`cp .env.example .env`, paste the key, then `npm run check:openai` to prove the key, the credit and
+the models before spending anything on a call.
 
 Two ways to run it:
 

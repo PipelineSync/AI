@@ -79,6 +79,27 @@ never reaches the browser.
    | `VOICE_MAX_TURNS` | `40` | Spend guard: a runaway call is refused before it costs anything |
    | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | For a gateway, an Azure-compatible endpoint, or a mock |
 
+### Local (with a USD 5 balance: the 3-step version)
+
+```bash
+cp .env.example .env          # .env is gitignored
+# edit .env: OPENAI_API_KEY=sk-...   (no quotes, no spaces)
+npm install                   # only needed once, for the test suite
+npm run check:openai          # real but tiny: chat + speech + transcription, well under USD 0.01
+node server.js                # startup log must say: Discovery call voice: openai
+```
+
+`npm run check:openai` is the fastest way to tell a bad key from an empty balance from a model your
+project cannot use - it prints one PASS/FAIL line per model and a plain-language reason. Use
+`npm run check:openai -- --chat-only` for the cheapest possible probe.
+
+**Making USD 5 last.** At roughly USD 0.06 per completed call that is about 80 calls, and about 60
+if the browser never transcribes. To stretch it: keep `VOICE_STT=auto` (Chrome/Edge transcribe for
+free), keep `OPENAI_CHAT_MODEL=gpt-4o-mini`, set `VOICE_MAX_TURNS=30`, and set a hard monthly budget
+under OpenAI **Settings -> Limits** so nothing can run past the credit. Speech is the bulk of the
+bill, so short lines matter more than the chat model. Demo and test runs cost nothing: use
+`VOICE_PROVIDER=simulated`, or the bundled mock endpoint below.
+
 ### Local
 
 ```bash
@@ -160,6 +181,8 @@ Knobs if that needs to be cheaper:
 
 | File | Role |
 |---|---|
+| `lib/env.js` | Loads `.env` for local runs (no dependency); Netlify supplies its own environment |
+| `test/check-openai.js` | `npm run check:openai`: the real-key preflight (key, credit, each model) |
 | `lib/voice.js` | The intake plan, the interviewer policy, capture state, the OpenAI adapters, the turn runner |
 | `lib/voice-api.js` | The four routes (`session`, `turn`, `transcribe`, `speak`) and the lead-metadata clamp |
 | `netlify/functions/voice.js` | The Netlify entry point for `/api/voice/*` (one function) |
@@ -236,8 +259,10 @@ redeploy as in C4. The line under the badge names the reason.
 
 ### Step E - test locally first (optional)
 
-1. Copy `.env.example` to `.env` (gitignored) and put your key in `OPENAI_API_KEY`.
-2. `node server.js`. The startup log prints `Discovery call voice: openai (chat ..., speech ..., transcription ...)`.
+1. Copy `.env.example` to `.env` (gitignored) and put your key in `OPENAI_API_KEY`. The server loads
+   `.env` automatically (`lib/env.js`); an existing shell variable still wins.
+2. `npm run check:openai` - three tiny real calls (chat, speech, transcription) that confirm the key,
+   the credit and each model for well under USD 0.01. Then `node server.js`. The startup log prints `Discovery call voice: openai (chat ..., speech ..., transcription ...)`.
 3. Open the app, agree to the disclaimer, and the AI speaks with the OpenAI voice.
 4. `node test/voice-openai.js` runs the same journey against a mock endpoint, proving the plumbing
    without spending anything.
