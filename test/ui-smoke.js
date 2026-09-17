@@ -6,8 +6,8 @@
 const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
-
-const BASE = 'http://127.0.0.1:8080';
+const { startServer } = require('./harness');
+let BASE; // dedicated instance, started at the top of the scenario (test/harness.js)
 const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8')
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
@@ -140,6 +140,9 @@ async function reachCall(page, details) {
 
 /* ------------------------------------------------------------------ */
 (async () => {
+  const srv = await startServer(8093);
+  BASE = srv.base;
+  process.on('exit', () => srv.stop());
   console.log('\nScenario 1: a voice discovery call (microphone present)');
   const p1 = boot(true);
   await reachCall(p1, { name: 'Maria Santos', email: 'maria@solarworks.ph' });

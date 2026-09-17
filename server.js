@@ -16,6 +16,32 @@ const core = require('./lib/core');
 const voice = require('./lib/voice');
 const { handleVoice, clampVoiceMeta } = require('./lib/voice-api');
 
+/* Zero-dependency .env loader: reads KEY=VALUE lines from a .env in the repo root, skipping
+   blanks and comment lines, stripping inline " # comments" and surrounding quotes. Real
+   environment variables always win, so `OPENAI_API_KEY=sk-... node server.js` still overrides
+   the file (and the mock: `OPENAI_BASE_URL=http://127.0.0.1:8099/v1 ...`). The Netlify deploy
+   never sees this file - its functions read their own environment. Without a .env the server
+   simply runs on the process environment, as before. */
+(function loadDotEnv() {
+  let file;
+  try { file = fs.readFileSync(path.join(__dirname, '.env'), 'utf8'); } catch (e) { return; }
+  // Pass 1: parse every line (a repeated key later in the file wins, like dotenv).
+  const parsed = {};
+  for (const line of file.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!m) continue; // blank and comment lines
+    let val = m[2].trim();
+    const hash = val.search(/\s#/);
+    if (hash !== -1) val = val.slice(0, hash).trim();
+    if (val.length >= 2 && ((val[0] === '"' && val[val.length - 1] === '"') || (val[0] === "'" && val[val.length - 1] === "'"))) {
+      val = val.slice(1, -1);
+    }
+    parsed[m[1]] = val;
+  }
+  // Pass 2: apply only the keys the real environment does not already set.
+  for (const k of Object.keys(parsed)) if (!(k in process.env)) process.env[k] = parsed[k];
+})();
+
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 const PUBLIC_DIR = path.resolve(__dirname, 'public');

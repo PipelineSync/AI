@@ -223,7 +223,8 @@ Run each demo persona from the intake sidebar, then check the blueprint:
       missing required figures at the end) and `audio_retained: false`
 - [ ] No keys in the browser; PDF generated server-side; disclaimer + privacy notice before data
 
-Automated checks (server must be running for the first three):
+Automated checks (nothing needs to be running first: `test/harness.js` starts a dedicated server
+for each test file):
 
 ```bash
 node test/voice.js       # voice policy, capture state, OpenAI adapters, the four routes
@@ -235,12 +236,13 @@ node test/e2e.js         # API end-to-end across all four verticals (QA assertio
 node test/netlify-sim.js # invokes the Netlify functions with Lambda-style events
 node test/pdfcheck.js    # validates PDF xref structure of generated samples
 node test/ui-design.js   # design-system checks: the stylesheet parses, every class the app renders
-                         # has a rule, the tokens clear WCAG AA, touch targets stay 44px
+                         # has a rule, the tokens clear WCAG AA, touch targets stay 44px, and the
+                         # logo is never rendered bare on a dark surface
 npm run test:all         # everything above
 
-The voice routes are rate limited to 40 turns a minute per IP, and one full run of the suite uses
-about 40 of them from 127.0.0.1. If you run it twice in a row the second `ui-smoke` call can stall
-mid-call on a 429: restart `node server.js`, or start it with `VOICE_RATE_PER_MIN=300` while testing.
+The harness starts each test's server with the per-IP voice rate limit relaxed
+(`VOICE_RATE_PER_MIN=1000`) because one suite run drives about 40 turns a minute from a single IP.
+The production default in `server.js` is unchanged, so the limiter still protects the deploy.
 ```
 
 `test/mock-openai.js` is a stand-in OpenAI endpoint (turns, speech, transcription) so the ChatGPT

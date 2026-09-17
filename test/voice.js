@@ -1,11 +1,12 @@
 /*
  * Voice layer tests: the interviewer policy, the capture state, the OpenAI adapters (stubbed),
- * and the four /api/voice routes against a running server in simulated mode.
+ * and the four /api/voice routes against a dedicated server instance in simulated mode.
  *
- * Run the server first:  node server.js
- * Then:                  node test/voice.js
+ * Self-contained: starts its own instance on port 8091 via test/harness.js (see that file
+ * for why the rate limit is relaxed and the OpenAI credentials are stripped in tests).
  */
-const BASE = 'http://127.0.0.1:8080';
+let BASE;
+const { startServer } = require('./harness');
 const voice = require('../lib/voice');
 const core = require('../lib/core');
 const { clampVoiceMeta } = require('../lib/voice-api');
@@ -180,13 +181,7 @@ function clampTests() {
 }
 
 async function httpTests() {
-  section('HTTP routes (server must be running on ' + BASE + ')');
-  let up = false;
-  try { const r = await fetch(BASE + '/api/health'); up = r.ok; } catch (e) {}
-  if (!up) {
-    console.log('  (server not running: the HTTP block is skipped; start it with node server.js)');
-    return;
-  }
+  section('HTTP routes (dedicated instance on ' + BASE + ')');
   const login = await (await fetch(BASE + '/api/auth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'QA Tester', email: 'qa@pipelinesync.ai' }) })).json();
   const token = login.token;
   ok(!!token, 'entry gate returns a token for the route tests');
@@ -258,6 +253,9 @@ async function httpTests() {
 }
 
 (async () => {
+  const srv = await startServer(8091);
+  BASE = srv.base;
+  process.on('exit', () => srv.stop());
   policyTests();
   captureTests();
   styleTests();
