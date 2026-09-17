@@ -150,3 +150,27 @@ curl -i http://127.0.0.1:8080/api/health # shows security headers
 ```
 
 Live preview still works on port 8080.
+
+---
+
+## Merge note: voice layer compliance (2026-09-18)
+
+The voice discovery call was built on the pre-hardening base and merged with these fixes. Three
+interactions were found and resolved, so the hardening holds and the voice still works:
+
+1. **CSP blocked the voice audio.** `default-src 'self'` leaves `media-src` at `'self'`, and the AI
+   speech is played from a `blob:` (or `data:`) URL, so the browser refused to play it. Added
+   `media-src 'self' blob: data:` in `netlify.toml` and `lib/netlify-helpers.js`.
+2. **Framing headers broke the preview pane.** `X-Frame-Options: DENY` + `frame-ancestors 'none'`
+   stop the local server being embedded in the preview. Production keeps both; the local dev server
+   now sends `frame-ancestors *` and no `X-Frame-Options`, with `PS_ALLOW_FRAMING=0` to restore the
+   strict rule. Note this is deliberately dev-only: never relax it on the deployed site.
+3. **The new voice endpoints were unprotected.** `/api/voice/*` now reuses the same hardening
+   helpers (`lib/netlify-helpers.js`) and adds per-IP rate limits (`VOICE_RATE_PER_MIN`, default 40
+   turns/minute locally) plus payload bounds (`validateTurnBody`: answers, transcript, captures,
+   last answer) so a stranger cannot run up OpenAI spend.
+4. **Escaping in the dev outbox** now applies to the `voice_call` block too, and the UI smoke test
+   asserts the escaping rather than the raw JSON.
+
+All suites pass after the merge: voice, voice-openai (mock ChatGPT path), ui-smoke (voice-first and
+typed fallback), e2e, netlify-sim, pdfcheck.

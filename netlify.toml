@@ -16,7 +16,8 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "microphone=(self), camera=(), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    # media-src is required by the voice layer: the AI speech is played from blob:/data: URLs.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 
 # API routes -> Netlify functions (same paths the frontend already calls)
 [[redirects]]
@@ -42,6 +43,13 @@
 [[redirects]]
   from = "/api/deliver"
   to = "/.netlify/functions/deliver"
+  status = 200
+
+# Voice layer: one function serves /api/voice/session, /turn, /transcribe and /speak.
+# OPENAI_API_KEY is read inside the function and never sent to the browser.
+[[redirects]]
+  from = "/api/voice/*"
+  to = "/.netlify/functions/voice"
   status = 200
 
 [[redirects]]

@@ -8,6 +8,7 @@ const extract = F('extract.js').handler;
 const generate = F('generate.js').handler;
 const deliver = F('deliver.js').handler;
 const outbox = F('outbox.js').handler;
+const voiceFn = F('voice.js').handler;
 const health = F('health.js').handler;
 
 const personas = require('./personas.json');
@@ -56,6 +57,17 @@ const ok = (cond, msg) => { console.log((cond ? '  PASS  ' : '  FAIL  ') + msg);
   ok(noTok.statusCode === 401, 'extract rejects missing token');
   const badTok = await extract({ httpMethod: 'POST', path: '/api/extract', body: JSON.stringify({ token: 'garbage', answers }) });
   ok(badTok.statusCode === 401, 'extract rejects forged token');
+
+  // voice layer through the Netlify function (same handler the dev server mounts)
+  const vs = await voiceFn({ httpMethod: 'POST', path: '/api/voice/session', body: JSON.stringify({ token: T }) });
+  ok(vs.statusCode === 200 && JSON.parse(vs.body).plan.length === 12, 'voice function serves the call plan through /api/voice/*');
+  const vturn = await voiceFn({ httpMethod: 'POST', path: '/api/voice/turn', body: JSON.stringify({ token: T, call_id: 'sim-1', answers: [], asked: [], probes: {}, with_audio: false }) });
+  const vj = JSON.parse(vturn.body);
+  ok(vturn.statusCode === 200 && vj.ask.id === 'business', 'voice function serves a turn and the guardrail question');
+  const vsub = await voiceFn({ httpMethod: 'POST', path: '/.netlify/functions/voice', queryStringParameters: { op: 'speak' }, body: JSON.stringify({ token: T, text: 'Testing.' }) });
+  ok(vsub.statusCode === 200, 'voice function resolves its sub-route from the function path');
+  const vno = await voiceFn({ httpMethod: 'POST', path: '/api/voice/turn', body: JSON.stringify({}) });
+  ok(vno.statusCode === 401, 'voice function rejects a missing token');
 
   const ob = await outbox({ httpMethod: 'GET', path: '/dev/outbox' });
   ok(ob.statusCode === 200 && ob.body.includes('function logs'), 'outbox page explains where leads go on Netlify');

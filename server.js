@@ -13,6 +13,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const core = require('./lib/core');
+const voice = require('./lib/voice');
+const { handleVoice, clampVoiceMeta } = require('./lib/voice-api');
 
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
@@ -30,12 +32,19 @@ function escHtml(s) {
 }
 
 function securityHeaders() {
+  // The voice layer plays OpenAI speech from a blob: or data: URL, so media-src must allow both
+  // (default-src 'self' alone would have the browser refuse to play the AI voice).
+  const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; " +
+    // Production (Netlify) sends frame-ancestors 'none'. The local dev server is embedded in the
+    // preview pane, so it must stay framable here; PS_ALLOW_FRAMING=0 restores the strict rule.
+    (process.env.PS_ALLOW_FRAMING === '0' ? "frame-ancestors 'none'" : "frame-ancestors *");
   return {
     'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
+    // X-Frame-Options cannot express "allow any ancestor", so it is only sent when framing is denied.
+    ...(process.env.PS_ALLOW_FRAMING === '0' ? { 'X-Frame-Options': 'DENY' } : {}),
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'microphone=(self), camera=()',
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+    'Content-Security-Policy': csp,
   };
 }
 
@@ -71,10 +80,19 @@ function sendJson(res, code, obj) {
   res.writeHead(code, headers);
   res.end(JSON.stringify(obj));
 }
-function readBody(req) {
+function readBody(req, limit) {
+  const max = limit || 2e6;
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', c => { data += c; if (data.length > 2e6) { reject(new Error('body too large')); req.destroy(); } });
+    req.on('data', c => {
+      data += c;
+      if (data.length > max) {
+        const err = new Error('body too large');
+        err.tooLarge = true;
+        reject(err);
+        req.destroy();
+      }
+    });
     req.on('end', () => {
       if (!data) return resolve({});
       try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('invalid JSON')); }
@@ -118,10 +136,12 @@ function getStatic(req, res, urlPath) {
   });
 }
 function outboxPage(res) {
-  const rows = hubSpotOutbox.map((e, i) =>
-    '<tr><td>' + (i + 1) + '</td><td>' + escHtml(e.email) + '</td><td>' + escHtml(e.contact_id) + '</td><td>' + escHtml(e.industry || '') + '</td><td>' + escHtml(e.created_at) + '</td></tr>'
-  ).join('');
-  const html = '<!doctype html><meta charset="utf-8"><title>HubSpot outbox (dev)</title><style>body{font:14px/1.5 system-ui;background:#f6f7f9;margin:0;padding:24px}h1{font-size:18px}table{border-collapse:collapse;background:#fff;width:100%;max-width:900px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}pre{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;max-width:900px}</style><h1>HubSpot lead outbox (mock Function D, local dev)</h1><p>Every deliver step pushes a lead here and to the console. On Netlify the same payload is logged to the function logs.</p><table><tr><th>#</th><th>Email</th><th>Contact ID</th><th>Industry</th><th>Pushed at</th></tr>' + rows + '</table><h2>Raw payloads</h2><pre>' + escHtml(JSON.stringify(hubSpotOutbox, null, 2)) + '</pre>';
+  const rows = hubSpotOutbox.map((e, i) => {
+    const v = e.voice_call || {};
+    const voice = v.provider ? escHtml(v.provider) + ' / ' + escHtml(v.mode || '') + (v.turns ? ' (' + v.turns + ' turns)' : '') : 'typed (no voice call)';
+    return '<tr><td>' + (i + 1) + '</td><td>' + escHtml(e.email) + '</td><td>' + escHtml(e.contact_id) + '</td><td>' + escHtml(e.industry || '') + '</td><td>' + voice + '</td><td>' + escHtml(e.created_at) + '</td></tr>';
+  }).join('');
+  const html = '<!doctype html><meta charset="utf-8"><title>HubSpot outbox (dev)</title><style>body{font:14px/1.5 system-ui;background:#f6f7f9;margin:0;padding:24px}h1{font-size:18px}table{border-collapse:collapse;background:#fff;width:100%;max-width:1100px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}pre{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;max-width:1100px}</style><h1>HubSpot lead outbox (mock Function D, local dev)</h1><p>Every deliver step pushes a lead here and to the console. On Netlify the same payload is logged to the function logs. The <b>voice_call</b> block records how the discovery call was run (provider, models, turns, and whether the three required fields were still missing when the call ended).</p><table><tr><th>#</th><th>Email</th><th>Contact ID</th><th>Industry</th><th>Discovery call</th><th>Pushed at</th></tr>' + rows + '</table><h2>Raw payloads</h2><pre>' + escHtml(JSON.stringify(hubSpotOutbox, null, 2)) + '</pre>';
   res.writeHead(200, Object.assign({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders()));
   res.end(html);
 }
@@ -157,6 +177,24 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true });
   }
 
+  /* Voice routes first: they carry audio, so they get the larger body limit, and the shared
+     handler (lib/voice-api.js) verifies the token itself, exactly as the Netlify function does.
+     Voice turns cost money per call, so they are rate limited per user and per IP, like login. */
+  if (method === 'POST' && route.startsWith('/api/voice/')) {
+    const sub = route.slice('/api/voice/'.length);
+    const perMinute = parseInt(process.env.VOICE_RATE_PER_MIN, 10) || (sub === 'turn' ? 40 : 30);
+    const rl = checkRateLimit('voice:' + sub + ':' + ip, perMinute, 60 * 1000);
+    if (!rl.allowed) {
+      res.writeHead(429, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(rl.retryAfter) }, securityHeaders()));
+      return res.end(JSON.stringify({ error: 'Too many voice requests. Wait ' + rl.retryAfter + 's and try again.' }));
+    }
+    let body;
+    try { body = await readBody(req, 8 * 1024 * 1024); }
+    catch (e) { return sendJson(res, e.tooLarge ? 413 : 400, { error: e.tooLarge ? 'That recording is too large. Keep each answer short, or type instead.' : 'Bad request body.' }); }
+    const out = await handleVoice(sub, body, { env: process.env, fetchImpl: fetch, ip });
+    return sendJson(res, out.status, out.body);
+  }
+
   // Authenticated routes: token is in the JSON body (client always sends it)
   const authBody = await readBody(req);
   const payload = core.verifyToken(authBody.token);
@@ -190,7 +228,7 @@ async function handleApi(req, res, url) {
     if (email.length > 254) return sendJson(res, 400, { error: 'Email too long.' });
     if (authBody.consent !== true) return sendJson(res, 400, { error: 'Please tick the consent box before we send the PDF.' });
     const buffer = core.buildPdf(bp);
-    const lead = core.makeLeadPayload(email, payload.name, authBody.fields || null, bp);
+    const lead = core.makeLeadPayload(email, payload.name, authBody.fields || null, bp, clampVoiceMeta(authBody.voice_meta));
     hubSpotOutbox.push(lead);
     console.log('[hubspot-mock] lead push: ' + JSON.stringify(lead));
     return sendJson(res, 200, {
@@ -219,5 +257,10 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log('PipelineSync AI prototype (local) listening on http://' + HOST + ':' + PORT);
   console.log('Dev outbox: http://' + HOST + ':' + PORT + '/dev/outbox');
+  const vm = voice.mode(process.env);
+  console.log('Discovery call voice: ' + vm.mode +
+    (vm.mode === 'openai'
+      ? ' (chat ' + vm.models.chat + ', speech ' + vm.models.tts + ' voice ' + vm.voice + ', transcription ' + vm.models.stt + ')'
+      : ' - ' + vm.why));
   if (!process.env.PS_TOKEN_SECRET) console.log('Note: PS_TOKEN_SECRET not set; using the built-in dev secret (fine for local + test deploys). Set PS_TOKEN_SECRET in production.');
 });

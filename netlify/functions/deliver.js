@@ -9,6 +9,7 @@
  */
 const core = require('../../lib/core');
 const { bodyOf, json } = require('../../lib/netlify-helpers');
+const { clampVoiceMeta } = require('../../lib/voice-api');
 
 function logLead(lead) {
   console.log('[hubspot-mock] lead push: ' + JSON.stringify(lead));
@@ -31,7 +32,7 @@ exports.handler = async (event) => {
   if (body.consent !== true) return json(400, { error: 'Please tick the consent box before we send the PDF.' });
 
   const buffer = core.buildPdf(bp);
-  const lead = core.makeLeadPayload(email, payload.name, body.fields || null, bp);
+  const lead = core.makeLeadPayload(email, payload.name, body.fields || null, bp, clampVoiceMeta(body.voice_meta));
   logLead(lead);
 
   return {

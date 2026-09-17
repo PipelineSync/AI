@@ -2,7 +2,9 @@
 
 Runnable prototype of the app described in `PipelineSync_AI_Developer_Brief.pdf`. Built to be
 tested end to end in the browser. External services are simulated and clearly marked, so nothing
-blocks on credentials. The flow, data contract, and architecture follow the brief exactly.
+blocks on credentials - with one exception that matters: **the discovery call voice layer is real.**
+ChatGPT words each turn, OpenAI speaks it, and the answers are captured against the Section 7 data
+contract. See `docs/VOICE_SETUP.md` for the one environment variable that switches it on.
 
 Two ways to run it:
 
@@ -43,11 +45,17 @@ Site configuration → **Environment variables** → **Add a variable**:
 
 | Variable | Value | Why |
 |---|---|---|
-| `PS_TOKEN_SECRET` | any long random string, e.g. the output of `openssl rand -hex 16` | Signs the prototype login tokens. Without it a built-in dev secret is used (fine for a throwaway test deploy, not for anything shared). |
+| `PS_TOKEN_SECRET` | any long random string, e.g. the output of `openssl rand -hex 16` | Signs the prototype login tokens and the voice call tickets. Without it a built-in dev secret is used (fine for a throwaway test deploy, not for anything shared). |
+| `OPENAI_API_KEY` | your OpenAI key (`sk-...`) | **Switches the discovery call on to ChatGPT voice**: wording, speech out, and transcription in. Read inside the functions only, never sent to the browser. Without it the call runs on the built-in interviewer and the browser voice, so the demo still works. |
 
-Later, when the real keys arrive, add them here too (they only reach the functions, never the
-browser): `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`,
-`HUBSPOT_ACCESS_TOKEN`, `SCHEDULER_LINK`.
+Optional voice settings (`VOICE_PROVIDER`, `OPENAI_CHAT_MODEL`, `OPENAI_TTS_MODEL`,
+`OPENAI_TTS_VOICE`, `OPENAI_STT_MODEL`, `VOICE_STT`, `VOICE_LANGUAGE`, `VOICE_LOCALE`,
+`VOICE_MAX_TURNS`, `OPENAI_BASE_URL`) and everything else about the voice layer is documented in
+`docs/VOICE_SETUP.md`.
+
+Later, when the remaining keys arrive, add them here too (they only reach the functions, never the
+browser): `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HUBSPOT_ACCESS_TOKEN`,
+`SCHEDULER_LINK`.
 
 ### 4. Test the deployment
 
@@ -77,10 +85,19 @@ Open your `https://<site>.netlify.app` URL:
 
 1. **Log in** - required before use (signed prototype token; Supabase Auth in production).
 2. **Disclaimer + privacy notice** - shown and accepted before any data is collected (Section 9).
-3. **Discovery call** - AI interviewer walks through the 12-question intake set. Type, or use the
-   microphone (Web Speech API where the browser supports it). Skip anything you do not know.
+3. **Discovery call (voice, not chat)** - agreeing to the disclaimer is what starts the call: the AI
+   speaks the first question immediately (the opening line is prefetched while the notice is being
+   read, so the voice starts inside that click, not after a round trip). There is no second start
+   button and no text box, and with a blocked microphone the typed fallback appears by itself.
+   It asks the 12-question intake set out loud, one question per turn, waits while the client talks,
+   and probes once when an answer arrives without its figures. The transcript stays collapsed behind
+   a link: the call is spoken. Typing lives behind *Type instead* (and turns on automatically if the
+   browser blocks the microphone), and anything the client does not know can be skipped.
+   With `OPENAI_API_KEY` set, ChatGPT words and speaks every turn (`docs/VOICE_SETUP.md`); without
+   it the same guardrail set drives the call through the built-in interviewer and the browser voice.
    QA shortcut: load one of the four demo personas (solar, medical, home services, e-commerce) -
-   these are the four verticals in the brain-quality checklist.
+   these are the four verticals in the brain-quality checklist - which fills the same 12 answers
+   without needing a microphone.
 4. **Structure the answers** (Function A, mock of Claude + Prompt B) - transcript answers are mapped
    to the Section 7 data contract. Unstated values come back as `null`; prices and tool names are
    preserved exactly, not corrected.
@@ -103,13 +120,14 @@ Open your `https://<site>.netlify.app` URL:
 |---|---|---|
 | Auth | signed token (stateless) | signed token (stateless, same code) |
 | Functions A-D | routes in `server.js` | `netlify/functions/{extract,generate,deliver,...}.js` |
+| Voice routes (`/api/voice/*`) | `lib/voice-api.js` mounted by `server.js` | `netlify/functions/voice.js` (same handler) |
 | Lead outbox | in-memory, view at `/dev/outbox` | function logs (see `/dev/outbox` page) |
 | Shared core | `lib/core.js` | `lib/core.js` (bundled into each function) |
 
 | Prototype (this repo) | Production (per the brief) |
 |---|---|
 | Signed prototype tokens | Supabase Auth (login required) |
-| Web Speech API + scripted interviewer in `app.js` | OpenAI (ChatGPT) voice intake |
+| Voice discovery call (`lib/voice.js` + voice engine in `app.js`) | The same code, with `OPENAI_API_KEY` set: ChatGPT words the turns, OpenAI speaks them, OpenAI transcribes. Realtime (WebRTC) voice is the next step if wanted |
 | `extract` (deterministic parser in `lib/core.js`) | Function A: Claude + Prompt B |
 | `generate` (KB-driven logic) | Function B: Claude + Prompt A |
 | `deliver` (pure-JS PDF writer) | Function C: server-side PDF generator |
@@ -150,15 +168,36 @@ Run each demo persona from the intake sidebar, then check the blueprint:
 - [ ] UK English, no em dashes
 - [ ] Function A: unstated numbers come back as null and are flagged on the review screen
 - [ ] Full journey works: login, voice, review, submit, PDF, lead, booking
+- [ ] Agreeing to the disclaimer starts the call: the AI speaks first, there is no second start
+      button and no text box
+- [ ] Every one of the 12 questions is asked out loud exactly once, in order, with a probe only when
+      an answer arrived without its figures
+- [ ] The three required fields (deal size, monthly lead volume, close rate) are captured on the call;
+      anything still unstated is flagged on the review screen and blocks generation
+- [ ] The lead payload records how the call ran (`voice_call`: provider, models, turns, probes,
+      missing required figures at the end) and `audio_retained: false`
 - [ ] No keys in the browser; PDF generated server-side; disclaimer + privacy notice before data
 
 Automated checks (server must be running for the first three):
 
 ```bash
-node test/e2e.js        # API end-to-end across all four verticals (QA assertions)
-node test/netlify-sim.js# invokes the Netlify functions with Lambda-style events
-node test/pdfcheck.js   # validates PDF xref structure of generated samples
-node test/ui-smoke.js   # drives the real frontend through the whole journey (jsdom)
+node test/voice.js       # voice policy, capture state, OpenAI adapters, the four routes
+node test/voice-openai.js# the whole ChatGPT path against a mock OpenAI endpoint (no key, no spend)
+node test/ui-smoke.js    # drives the real frontend through the voice-first journey (jsdom);
+                         # proves the AI speaks before any text input appears, and that a blocked
+                         # microphone falls back to typing without losing the journey
+node test/e2e.js         # API end-to-end across all four verticals (QA assertions)
+node test/netlify-sim.js # invokes the Netlify functions with Lambda-style events
+node test/pdfcheck.js    # validates PDF xref structure of generated samples
+npm run test:all         # everything above
+```
+
+`test/mock-openai.js` is a stand-in OpenAI endpoint (turns, speech, transcription) so the ChatGPT
+path can be exercised without an account:
+
+```bash
+node test/mock-openai.js 8099
+OPENAI_API_KEY=sk-mock OPENAI_BASE_URL=http://127.0.0.1:8099/v1 PORT=8081 node server.js
 ```
 
 ## Files
@@ -167,11 +206,17 @@ node test/ui-smoke.js   # drives the real frontend through the whole journey (js
 pipelinesync/
   server.js              local dev server (zero deps): static + routes + local outbox
   lib/core.js            shared stateless core: KB v1, extract, generate, PDF writer, tokens
-  netlify.toml           publish dir, functions dir, /api/* route mapping
-  netlify/functions/     login, logout, extract (A), generate (B), deliver (C+D), outbox, health
+  lib/voice.js           the voice discovery call: intake plan, interviewer policy, capture state,
+                         OpenAI adapters (turns, speech, transcription), turn runner
+  lib/voice-api.js       the four /api/voice routes, shared by the dev server and Netlify
+  netlify.toml           publish dir, functions dir, /api/* route mapping incl. /api/voice/*
+  netlify/functions/     login, logout, extract (A), generate (B), deliver (C+D), voice, outbox, health
   public/index.html      shell (no CDN, works offline)
   public/styles.css      design system
-  public/app.js          SPA: login, consent, intake, review, blueprint, unlock, booking, done
-  test/                  e2e, netlify-sim, pdfcheck, ui-smoke, personas, sample PDFs
+  public/app.js          SPA: login, consent, the voice call, review, blueprint, unlock, booking, done
+  test/                  voice, voice-openai, mock-openai, e2e, netlify-sim, pdfcheck, ui-smoke,
+                         personas, sample PDFs
+  docs/VOICE_SETUP.md    how to switch the ChatGPT voice layer on, verify it, cost it, fix it
+  .env.example           every setting the app understands (copy to .env, which is gitignored)
   README.md              this file
 ```

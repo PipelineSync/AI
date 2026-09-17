@@ -19,6 +19,18 @@ function debounce(fn, ms) {
     t = setTimeout(() => fn(...args), ms);
   };
 }
+// "about 1.5 million" -> 1500000, "22 percent" -> 22, "PHP 80,000" -> 80000
+function looseNumber(raw) {
+  const t = String(raw == null ? '' : raw).toLowerCase().replace(/,/g, '');
+  const m = t.match(/(\d+(?:\.\d+)?)\s*(k|thousand|m|million)?/);
+  if (!m) return null;
+  let n = parseFloat(m[1]);
+  if (!Number.isFinite(n)) return null;
+  if (m[2] === 'k' || m[2] === 'thousand') n *= 1000;
+  if (m[2] === 'm' || m[2] === 'million') n *= 1000000;
+  return n;
+}
+
 // Safe storage: the preview iframe can run sandboxed without allow-same-origin,
 // where localStorage throws. Fall back to in-memory so the app still works.
 const memStore = {};
@@ -27,21 +39,9 @@ const store = {
   set: (k, v) => { try { window.localStorage.setItem(k, v); } catch (e) { memStore[k] = v; } }
 };
 
-/* ---------------- interview (voice intake script stand-in) ---------------- */
-const QUESTIONS = [
-  { id: 'business', q: 'Hi, I am Alex from PipelineSync. Let us get to know your business. What do you do, and who do you sell to?', hint: 'One or two sentences is plenty. For example: "We install residential solar systems for homeowners in Ilocos."' },
-  { id: 'products', q: 'What are the main products or services you sell, and what do they cost? If a sale needs something first, like a survey or an evaluation, tell me.', hint: 'For example: "Residential install at 1,200,000 pesos, and commercial at 4,500,000, and commercial needs a site survey first."' },
-  { id: 'deal', q: 'Roughly, how big is a typical deal? And how many people take sales calls?', hint: 'For example: "About 1,500,000 a deal, and three reps take calls."' },
-  { id: 'fulfilment', q: 'How many people handle fulfilment, and how do you deliver once a sale is made?', hint: 'For example: "Six people, and our own crew does the installs."' },
-  { id: 'owner', q: 'Who owns marketing and operations at your company?', hint: 'A name and role works. Or just "me" if it is you.' },
-  { id: 'close', q: 'How do most customers buy? Do you close in a single call, or is there usually a second call? Walk me through the process as it stands.', hint: 'For example: "Two calls. First we qualify and do the survey, then we present the proposal."' },
-  { id: 'sources', q: 'Where do your leads come from right now, and roughly how many per month from each? Do you track those numbers?', hint: 'One per line works well. For example: "Google Ads about 25 a month, tracked" then "Walk-ins about 10 a month, not tracked."' },
-  { id: 'capture', q: 'How do you capture leads today, and what tools or CRM do you use? If you are on HubSpot, which tier?', hint: 'For example: "They land in a spreadsheet, and I use HubSpot Starter plus WhatsApp."' },
-  { id: 'volumes', q: 'How many leads do you get a month, and how many do you close? What is your close rate, and how long is a typical sales cycle?', hint: 'For example: "55 leads, I close 12, so about 22 percent, and three weeks from first call to signed."' },
-  { id: 'spend', q: 'What do you spend per month on marketing, and what is your monthly software budget?', hint: 'For example: "80,000 on ads, about 15,000 on software."' },
-  { id: 'headache', q: 'What is the biggest headache with sales or marketing right now?', hint: 'Be honest. That is where the blueprint earns its keep.' },
-  { id: 'goal', q: 'Last one. Six months from now, what would make this a clear win?', hint: 'For example: "20 closed installs a month."' }
-];
+/* The 12-question interview plan, the field labels and the three required fields all live in
+   lib/voice.js and arrive from /api/voice/session, so the voice layer and the screen cannot drift
+   apart. The QA personas below are demo answers keyed by the same question ids. */
 
 /* QA personas covering the four verticals in the brief (Section 9 brain-quality test) */
 const PERSONAS = {
@@ -121,22 +121,25 @@ const state = {
   token: store.get('ps_token') || null,
   user: JSON.parse(store.get('ps_user') || 'null'),
   stage: 'login',
-  qIndex: 0,
-  answers: [],           // [{id, text}]
+  answers: [],           // [{id, text}] captured on the call (or by typing)
   fields: null,          // Section 7 contract
   blueprint: null,
   delivered: null,       // {contact_id, filename, pdf_url}
   booking: null,         // {day, slot}
   fieldStatus: {},       // live sidebar state
-  fieldError: null
+  voice: null,           // live call state (see newVoiceState in the voice engine)
+  showTranscript: false, // transcript panel is collapsed; the call is spoken
+  fieldError: null       // live capture status problems, surfaced instead of failing silently
 };
 function saveAuth() {
   store.set('ps_token', state.token || '');
   store.set('ps_user', JSON.stringify(state.user || {}));
 }
 function resetJourney() {
-  state.stage = 'consent'; state.qIndex = 0; state.answers = []; state.fields = null;
-  state.blueprint = null; state.delivered = null; state.booking = null; state.fieldStatus = {}; state.fieldError = null;
+  stopSpeaking(); stopListening();
+  state.stage = 'consent'; state.answers = []; state.fields = null;
+  state.blueprint = null; state.delivered = null; state.booking = null; state.fieldStatus = {};
+  state.voice = null; state.showTranscript = false; state.fieldError = null;
 }
 
 /* ---------------- api ---------------- */
@@ -163,43 +166,514 @@ function toast(msg, isErr) {
   toastTimer = setTimeout(() => { t.className = 'toast'; }, 3800);
 }
 
-/* ---------------- voice (Web Speech API stand-in for the OpenAI voice layer) ---------------- */
-let rec = null, recActive = false;
-function toggleMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { toast('Voice input is not supported in this browser. You can type instead.', true); return; }
-  if (recActive) { try { rec.stop(); } catch (e) {} recActive = false; updateMicUI(); return; }
+/* ---------------- voice engine (ChatGPT voice discovery call) ----------------
+ * The call is voice-first: the AI speaks every line out loud, the client answers with their
+ * voice, and the transcript stays collapsed behind a link. Text input lives behind "Type
+ * instead", so a blocked microphone never locks anyone out of the journey.
+ *
+ * Speech out : audio returned by /api/voice/turn (OpenAI speech, key server-side).
+ *              In simulated mode (no key) the browser voice reads the line.
+ * Speech in  : the browser recogniser when the browser has one (free, instant, live words),
+ *              otherwise MediaRecorder -> /api/voice/transcribe (OpenAI transcription).
+ *
+ * Timings are tunable (useful for tuning silence detection, and for tests):
+ *   window.__PS_VOICE_TIMING__ = { silenceMs, noSpeechMs, maxListenMs, speakFactorMs }
+ */
+const TIMING = Object.assign({
+  silenceMs: 1900,       // quiet for this long after speech -> the answer is done
+  noSpeechMs: 9000,      // nothing at all -> ask again
+  maxListenMs: 25000,    // hard stop for one answer
+  speakFactorMs: 330,    // ms per word, used to size the spoken-line watchdog
+  minSpeakMs: 900,
+  maxSpeakMs: 30000,
+  levelThreshold: 0.02   // mic level that counts as speech (MediaRecorder engine)
+}, window.__PS_VOICE_TIMING__ || {});
+
+const VOICE_STATUS_TEXT = {
+  idle: 'Ready when you are. Start the call and answer out loud, like a phone call.',
+  connecting: 'Connecting the AI interviewer...',
+  thinking: 'Thinking about what you said...',
+  speaking: 'The AI is speaking. Listen, then answer when it stops.',
+  listening: 'Listening. Answer in your own words, then pause when you are done.',
+  ready: 'Your turn. Tap the microphone and answer out loud, or type instead.',
+  complete: 'That is the call. Review what we captured, then structure the answers.',
+  error: 'The call hit a problem. You can retry the turn, or carry on by typing.'
+};
+
+function newVoiceState() {
+  return {
+    cfg: null, plan: [], provider: null, mode: null, why: '',
+    status: 'idle', transcript: [], asked: [], probes: {}, captures: [],
+    callId: 'call-' + Math.random().toString(36).slice(2, 10), callTicket: null, turns: 0,
+    startedAt: null, endedAt: null, currentQuestionId: null, pendingQuestionId: null,
+    lastLine: '', interim: '', lastHeard: '', error: null, notice: null,
+    micBlocked: false, engine: null, handsFree: true, muted: false, typed: false,
+    speaking: false, listening: false, capture: null, done: false, warnings: [],
+    audioEl: null, stopListening: null, rec: null, skipped: [], stopSpeakHook: null,
+    opening: null, prefetching: false, prefetchTried: false, prefetchPromise: null,
+    sessionPromise: null, sessionError: null, blockedAudio: null, retryArmed: false
+  };
+}
+
+function voiceSync() { return state.voice || (state.voice = newVoiceState()); }
+
+/* Prefetchable session: same call, no status line change, safe to fire while the screen renders. */
+function ensureSessionSilent() {
+  const v = voiceSync();
+  if (v.cfg) return Promise.resolve(v.cfg);
+  if (v.sessionPromise) return v.sessionPromise;
+  v.sessionPromise = api.post('/api/voice/session', {}).then(j => {
+    v.cfg = j; v.plan = j.plan || []; v.provider = j.provider; v.mode = j.mode; v.why = j.why;
+    v.sessionPromise = null; render();
+    return j;
+  }).catch(e => { v.sessionPromise = null; v.sessionError = e.message; throw e; });
+  return v.sessionPromise;
+}
+
+/* True once the voice layer is warm, so the screen can promise the AI speaks on agree. */
+function voiceReady() {
+  const v = voiceSync();
+  return !!(v.opening || v.cfg);
+}
+/* Agreeing to the disclaimer is the gesture that starts the call: the screen changes and the AI
+   speaks straight away, picking up the opening line that was prefetched while the notice was read. */
+function beginCall() {
+  state.stage = 'intake';
+  render();
+  startCall();
+}
+
+async function ensureSession() {
+  const v = voiceSync();
+  if (v.cfg) return v.cfg;
+  v.status = 'connecting'; v.error = null; render();
   try {
-    rec = new SR();
-    rec.lang = 'en-PH';
+    const j = await api.post('/api/voice/session', {});
+    v.cfg = j; v.plan = j.plan || []; v.provider = j.provider; v.mode = j.mode; v.why = j.why;
+    v.capture = state.voice.capture;
+    v.status = 'idle';
+    return j;
+  } catch (e) {
+    v.status = 'error'; v.error = e.message; render();
+    throw e;
+  }
+}
+
+/* ---------------- speaking ---------------- */
+function speechMs(text) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(TIMING.minSpeakMs, Math.min(TIMING.maxSpeakMs, Math.round(words * TIMING.speakFactorMs)));
+}
+function playAudio(b64, mime) {
+  return new Promise((resolve, reject) => {
+    let url, a, revoke = false;
+    try {
+      const type = mime || 'audio/mpeg';
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      try {
+        if (window.URL && URL.createObjectURL) { url = URL.createObjectURL(new Blob([bytes], { type: type })); revoke = true; }
+      } catch (e) { url = null; }
+      if (!url) url = 'data:' + type + ';base64,' + b64;   // no createObjectURL (jsdom, some webviews)
+      a = new Audio(url);
+    } catch (e) { return reject(e); }
+    voiceSync().audioEl = a;
+    let settled = false;
+    const finish = ok => {
+      if (settled) return; settled = true;
+      clearTimeout(guard);
+      try { a.pause(); } catch (e) {}
+      try { if (revoke) URL.revokeObjectURL(url); } catch (e) {}
+      ok ? resolve() : reject(new Error('autoplay-blocked'));
+    };
+    const guard = setTimeout(() => finish(true), speechMs(state.voice.lastLine) + 15000);
+    a.onended = () => finish(true);
+    a.onerror = () => reject(new Error('audio-error'));
+    voiceSync().stopSpeakHook = () => finish(true);
+    try {
+      const p = a.play();
+      if (p && typeof p.catch === 'function') p.catch(() => { voiceSync().blockedAudio = { b64: b64, mime: mime || 'audio/mpeg' }; finish(false); });
+    } catch (e) { finish(false); }
+  });
+}
+function speakWithBrowser(text) {
+  return new Promise(resolve => {
+    const sy = window.speechSynthesis;
+    const Utter = window.SpeechSynthesisUtterance;
+    const deadline = speechMs(text);
+    if (!sy || !Utter) { setTimeout(resolve, Math.min(deadline, 1400)); return; } // no browser voice: subtitles carry the line
+    let settled = false;
+    const finish = () => { if (settled) return; settled = true; clearTimeout(guard); resolve(); };
+    const guard = setTimeout(finish, deadline + 4000);
+    const say = () => {
+      if (settled) return;
+      try {
+        const u = new Utter(text);
+        u.lang = (state.voice.cfg && state.voice.cfg.locale) || 'en-PH';
+        u.rate = 1; u.pitch = 1; u.volume = 1;
+        u.onend = finish; u.onerror = finish;
+        voiceSync().stopSpeakHook = finish;
+        sy.speak(u);
+        // Chrome drops the very first utterance while its voice list is still loading: retry once.
+        setTimeout(() => {
+          if (settled) return;
+          const idle = sy.speaking === false && (sy.pending === false || sy.pending === undefined);
+          if (idle) { try { sy.cancel(); sy.speak(new Utter(text)); } catch (e) { finish(); } }
+        }, 1000);
+      } catch (e) { finish(); }
+    };
+    try {
+      if (!sy.getVoices || sy.getVoices().length) return say();
+      let done = false;
+      const t = setTimeout(() => { if (!done) { done = true; say(); } }, 700);   // voices never arrived: speak anyway
+      sy.onvoiceschanged = () => { if (!done) { done = true; clearTimeout(t); say(); } };
+    } catch (e) { say(); }
+  });
+}
+async function speakLine(res) {
+  const v = voiceSync();
+  if (v.muted) return;
+  v.status = 'speaking'; v.speaking = true; render();
+  try {
+    if (res.audio_base64) await playAudio(res.audio_base64, res.audio_mime);
+    else await speakWithBrowser(res.say);
+  } catch (e) {
+    v.notice = 'Your browser held the sound back until the page is touched. Tap anywhere (or Play the line) and the AI speaks.';
+    armAudioRetry();
+  }
+  v.speaking = false;
+}
+/* Browsers may refuse audio that arrives after an async round trip. The opening line is played
+   inside the click that starts the call, so this only matters for later turns: any tap releases it. */
+function armAudioRetry() {
+  const v = voiceSync();
+  if (v.retryArmed) return;
+  v.retryArmed = true;
+  const retry = e => {
+    v.retryArmed = false;
+    const pending = v.blockedAudio;
+    if (!pending) return;
+    if (e && e.target && e.target.id === 'repeat-btn') return;   // that button plays it itself
+    v.blockedAudio = null; v.notice = null;
+    playAudio(pending.b64, pending.mime)
+      .then(() => { v.status = v.done ? 'complete' : 'ready'; render(); })
+      .catch(() => { v.notice = 'Still blocked. Press Play the line.'; render(); });
+  };
+  try { document.addEventListener('click', retry, { once: true }); } catch (e) {}
+}
+function stopSpeaking() {
+  const v = voiceSync();
+  try { if (v.audioEl) { v.audioEl.pause(); v.audioEl = null; } } catch (e) {}
+  try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+  try { if (v.stopSpeakHook) v.stopSpeakHook(); } catch (e) {}
+  v.stopSpeakHook = null;
+  v.speaking = false;
+}
+function stopListening() {
+  const v = voiceSync();
+  try { if (v.rec) v.rec.stop(); } catch (e) {}
+  try { if (v.stopListening) v.stopListening(); } catch (e) {}
+  v.listening = false;
+}
+
+/* ---------------- listening ---------------- */
+function pickEngine() {
+  const pref = (state.voice.cfg && state.voice.cfg.stt_preference) || 'auto';
+  const hasBrowser = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  const hasRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  if (pref === 'browser') return hasBrowser ? 'browser' : (hasRecorder ? 'openai' : null);
+  if (pref === 'openai') return hasRecorder ? 'openai' : (hasBrowser ? 'browser' : null);
+  return hasBrowser ? 'browser' : (hasRecorder ? 'openai' : null);
+}
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    try {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+      fr.onerror = () => reject(new Error('Could not read the recording.'));
+      fr.readAsDataURL(blob);
+    } catch (e) { reject(e); }
+  });
+}
+function listenBrowser() {
+  return new Promise((resolve, reject) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec;
+    try { rec = new SR(); } catch (e) { return reject(e); }
+    const v = voiceSync();
+    v.rec = rec;
+    rec.lang = (v.cfg && v.cfg.locale) || 'en-PH';
     rec.interimResults = true;
     rec.continuous = true;
+    rec.maxAlternatives = 1;
+    let finalText = '', silenceTimer = null, hardTimer = null, settled = false;
+    const clear = () => { clearTimeout(silenceTimer); clearTimeout(hardTimer); };
+    const done = txt => { if (settled) return; settled = true; clear(); v.listening = false; try { rec.stop(); } catch (e) {} resolve(String(txt || '').trim()); };
+    const arm = ms => { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => done(finalText), ms); };
     rec.onresult = e => {
-      let t = '';
-      for (const r of e.results) t += r[0].transcript;
-      const inp = $('#intake-input');
-      if (inp) {
-        inp.value = t.slice(0, MAX_CHARS);
-        inp.dispatchEvent(new Event('input'));
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) finalText += r[0].transcript + ' ';
+        else interim += r[0].transcript;
       }
+      v.interim = (finalText + ' ' + interim).replace(/\s+/g, ' ').trim();
+      updateLiveLine();
+      arm(TIMING.silenceMs);
     };
-    rec.onend = () => { recActive = false; updateMicUI(); };
-    rec.onerror = () => { recActive = false; updateMicUI(); };
-    rec.start();
-    recActive = true;
-  } catch (e) {
-    recActive = false;
-    toast('Could not start the microphone. You can type instead.', true);
-  }
-  updateMicUI();
+    rec.onerror = ev => {
+      const code = ev && ev.error;
+      if (code === 'not-allowed' || code === 'service-not-allowed') {
+        v.micBlocked = true; v.listening = false; clear();
+        settled = true; return reject(new Error('mic-blocked'));
+      }
+      if (code === 'no-speech' && !finalText) { done(''); return; }
+      done(finalText);
+    };
+    rec.onend = () => { if (!settled) done(finalText); };
+    try { rec.start(); } catch (e) { return reject(e); }
+    v.listening = true;
+    arm(TIMING.noSpeechMs);
+    hardTimer = setTimeout(() => done(finalText), TIMING.maxListenMs);
+  });
 }
-function updateMicUI() {
-  const b = $('#mic-btn');
-  if (b) {
-    b.className = 'icon-btn' + (recActive ? ' listening' : '');
-    b.setAttribute('aria-pressed', recActive ? 'true' : 'false');
-    b.setAttribute('aria-label', recActive ? 'Stop voice input' : 'Start voice input');
+function listenOpenAI() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      return reject(new Error('mic-blocked'));
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      const v = voiceSync();
+      const chunks = [];
+      let rec, ctx = null, raf = null, stopped = false, heard = false;
+      const startedAt = Date.now();
+      let lastLoud = Date.now();
+      const finish = async () => {
+        if (stopped) return; stopped = true;
+        try { if (raf && window.cancelAnimationFrame) window.cancelAnimationFrame(raf); } catch (e) {}
+        try { if (ctx) ctx.close(); } catch (e) {}
+        try { rec.stop(); } catch (e) {}
+        try { stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+        const blob = new Blob(chunks, { type: (rec && rec.mimeType) || 'audio/webm' });
+        v.listening = false;
+        if (!blob.size) return resolve('');
+        v.status = 'thinking'; render();
+        try {
+          const b64 = await blobToBase64(blob);
+          const j = await api.post('/api/voice/transcribe', { audio_base64: b64, mime: blob.type || 'audio/webm' });
+          if (!j.text) throw new Error('The transcription came back empty. Try again, or type instead.');
+          resolve(String(j.text).trim());
+        } catch (e) { reject(e); }
+      };
+      try {
+        rec = new MediaRecorder(stream);
+        rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+        rec.onstop = () => {};
+        rec.start();
+        v.rec = rec;
+        v.stopListening = finish;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) {
+          ctx = new AC();
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 1024;
+          ctx.createMediaStreamSource(stream).connect(analyser);
+          const buf = new Uint8Array(analyser.fftSize);
+          const tick = () => {
+            if (stopped) return;
+            try { analyser.getByteTimeDomainData(buf); } catch (e) {}
+            let peak = 0;
+            for (let i = 0; i < buf.length; i++) { const d = Math.abs(buf[i] - 128) / 128; if (d > peak) peak = d; }
+            if (peak > TIMING.levelThreshold) { heard = true; lastLoud = Date.now(); }
+            if (heard && Date.now() - lastLoud > TIMING.silenceMs) return finish();
+            if (!heard && Date.now() - startedAt > TIMING.noSpeechMs) return finish();
+            if (Date.now() - startedAt > TIMING.maxListenMs) return finish();
+            raf = window.requestAnimationFrame ? window.requestAnimationFrame(tick) : setTimeout(tick, 120);
+          };
+          tick();
+        } else {
+          setTimeout(finish, TIMING.maxListenMs);
+        }
+      } catch (e) { try { stream.getTracks().forEach(t => t.stop()); } catch (e2) {} reject(e); }
+    }).catch(e => {
+      voiceSync().micBlocked = true;
+      reject(new Error(e && e.name === 'NotAllowedError' ? 'mic-blocked' : 'mic-blocked'));
+    });
+  });
+}
+async function listenForAnswer() {
+  const v = voiceSync();
+  const engine = pickEngine();
+  v.engine = engine;
+  if (!engine) {
+    v.micBlocked = true;
+    v.typed = true;
+    v.notice = 'No microphone is available in this browser, so typing is on. Type your answers below, or open the site in a browser with a microphone for the voice call.';
+    v.status = 'ready'; render();
+    return;
   }
+  v.status = 'listening'; v.interim = ''; v.notice = null; v.error = null;
+  render();
+  let text = '';
+  try {
+    text = engine === 'browser' ? await listenBrowser() : await listenOpenAI();
+  } catch (e) {
+    v.listening = false;
+    if (e && e.message === 'mic-blocked') {
+      v.micBlocked = true; v.status = 'ready';
+      v.notice = 'The microphone is blocked here (browsers block it inside preview iframes). Open the site in its own tab for the voice call, or tap "Type instead" and type your answers.';
+      v.typed = true;
+      render();
+      return;
+    }
+    v.status = 'ready'; v.error = e.message || 'Microphone error.'; render();
+    return;
+  }
+  v.interim = '';
+  const heard = String(text || '').trim();
+  if (!heard) {
+    v.status = 'ready';
+    v.notice = 'I did not catch that. Tap the microphone to try again, or type instead.';
+    render();
+    return;
+  }
+  v.lastHeard = heard;
+  await voiceTurn(heard);
+}
+
+/* ---------------- one turn of the call ---------------- */
+function answerIdFor() {
+  const v = voiceSync();
+  if (v.currentQuestionId) return v.currentQuestionId;      // the question the AI just asked
+  const next = v.plan.find(q => !v.asked.includes(q.id));  // before the first turn
+  return next ? next.id : null;
+}
+/* A probe answer is added to the original answer rather than replacing it, so the transcript
+   keeps everything the client said about that question and Function A sees both parts. */
+function recordAnswer(id, text, replace) {
+  if (!id) return;
+  text = String(text == null ? '' : text).slice(0, MAX_CHARS);   // same ceiling the server enforces
+  const prev = state.answers.find(a => a.id === id);
+  if (!prev) { state.answers.push({ id, text: text }); return; }
+  if (replace) prev.text = text;
+  else prev.text = (String(prev.text || '').trim() + ' ' + String(text || '').trim()).trim();
+}
+function buildTurnBody(lastAnswer) {
+  const v = voiceSync();
+  return {
+    call_id: v.callId, call_ticket: v.callTicket,
+    transcript: v.transcript.slice(-20).map(t => ({ role: t.role, text: t.text })),
+    answers: state.answers, asked: v.asked, probes: v.probes, skipped: v.skipped,
+    voice_captures: v.captures, last_answer: lastAnswer || null,
+    with_audio: !v.muted, client_name: (state.user && state.user.name) || ''
+  };
+}
+/* Everything a turn changes about the call, applied synchronously, so a prefetched opening line can
+   be played inside the click that starts the call (browsers only allow sound from that gesture). */
+function applyTurn(res) {
+  const v = voiceSync();
+  v.callTicket = res.call_ticket; v.turns = res.turn; v.capture = res.capture;
+  v.warnings = res.warnings || [];
+  v.provider = res.provider; v.mode = res.mode;
+  if (Array.isArray(res.voice_captures)) v.captures = res.voice_captures;
+  if (res.ask && res.ask.id) {
+    if (res.ask.kind === 'probe' || res.ask.kind === 'callback') v.probes[res.ask.id] = (v.probes[res.ask.id] || 0) + 1;
+    if (!v.asked.includes(res.ask.id)) v.asked.push(res.ask.id);
+    v.currentQuestionId = res.ask.id;
+  } else {
+    v.currentQuestionId = null;
+  }
+  v.done = !!res.done;
+  v.lastLine = res.say;
+  if (v.done) v.endedAt = new Date().toISOString();
+  v.transcript.push({ role: 'ai', text: res.say, questionId: res.ask && res.ask.id ? res.ask.id : null });
+  render();
+}
+async function afterTurn(res) {
+  const v = voiceSync();
+  await speakLine(res);
+  if (v.done) { v.status = 'complete'; render(); return; }
+  if (v.listening) return;   // the user already tapped the microphone
+  if (v.handsFree && !v.typed && !v.micBlocked) await listenForAnswer();
+  else { v.status = 'ready'; render(); }
+}
+async function voiceTurn(userText) {
+  const v = voiceSync();
+  if (userText != null) {
+    const id = answerIdFor();
+    recordAnswer(id, userText, false);
+    v.transcript.push({ role: 'user', text: userText, questionId: id });
+  }
+  v.status = 'thinking'; v.interim = ''; v.error = null; v.notice = null;
+  render();
+  let res;
+  try {
+    res = await api.post('/api/voice/turn', buildTurnBody(userText || null));
+  } catch (e) {
+    v.status = 'error'; v.error = e.message; render();
+    return;
+  }
+  applyTurn(res);
+  await afterTurn(res);
+}
+/* The opening line is fetched while the client is still reading the call screen, so pressing start
+   speaks immediately instead of waiting for a round trip. */
+async function prefetchOpening() {
+  const v = voiceSync();
+  if (v.startedAt || v.opening || v.prefetching || v.prefetchTried) return;
+  v.prefetching = true; v.prefetchTried = true;
+  try {
+    await ensureSessionSilent();
+    v.prefetchPromise = api.post('/api/voice/turn', buildTurnBody(null));
+    v.opening = await v.prefetchPromise;
+  } catch (e) {
+    v.sessionError = e.message;   // the click handler retries and shows the error
+  } finally {
+    v.prefetching = false; v.prefetchPromise = null; render();
+  }
+}
+async function startCall() {
+  const v = voiceSync();
+  v.error = null;
+  if (!v.startedAt) v.startedAt = new Date().toISOString();
+  const run = res => { applyTurn(res); afterTurn(res); };
+  // Fast path: the opening turn is already in hand, so the AI starts speaking inside this click.
+  if (v.opening) { const res = v.opening; v.opening = null; run(res); return; }
+  if (v.prefetchPromise) {
+    const res = await v.prefetchPromise.catch(() => null);
+    if (res) { v.startedAt = v.startedAt || new Date().toISOString(); run(res); return; }
+  }
+  try { await ensureSession(); } catch (e) { return; }
+  render();
+  await voiceTurn(null);
+}
+function repeatLine() {
+  const v = voiceSync();
+  if (!v.lastLine) return;
+  v.status = 'speaking'; render();
+  api.post('/api/voice/speak', { text: v.lastLine }).then(j => {
+    if (j.audio_base64) return playAudio(j.audio_base64, j.audio_mime).then(() => false).catch(() => true);
+    return speakWithBrowser(v.lastLine).then(() => true);
+  }).then(() => { v.status = v.done ? 'complete' : 'ready'; render(); })
+    .catch(() => { speakWithBrowser(v.lastLine).then(() => { v.status = v.done ? 'complete' : 'ready'; render(); }); });
+}
+function skipQuestion() {
+  const v = voiceSync();
+  stopSpeaking(); stopListening();
+  const id = v.currentQuestionId;
+  if (id) {
+    if (!v.asked.includes(id)) v.asked.push(id);
+    if (!v.skipped.includes(id)) v.skipped.push(id);
+    recordAnswer(id, '', true);
+    v.transcript.push({ role: 'user', text: '(skipped)', questionId: id });
+  }
+  voiceTurn(null);
+}
+function finishCall() {
+  stopSpeaking(); stopListening();
+  voiceSync().endedAt = new Date().toISOString();
+  startExtraction();
 }
 
 /* ---------------- rendering ---------------- */
@@ -209,7 +683,7 @@ function render() {
   let h = topbar() + '<main class=\"main\" id=\"main-content\" tabindex=\"-1\">' + steps();
   switch (state.stage) {
     case 'consent': h += consentView(); break;
-    case 'intake': h += intakeView(); break;
+    case 'intake': h += callView(); break;
     case 'extracting': h += loaderView('extracting'); break;
     case 'review': h += reviewView(); break;
     case 'generating': h += loaderView('generating'); break;
@@ -219,11 +693,7 @@ function render() {
   }
   h += '</main>' + footer();
   app.innerHTML = h;
-  if (state.stage === 'intake') {
-    const body = $('#chat-body');
-    if (body) body.scrollTop = body.scrollHeight;
-    updateMicUI();
-  }
+  if (state.stage === 'intake') afterCallRender();
 }
 
 function topbar() {
@@ -246,7 +716,7 @@ function steps() {
   return h + '</div>';
 }
 function footer() {
-  return '<div class=\"footer\"><span>Prototype build v0.2 (hardened)</span><span>AI, PDF, and CRM steps are simulated locally; in production these are Netlify functions calling OpenAI, Claude, and HubSpot, with Supabase for auth and data.</span><span>All keys live server-side, never in the browser.</span><a href=\"/dev/outbox\" target=\"_blank\" rel=\"noopener\">HubSpot outbox (dev)</a></div>';
+  return '<div class="footer"><span>Prototype build v0.2 (hardened + voice)</span><span>The discovery call runs on the real OpenAI voice layer (ChatGPT wording, OpenAI speech and transcription) when OPENAI_API_KEY is set; extraction, PDF, and CRM steps are still simulated locally, with Supabase for auth and data in production.</span><span>All keys live server-side, never in the browser.</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></div>';
 }
 
 /* ---------------- login ---------------- */
@@ -298,149 +768,296 @@ function bindLogin() {
 function consentView() {
   return '<div class=\"card consent-card\">' +
     '<h2>Before we record anything</h2>' +
-    '<p class=\"sub\">The brief requires a disclaimer and privacy notice before data collection. Please read both.</p>' +
-    '<div class=\"notice\"><h4>AI disclaimer</h4><p>This product uses AI. Your spoken and written answers are processed by AI models (in production: OpenAI for the voice layer, Claude for extraction and drafting). AI output can contain errors. A human reviews every blueprint before it is used in a build. Nothing in your blueprint is legal, financial, or professional advice.</p></div>' +
-    '<div class=\"notice\"><h4>Privacy notice</h4><p>Your answers are stored in our database (Supabase) so we can build your blueprint, and a summary is sent to our CRM (HubSpot) so the right person can follow up. We do not sell your data. Voice audio is transcribed and not retained beyond the transcript. You can request deletion at any time by emailing privacy@pipelinesync.ai.</p></div>' +
-    '<label class=\"checkline\"><input type=\"checkbox\" id=\"consent-cb\"> I understand how my data is used, and I agree to continue.</label>' +
-    '<div class=\"btn-row\"><button class=\"btn btn-primary\" id=\"consent-go\" disabled>Start the discovery call</button></div>' +
+    '<p class="sub">The brief requires a disclaimer and privacy notice before data collection. Please read both.</p>' +
+    '<div class="notice"><h4>AI disclaimer</h4><p>This product uses AI. Your spoken and written answers are processed by AI models: OpenAI for the voice call (it words each question, speaks it, and transcribes your answers), and Claude for extraction and drafting in production. AI output can contain errors. A human reviews every blueprint before it is used in a build. Nothing in your blueprint is legal, financial, or professional advice.</p></div>' +
+    '<div class="notice"><h4>Privacy notice</h4><p>Your answers are stored in our database (Supabase) so we can build your blueprint, and a summary is sent to our CRM (HubSpot) so the right person can follow up. We do not sell your data. Voice audio is transcribed and not retained beyond the transcript. You can request deletion at any time by emailing privacy@pipelinesync.ai.</p></div>' +
+    '<label class="checkline"><input type="checkbox" id="consent-cb"> I understand how my data is used, and I agree to continue.</label>' +
+    '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
+    '<p class="small muted mt8" id="consent-note">The AI interviewer starts speaking as soon as you agree, then it listens while you answer out loud.</p>' +
     '</div>';
 }
 
-/* ---------------- intake ---------------- */
-function intakeView() {
-  let chat = '';
-  state.answers.forEach(a => {
-    const q = QUESTIONS.find(x => x.id === a.id);
-    chat += '<div class=\"bubble ai\">' + esc(q ? q.q : '') + '</div>';
-    chat += '<div class=\"bubble user\">' + (a.text ? esc(a.text) : '<span style=\"opacity:.65\">(skipped, you can add it in the review step)</span>') + '</div>';
-  });
-  if (state.qIndex < QUESTIONS.length) {
-    const q = QUESTIONS[state.qIndex];
-    chat += '<div class=\"bubble ai\">' + esc(q.q) + '<span class=\"hint\">' + esc(q.hint) + '</span></div>';
-  } else {
-    chat += '<div class=\"bubble ai\">That is everything I need. Sit tight while I structure your answers, and you will get a chance to correct anything I got wrong.</div>';
+/* ---------------- the discovery call (voice first, transcript behind a link) ---------------- */
+function fmtCaptured(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Array.isArray(v)) {
+    if (!v.length) return '';
+    if (typeof v[0] === 'object') return v.length + (v.length === 1 ? ' item' : ' items');
+    return v.join(', ');
   }
-  const done = state.qIndex >= QUESTIONS.length;
-  const chips = Object.keys(FIELD_LABELS).map(k => {
-    const st = state.fieldStatus[k] || 'pending';
-    return '<div class=\"side-chip ' + st + '\"><span>' + FIELD_LABELS[k] + '</span><span class=\"dot\" aria-hidden=\"true\"></span></div>';
-  }).join('');
-  const personaOpts = Object.keys(PERSONAS).map(k => '<option value=\"' + k + '\">' + PERSONAS[k].label + '</option>').join('');
-  const err = state.fieldError ? '<div class=\"small\" style=\"color:var(--red);margin-top:8px\" role=\"alert\">' + esc(state.fieldError) + '</div>' : '';
-  return '<div class=\"intake-wrap\"><div class=\"chat\" role=\"log\" aria-live=\"polite\">' +
-    '<div class=\"chat-head\"><div class=\"who\"><div class=\"avatar\" aria-hidden=\"true\">AI</div>AI discovery call</div>' +
-    '<div class=\"progress\" aria-live=\"polite\">Question ' + Math.min(state.qIndex + 1, QUESTIONS.length) + ' of ' + QUESTIONS.length + '</div></div>' +
-    '<div class=\"progressbar\" role=\"progressbar\" aria-valuenow=\"' + Math.round((state.answers.length / QUESTIONS.length) * 100) + '\" aria-valuemin=\"0\" aria-valuemax=\"100\"><div style=\"width:' + Math.round((state.answers.length / QUESTIONS.length) * 100) + '%\"></div></div>' +
-    '<div class=\"chat-body\" id=\"chat-body\">' + chat + '</div>' +
-    (done
-      ? '<div class=\"chat-input\"><button class=\"btn btn-primary\" id=\"structure-btn\" style=\"flex:1\" aria-label=\"Structure my answers and continue\">Structure my answers</button></div>'
-      : '<div class=\"chat-input\"><textarea id=\"intake-input\" placeholder=\"Type your answer, or tap the mic and speak...\" rows=\"1\" maxlength=\"' + MAX_CHARS + '\" aria-label=\"Your answer\"></textarea>' +
-        '<div class=\"char-counter\" id=\"char-counter\" aria-live=\"polite\" style=\"font-size:11px;color:var(--faint);align-self:center;min-width:60px;text-align:right\">0/' + MAX_CHARS + '</div>' +
-        '<button class=\"icon-btn\" id=\"mic-btn\" title=\"Speak your answer\" aria-label=\"Start voice input\" aria-pressed=\"false\">&#127908;</button>' +
-        '<button class=\"btn btn-primary\" id=\"send-btn\" aria-label=\"Send answer\">Send</button>' +
-        '<button class=\"btn btn-ghost\" id=\"skip-btn\" title=\"Answer this later; the review screen will prompt for it\">Skip</button></div>') +
-    '</div>' +
-    '<div>' +
-    '<div class=\"side-card\"><h3>What we have captured</h3><div class=\"chip-col\">' + chips + '</div>' + err +
-    '<div class=\"persona\"><label for=\"persona-sel\">QA shortcut: load a demo business</label>' +
-    '<select id=\"persona-sel\" aria-label=\"Choose demo business\"><option value=\"\">Choose a vertical...</option>' + personaOpts + '</select>' +
-    '<button class=\"btn btn-ghost btn-sm\" id=\"persona-go\" style=\"width:100%\">Load demo answers</button>' +
-    '<p class=\"hint\" style=\"font-size:11.5px;color:var(--faint);margin-top:8px\">Runs the four verticals from the QA checklist without a microphone.</p></div></div>' +
-    '</div></div>';
+  return String(v);
 }
-const debouncedRefresh = debounce(async () => {
+function providerBadge() {
+  const v = voiceSync();
+  const openai = v.mode === 'openai';
+  return '<span class="badge-mode ' + (openai ? 'openai' : 'simulated') + '">' +
+    (openai ? 'ChatGPT voice' : 'Simulated voice') + '</span>';
+}
+function callView() {
+  const v = voiceSync();
+  const plan = v.plan || [];
+  const total = plan.length || 12;
+  const answered = state.answers.filter(a => String(a.text || '').trim()).length;
+  const pct = Math.round((Math.min(answered, total) / total) * 100);
+  const started = !!v.startedAt || v.transcript.length > 0;
+  const statusText = VOICE_STATUS_TEXT[v.status] || VOICE_STATUS_TEXT.idle;
+  const aiLine = v.lastLine || 'Alex, the PipelineSync AI interviewer, will call you. Twelve short questions about your business, all answered out loud. The AI speaks first, waits while you talk, then moves on.';
+  const youLine = v.interim || v.lastHeard || '';
+
+  let h = '<div class="intake-wrap"><div class="call">' +
+    '<div class="call-head"><div class="who"><div class="avatar">AI</div><div><b>AI discovery call</b><span class="small muted" id="call-mode">' +
+      (v.cfg ? (v.mode === 'openai' ? 'ChatGPT voice, ' + esc(v.cfg.models.tts) : 'simulated voice (no API key)') : 'connecting...') + '</span></div></div>' +
+      '<div class="progress" id="call-progress">' + (started ? 'Question ' + Math.min(answered + 1, total) + ' of ' + total : 'Not started') + '</div></div>' +
+    '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
+    '<div class="call-body">' +
+      '<div class="orb ' + esc(v.status) + (v.listening ? ' live' : '') + '" id="orb" role="img" aria-label="Call state: ' + esc(v.status) + '"><div class="rings"></div>' +
+        '<svg width="34" height="34" viewBox="0 0 32 32"><path d="M10 21.5c1.2-4 3.4-6.8 6-7.5m6-3.5c-1.2 4-3.4 6.8-6 7.5" stroke="white" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M22 6.5l.4 3.4-3.3.7M10 25.5l-.4-3.4 3.3-.7" stroke="white" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+      '<div class="call-status" id="call-status" role="status" aria-live="polite">' + esc(statusText) + '</div>' +
+      '<div class="line ai" id="ai-line" aria-live="polite">' + esc(aiLine) + '</div>' +
+      (youLine ? '<div class="line you" id="you-line">' + esc(youLine) + '</div>' : '<div class="line you empty" id="you-line">Your answer appears here as you speak.</div>') +
+      (v.notice ? '<div class="call-note">' + esc(v.notice) + '</div>' : '') +
+      (v.error ? '<div class="call-note err">' + esc(v.error) + ' <button class="btn btn-ghost btn-sm" id="retry-turn">Retry</button></div>' : '') +
+    '</div>' +
+    '<div class="call-controls" id="call-controls">' + callControls(started, total) + '</div>' +
+    '</div>' + callSidebar() + '</div>';
+  return h;
+}
+function callControls(started, total) {
+  const v = voiceSync();
+  if (!started) {
+    const ready = !!v.opening;
+    return '<div class="call-row"><button class="btn btn-primary btn-lg" id="start-call">&#9654; Start the discovery call (voice)</button>' +
+      '<button class="btn btn-ghost" id="type-btn-pre">Type my answers instead</button></div>' +
+      '<p class="small mt8" style="color:' + (ready ? 'var(--green)' : 'var(--muted)') + '">' +
+      (ready
+        ? 'Ready. The AI speaks the first question out loud the instant you press start.'
+        : (v.prefetching || v.sessionPromise ? 'Preparing the AI voice...' : 'The AI speaks every question out loud and listens for your answer. Your microphone is used only during the call; audio is transcribed and not stored.')) + '</p>';
+  }
+  let h = '<div class="call-row">';
+  h += '<button class="btn ' + (v.listening ? 'btn-dark' : 'btn-primary') + '" id="mic-btn" aria-pressed="' + (v.listening ? 'true' : 'false') + '"' +
+    ' aria-label="' + (v.listening ? 'Stop listening and send the answer' : 'Start listening to your answer') + '"' +
+    (v.status === 'thinking' || v.done ? ' disabled' : '') + '>' +
+    (v.listening ? '&#9632; Stop and send' : '&#127908; Tap to answer') + '</button>';
+  if (v.speaking) h += '<button class="btn btn-ghost" id="stop-speak">Skip the speech</button>';
+  h += '<button class="btn ' + (v.blockedAudio ? 'btn-primary' : 'btn-ghost') + '" id="repeat-btn">' + (v.blockedAudio ? '&#9654; Play the line' : 'Hear that again') + '</button>';
+  h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
+  h += '<button class="btn btn-ghost" id="mute-btn" aria-pressed="' + (v.muted ? 'true' : 'false') + '">' + (v.muted ? 'Unmute the AI voice' : 'Mute the AI voice') + '</button>';
+  if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip this question</button>';
+  h += '</div>';
+  if (v.done) {
+    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Structure my answers</button>' +
+      '<span class="small muted">' + total + ' questions covered. You can correct anything on the next screen.</span></div>';
+  } else if (v.asked.length >= 4) {
+    h += '<div class="call-row"><button class="btn btn-ghost" id="finish-btn">Finish the call and review what we have</button></div>';
+  }
+  if (v.typed) {
+    h += '<div class="chat-input"><textarea id="intake-input" rows="1" placeholder="Type your answer..."></textarea>' +
+      '<button class="icon-btn" id="mic-back-btn" title="Answer out loud again">&#127908;</button>' +
+      '<button class="btn btn-primary" id="send-btn">Send</button></div>';
+  }
+  return h;
+}
+function callSidebar() {
+  const v = voiceSync();
+  const labels = (v.cfg && v.cfg.field_labels) || FIELD_LABELS;
+  const status = (v.capture && v.capture.status) || {};
+  const fields = (v.capture && v.capture.fields) || {};
+  const missingReq = (v.capture && v.capture.missingRequired) || (v.startedAt ? REQUIRED : []);
+  const heard = (v.capture && v.capture.heard) || {};
+  const chips = Object.keys(FIELD_LABELS).map(k => {
+    const st = status[k] || 'pending';
+    const val = fmtCaptured(fields[k]);
+    const assist = !val && heard[k] ? ' (heard: ' + fmtCaptured(heard[k].value) + ')' : '';
+    return '<div class="side-chip ' + (st === 'captured' ? 'filled' : 'null') + '"><span>' + esc(labels[k] || FIELD_LABELS[k]) + '</span>' +
+      '<span class="val">' + esc((val || 'not yet') + assist) + '</span></div>';
+  }).join('');
+  const modeCard = '<div class="side-card"><h3>This call</h3>' +
+    '<div class="provider-card">' + providerBadge() + '<span class="small muted">' + (v.mode === 'openai' ? 'OpenAI, server-side' : 'built-in questions, browser voice') + '</span></div>' +
+    '<p class="small muted mt8">' + esc(v.why || 'Checking which voice provider is available...') + '</p>' +
+    (v.cfg ? '<p class="small muted">Speaking: ' + esc(v.cfg.models.tts) + ' voice ' + esc(v.cfg.tts_voice) + '<br>Listening: ' + (v.engine === 'openai' ? 'OpenAI transcription (' + esc(v.cfg.models.stt) + ')' : 'browser microphone') + '<br>Turns so far: ' + v.turns + '<br>Audio is transcribed, never stored.</p>' : '') +
+    (v.warnings && v.warnings.length ? '<p class="small" style="color:var(--amber)">' + esc(v.warnings[v.warnings.length - 1]) + '</p>' : '') +
+    '</div>';
+  const errNote = state.fieldError ? '<p class="small" role="alert" style="color:var(--red);margin-top:8px">' + esc(state.fieldError) + '</p>' : '';
+  const reqCard = missingReq.length
+    ? '<div class="side-card warn"><h3>Needed before the blueprint</h3><p class="small">Still unstated: <b>' + missingReq.map(k => esc(labels[k] || FIELD_LABELS[k])).join(', ') + '</b>. The AI will ask again on the call, and you can add them on the review screen. Nothing is ever invented.</p></div>'
+    : '<div class="side-card ok"><h3>Required numbers captured</h3><p class="small">Deal size, monthly lead volume and close rate are all captured, so the blueprint can be grounded in your own figures.</p></div>';
+  const personaOpts = Object.keys(PERSONAS).map(k => '<option value="' + k + '">' + PERSONAS[k].label + '</option>').join('');
+  const personaCard = '<div class="side-card"><h3>QA shortcut</h3>' +
+    '<label class="small muted" for="persona-sel">Load a demo business without a call (Section 9 checklist)</label>' +
+    '<select id="persona-sel"><option value="">Choose a vertical...</option>' + personaOpts + '</select>' +
+    '<button class="btn btn-ghost btn-sm" id="persona-go" style="width:100%;margin-top:8px">Load demo answers</button>' +
+    '<p class="small muted mt8">Typed demo answers for the four verticals (solar, medical, home services, e-commerce). Use these to check the blueprint quality checks.</p></div>';
+  const bubbles = v.transcript.map(t => '<div class="bubble ' + (t.role === 'ai' ? 'ai' : 'user') + '">' + esc(t.text) + '</div>').join('');
+  const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
+    '<p class="small muted">The call is spoken. This is the written record the AI will structure.</p>' +
+    '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
+    '<div class="chat-body" id="chat-body">' + (bubbles || '<p class="small muted">Nothing yet.</p>') + '</div></details></div>';
+  return '<div>' + modeCard + '<div class="side-card"><h3>What we have captured</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + personaCard + '</div>';
+}
+function updateLiveLine() {
+  const v = voiceSync();
+  const el = $('#you-line');
+  if (!el) return;
+  const txt = v.interim || v.lastHeard || '';
+  el.textContent = txt || 'Your answer appears here as you speak.';
+  el.className = 'line you' + (txt ? '' : ' empty');
+}
+function bindCall() {
+  const v = voiceSync();
+  const start = $('#start-call');
+  if (start) start.onclick = () => startCall();
+  const preType = $('#type-btn-pre');
+  if (preType) preType.onclick = () => { v.typed = true; v.startedAt = v.startedAt || new Date().toISOString(); render(); };
+  const mic = $('#mic-btn');
+  if (mic) mic.onclick = () => {
+    if (v.listening) { stopListening(); return; }
+    if (v.status === 'speaking') stopSpeaking();
+    listNow();
+  };
+  const micBack = $('#mic-back-btn');
+  if (micBack) micBack.onclick = () => { stopListening(); v.typed = false; render(); listNow(); };
+  const stopSpeak = $('#stop-speak');
+  if (stopSpeak) stopSpeak.onclick = () => { stopSpeaking(); v.status = v.done ? 'complete' : 'ready'; render(); };
+  const rep = $('#repeat-btn');
+  if (rep) rep.onclick = () => repeatLine();
+  const typ = $('#type-btn');
+  if (typ) typ.onclick = () => {
+    stopListening();
+    v.typed = true; v.status = 'ready'; render();
+    const i = $('#intake-input'); if (i) i.focus();
+  };
+  const mute = $('#mute-btn');
+  if (mute) mute.onclick = () => { v.muted = !v.muted; if (v.muted) stopSpeaking(); render(); };
+  const skip = $('#skip-btn');
+  if (skip) skip.onclick = () => skipQuestion();
+  const fin = $('#finish-btn');
+  if (fin) fin.onclick = () => finishCall();
+  const st = $('#structure-btn');
+  if (st) st.onclick = () => finishCall();
+  const retry = $('#retry-turn');
+  if (retry) retry.onclick = () => voiceTurn(null);
+  const send = () => {
+    const inp = $('#intake-input');
+    const t = (inp ? inp.value : '').trim();
+    if (!t) return;
+    if (inp) inp.value = '';
+    voiceTurn(t);
+  };
+  const sb = $('#send-btn');
+  if (sb) sb.onclick = send;
+  const inp = $('#intake-input');
+  if (inp) {
+    inp.focus();
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+    inp.addEventListener('input', () => { inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 120) + 'px'; });
+  }
+  const pg = $('#persona-go');
+  if (pg) pg.onclick = async () => {
+    const sel = $('#persona-sel');
+    const key = sel ? sel.value : '';
+    if (!key) { toast('Pick a demo business first.', true); return; }
+    try { await ensureSession(); } catch (e) { return; }
+    const p = PERSONAS[key];
+    const plan = voiceSync().plan;
+    state.answers = plan.map(q => ({ id: q.id, text: p.answers[q.id] || '' }));
+    const vs = voiceSync();
+    vs.asked = plan.map(q => q.id);
+    vs.done = true;
+    vs.startedAt = vs.startedAt || new Date().toISOString();
+    vs.endedAt = new Date().toISOString();
+    vs.status = 'complete';
+    vs.transcript = [];
+    plan.forEach(q => {
+      vs.transcript.push({ role: 'ai', text: q.ask, questionId: q.id });
+      vs.transcript.push({ role: 'user', text: p.answers[q.id] || '(skipped)', questionId: q.id });
+    });
+    vs.lastLine = 'Demo answers loaded for ' + p.label + '. Nothing was asked out loud in this run.';
+    state.showTranscript = true;
+    toast('Loaded demo answers for ' + p.label + '. Review below.');
+    render();
+    refreshFieldStatus();
+  };
+  const tw = $('#transcript-wrap');
+  if (tw) tw.addEventListener('toggle', () => { state.showTranscript = tw.open; });
+}
+function listNow() {
+  const v = voiceSync();
+  if (v.done) { toast('The call is finished. Structure your answers when you are ready.'); return; }
+  if (v.status === 'thinking') { toast('Wait for the AI to finish thinking.'); return; }
+  v.interim = '';
+  updateLiveLine();
+  listenForAnswer();
+}
+function afterCallRender() {
+  const v = state.voice;
+  if (!v) return;
+  const body = $('#chat-body');
+  if (body) body.scrollTop = body.scrollHeight;
+  updateLiveLine();
+  // Warm the session and the opening line while the client reads the screen, so the AI can speak
+  // inside the click that starts the call.
+  if (state.stage === 'intake' && !v.startedAt && !v.opening && !v.prefetching && !v.prefetchTried) prefetchOpening();
+}
+
+/* ---------------- capture status and hand-off to Function A ---------------- */
+async function refreshFieldStatus() {
+  const v = voiceSync();
   if (!state.answers.length) return;
   try {
     const j = await api.post('/api/extract', { answers: state.answers });
     const f = j.fields;
     const st = {};
     Object.keys(FIELD_LABELS).forEach(k => {
-      const v = f[k];
-      const empty = v === null || (Array.isArray(v) && !v.length) || v === '';
-      st[k] = empty ? 'null' : 'filled';
+      const empty = f[k] === null || f[k] === '' || (Array.isArray(f[k]) && !f[k].length);
+      st[k] = empty ? 'missing' : 'captured';
     });
+    const prevHeard = (v.capture && v.capture.heard) || {};
+    v.capture = {
+      fields: f, status: st, heard: prevHeard,
+      disagreements: Object.keys(prevHeard).filter(k => st[k] === 'missing'),
+      missingRequired: REQUIRED.filter(k => st[k] === 'missing'),
+      filledCount: Object.keys(st).filter(k => st[k] === 'captured').length,
+      totalCount: Object.keys(FIELD_LABELS).length,
+      answeredCount: state.answers.filter(a => String(a.text || '').trim()).length
+    };
     state.fieldStatus = st;
     state.fieldError = null;
-    const chips = document.querySelectorAll('.side-chip');
-    chips.forEach((c, i) => {
-      const k = Object.keys(FIELD_LABELS)[i];
-      if (k && st[k]) c.className = 'side-chip ' + st[k];
-    });
-  } catch (e) {
-    state.fieldError = 'Could not update live preview: ' + e.message;
-    const el = document.querySelector('.side-card');
-    if (el) {
-      let errEl = el.querySelector('[role=\"alert\"]');
-      if (!errEl) {
-        errEl = document.createElement('div');
-        errEl.setAttribute('role', 'alert');
-        errEl.style.cssText = 'font-size:12px;color:var(--red);margin-top:8px';
-        el.querySelector('.chip-col').after(errEl);
-      }
-      errEl.textContent = state.fieldError;
-    }
-  }
-}, 400);
-
-async function refreshFieldStatus() { debouncedRefresh(); }
-
-function sendAnswer(text, skip) {
-  if (state.qIndex >= QUESTIONS.length) return;
-  if (text && text.length > MAX_CHARS) {
-    toast('Answer too long, max ' + MAX_CHARS + ' chars', true);
-    return;
-  }
-  const q = QUESTIONS[state.qIndex];
-  state.answers.push({ id: q.id, text: text || '' });
-  state.qIndex++;
-  render();
-  refreshFieldStatus();
-}
-function bindIntake() {
-  const send = () => {
-    const inp = $('#intake-input');
-    const t = (inp.value || '').trim();
-    if (!t) return;
-    if (recActive) { try { rec.stop(); } catch (e) {} recActive = false; }
-    sendAnswer(t);
-  };
-  const sb = $('#send-btn'); if (sb) sb.onclick = send;
-  const sk = $('#skip-btn'); if (sk) sk.onclick = () => sendAnswer('', true);
-  const mic = $('#mic-btn'); if (mic) mic.onclick = toggleMic;
-  const inp = $('#intake-input');
-  if (inp) {
-    inp.focus();
-    const counter = $('#char-counter');
-    const updateCounter = () => {
-      if (counter) counter.textContent = (inp.value.length) + '/' + MAX_CHARS;
-      inp.style.height = 'auto';
-      inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
-    };
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
-    inp.addEventListener('input', updateCounter);
-    updateCounter();
-  }
-  const stb = $('#structure-btn');
-  if (stb) stb.onclick = () => startExtraction();
-  const pg = $('#persona-go');
-  if (pg) pg.onclick = () => {
-    const sel = $('#persona-sel').value;
-    if (!sel) { toast('Pick a demo business first.', true); return; }
-    const p = PERSONAS[sel];
-    state.answers = QUESTIONS.map(q => ({ id: q.id, text: p.answers[q.id] || '' }));
-    state.qIndex = QUESTIONS.length;
-    toast('Loaded demo answers for ' + p.label + '. Review below.');
     render();
-    refreshFieldStatus();
+  } catch (e) {
+    // Keep the hardening intent: a failed live preview is surfaced, not swallowed.
+    state.fieldError = 'Could not update the live capture list: ' + e.message;
+  }
+}
+function voiceMeta() {
+  const v = state.voice;
+  if (!v || !v.startedAt) return null;
+  const end = v.endedAt ? new Date(v.endedAt) : new Date();
+  const dur = Math.max(0, Math.round((end - new Date(v.startedAt)) / 1000));
+  return {
+    provider: v.provider, mode: v.mode,
+    models: v.cfg ? v.cfg.models : null, tts_voice: v.cfg ? v.cfg.tts_voice : null,
+    language: (v.cfg && v.cfg.language) || null,
+    call_id: v.callId, started_at: v.startedAt, ended_at: v.endedAt,
+    duration_s: dur, turns: v.turns,
+    questions_asked: v.asked, probes: Object.keys(v.probes).length,
+    required_missing_at_call_end: (v.capture && v.capture.missingRequired) || [],
+    transcript_turns: v.transcript.length,
+    audio_retained: false
   };
 }
 async function startExtraction() {
+  const v = state.voice;
+  if (v && v.capture) {
+    console.log('[voice] call finished: provider=' + v.provider + ' mode=' + v.mode + ' turns=' + v.turns +
+      ' captured=' + v.capture.filledCount + '/' + v.capture.totalCount +
+      ' missing_required=' + JSON.stringify(v.capture.missingRequired || []) + ' audio_retained=false');
+  }
   state.stage = 'extracting';
   render();
   const stepsEl = document.querySelectorAll('.lstep');
   const steps = ['Calling Claude (Prompt B) on the transcript', 'Mapping answers to the data contract', 'Flagging unstated values as null'];
   for (let i = 0; i < steps.length; i++) {
-    if (stepsEl[i]) { stepsEl[i].className = 'lstep active'; }
+    if (stepsEl[i]) stepsEl[i].className = 'lstep active';
     await sleep(750);
     if (stepsEl[i]) stepsEl[i].className = 'lstep done';
   }
@@ -474,6 +1091,15 @@ function loaderView(kind) {
 function reviewView() {
   const f = state.fields;
   const isNull = v => v === null || v === '' || (Array.isArray(v) && !v.length);
+  // What the voice model says it heard on the call, used only to help fill gaps the parser missed.
+  const heard = (state.voice && state.voice.capture && state.voice.capture.heard) || {};
+  const heardNote = k => {
+    const h = heard[k];
+    if (!h) return '';
+    return '<div class="heard">The AI heard <b>' + esc(h.value) + '</b> on the call' +
+      (h.evidence ? ' ("' + esc(String(h.evidence).slice(0, 110)) + '")' : '') +
+      '.<button class="btn btn-ghost btn-sm" data-heard="' + k + '">Use this</button></div>';
+  };
   const groupHtml = (title, fields) => {
     let h = '<div class=\"review-group\"><h3>' + esc(title) + '</h3><div class=\"review-grid\">';
     fields.forEach(cfg => {
@@ -512,14 +1138,17 @@ function reviewView() {
         const opts = cfg.options.map(o => '<option value=\"' + o + '\"' + (v === o ? ' selected' : '') + '>' + o + '</option>').join('');
         h += '<div class=\"field' + (nullish ? ' is-null' : '') + full + '\"><label>' + esc(cfg.label) + req + badge + '</label>' +
           '<select data-key=\"' + cfg.k + '\" data-type=\"select\"' + (v == null ? ' data-nullsel=\"1\"' : '') + ' aria-label=\"' + esc(cfg.label) + '\">' + (v == null ? '<option value=\"\" selected>Not stated - please select</option>' : '') + opts + '</select>' +
-          (cfg.k === 'close_type' && nullish ? '<div class=\"small\" style=\"color:var(--amber);margin-top:4px\">Please select how you close - this affects pipeline stages</div>' : '') + '</div>';
+          (cfg.k === 'close_type' && nullish ? '<div class="small" style="color:var(--amber);margin-top:4px">Please select how you close - this affects pipeline stages</div>' : '') +
+          (nullish ? heardNote(cfg.k) : '') + '</div>';
       } else if (cfg.type === 'textarea') {
         h += '<div class=\"field' + (nullish ? ' is-null' : '') + ' review-full\"><label>' + esc(cfg.label) + req + badge + '</label>' +
-          '<textarea data-key=\"' + cfg.k + '\" data-type=\"text\" maxlength=\"2000\">' + esc(v) + '</textarea></div>';
+          '<textarea data-key=\"' + cfg.k + '\" data-type=\"text\" maxlength=\"2000\">' + esc(v) + '</textarea>' +
+          (nullish ? heardNote(cfg.k) : '') + '</div>';
       } else {
         const ph = cfg.type === 'money' ? 'PHP amount' : cfg.type === 'number' ? 'Number' : 'Text';
         h += '<div class=\"field' + (nullish ? ' is-null' : '') + full + '\"><label>' + esc(cfg.label) + req + badge + '</label>' +
-          '<input data-key=\"' + cfg.k + '\" data-type=\"' + (cfg.type === 'money' || cfg.type === 'number' ? 'number' : 'text') + '\" value=\"' + esc(v) + '\" placeholder=\"' + ph + '\" maxlength=\"200\">' + '</div>';
+          '<input data-key=\"' + cfg.k + '\" data-type=\"' + (cfg.type === 'money' || cfg.type === 'number' ? 'number' : 'text') + '\" value=\"' + esc(v) + '\" placeholder=\"' + ph + '\" maxlength=\"200\">' +
+          (nullish ? heardNote(cfg.k) : '') + '</div>';
       }
     });
     return h + '</div></div>';
@@ -557,8 +1186,15 @@ function reviewView() {
       { k: 'six_month_goal', label: 'Six-month goal', type: 'textarea' }
     ]]
   ];
-  let h = '<div class=\"card\"><h2>Review and correct your answers</h2>' +
-    '<p class=\"sub\">This is what the AI understood from the call. Anything marked <span class=\"nullbadge\">Not stated</span> was not captured, so the blueprint cannot ground itself without it. Prices and tool names are preserved exactly, not corrected.</p>';
+  const v = state.voice;
+  const callLine = v && v.startedAt
+    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice (no API key)') +
+      ' - ' + v.turns + ' turns - ' + v.asked.length + ' of ' + ((v.plan || []).length || 12) + ' questions asked - ' +
+      (v.capture ? (v.capture.filledCount + ' of ' + v.capture.totalCount + ' fields captured') : 'captured live') +
+      ' - audio not retained</span></div>'
+    : '';
+  let h = '<div class="card"><h2>Review and correct your answers</h2>' + callLine +
+    '<p class="sub">This is what the AI understood from the call. Anything marked <span class="nullbadge">Not stated</span> was not captured, so the blueprint cannot ground itself without it. Prices and tool names are preserved exactly, not corrected.</p>';
   groups.forEach(g => { h += groupHtml(g[0], g[1]); });
   h += '<div class=\"btn-row\"><button class=\"btn btn-primary\" id=\"confirm-fields\">Confirm and generate blueprint</button>' +
     '<button class=\"btn btn-ghost\" id=\"back-intake\">Back to the call</button></div>' +
@@ -660,6 +1296,20 @@ function bindReview() {
     const f = collectFields();
     f.lead_sources.splice(+i, 1);
     state.fields = f; render(); check();
+  });
+  document.querySelectorAll('[data-heard]').forEach(b => b.onclick = () => {
+    const k = b.getAttribute('data-heard');
+    const raw = (((state.voice || {}).capture || {}).heard || {})[k];
+    const el = document.querySelector('[data-key="' + k + '"]');
+    if (!raw || !el) return;
+    const type = el.getAttribute('data-type') || 'text';
+    if (type === 'number') { const n = looseNumber(raw.value); el.value = n == null ? '' : n; }
+    else if (type === 'select') {
+      const want = /one.?call/i.test(raw.value) ? 'one-call' : /two.?call|second call/i.test(raw.value) ? 'two-call' : '';
+      if (want) el.value = want;
+    } else el.value = String(raw.value);
+    el.dispatchEvent(new Event('input'));
+    toast('Filled from what the AI heard on the call. Please check it.');
   });
   document.querySelectorAll('input[data-key], textarea[data-key], select[data-key], [data-prod], [data-src]').forEach(el => {
     el.addEventListener('input', () => {
@@ -818,7 +1468,8 @@ function bindBlueprint() {
           email: $('#un-email').value,
           consent: cb.checked,
           fields: state.fields,
-          blueprint: state.blueprint
+          blueprint: state.blueprint,
+          voice_meta: voiceMeta()
         });
         state.delivered = {
           contact_id: j.contact_id, filename: j.filename,
@@ -980,12 +1631,19 @@ function routeBindings() {
       const cb = $('#consent-cb'), go = $('#consent-go');
       if (cb && go) {
         cb.onchange = () => { go.disabled = !cb.checked; };
-        go.onclick = () => { state.stage = 'intake'; render(); };
+        const note = $('#consent-note');
+        if (note) note.textContent = voiceReady()
+          ? 'Agree and the AI starts speaking straight away, then it listens while you answer out loud.'
+          : 'Agree and the AI starts speaking, then it listens while you answer out loud. Preparing the voice now...';
+        // The call plan and the opening line are fetched while the client reads the notice, so the
+        // AI can speak inside the click that agrees to it.
+        prefetchOpening();
+        go.onclick = () => beginCall();
         cb.focus();
       }
       break;
     }
-    case 'intake': bindIntake(); break;
+    case 'intake': bindCall(); break;
     case 'review': bindReview(); break;
     case 'blueprint': bindBlueprint(); break;
     case 'booking': bindBooking(); break;
