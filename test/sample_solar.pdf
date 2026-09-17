@@ -15,7 +15,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
 endobj
 6 0 obj
-<< /Length 4227 >>
+<< /Length 4200 >>
 stream
 0 g
 BT
@@ -52,8 +52,8 @@ BT
 /F1 9.8 Tf 1 0 0 1 72 237.7 Tm (-  Walk-ins \(10/mo, not tracked\): Mobile quick-capture form, plus a 30-day manual entry discipline while the) Tj
 /F1 9.8 Tf 1 0 0 1 72 223.0 Tm (habit forms) Tj
 /F2 12.5 Tf 1 0 0 1 56 196.3 Tm (5. Tool mapping \(current -> recommended\)) Tj
-/F1 9.8 Tf 1 0 0 1 72 178.6 Tm (-  HubSpot  ->  Upgrade. You are on Starter. You are on the entry tier. This build needs workflows, so) Tj
-/F1 9.8 Tf 1 0 0 1 72 163.9 Tm (Professional is the floor. Move up rather than restart.) Tj
+/F1 9.8 Tf 1 0 0 1 72 178.6 Tm (-  HubSpot  ->  Upgrade. You are on Starter. This build needs workflows, so Professional is the floor. Move) Tj
+/F1 9.8 Tf 1 0 0 1 72 163.9 Tm (up rather than restart.) Tj
 /F1 9.8 Tf 1 0 0 1 72 149.2 Tm (-  Microsoft Excel  ->  Consolidate. Move tracking into HubSpot objects and properties. Keep Excel for) Tj
 /F1 9.8 Tf 1 0 0 1 72 134.5 Tm (one-way reports while the habit forms.) Tj
 /F1 9.8 Tf 1 0 0 1 72 119.8 Tm (-  WhatsApp  ->  Keep. Connect it to HubSpot so conversations attach to the right contact and deal.) Tj
@@ -127,10 +127,10 @@ xref
 0000000218 00000 n 
 0000000320 00000 n 
 0000000456 00000 n 
-0000004734 00000 n 
-0000004870 00000 n 
+0000004707 00000 n 
+0000004843 00000 n 
 trailer
 << /Size 9 /Root 1 0 R >>
 startxref
-8798
+8771
 %%EOF

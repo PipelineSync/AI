@@ -174,3 +174,56 @@ interactions were found and resolved, so the hardening holds and the voice still
 
 All suites pass after the merge: voice, voice-openai (mock ChatGPT path), ui-smoke (voice-first and
 typed fallback), e2e, netlify-sim, pdfcheck.
+
+---
+
+## Audit against the brief's own QA checklist (2026-09-18)
+
+Audited the app line by line against the brief's Section 9 checklist (Section 4 flow, Section 6
+intake set, Section 7 contract). Most items were already covered, but two gaps were real, and the
+checks that were missing are now automated in `test/brief-check.js` (136 assertions, all four
+verticals, HTTP and Netlify paths).
+
+### 1. The three required figures were only enforced in the browser — FIXED
+
+**Before:** the review screen disabled the generate button while deal size, monthly lead volume or
+close rate were null, but `POST /api/generate` accepted the request and returned 200. Called
+directly, it produced a blueprint whose cost-of-inaction bases read literally
+`null leads in, null closed, 0 slipping each month`, which breaks the rule that the blueprint is
+grounded in the client's own numbers.
+
+**After:** `missingRequiredFields()` in `lib/core.js` is the single source of the rule. Both
+`server.js` and `netlify/functions/generate.js` answer **422** with the missing field names, and the
+voice layer now imports the same list instead of keeping its own copy.
+
+### 2. Two KB reference ids were inline strings — FIXED
+
+`KB-PRISE-01` (pricing) and `KB-BUILD-01` (the build list) were `ref.add('...')` literals, so the
+"no invented items" check could not be verified mechanically. Both are now declared in the
+knowledge base, every catalogue tool carries its own `id`, and `kbReferenceIds()` walks the KB so a
+test can prove every reference in a blueprint resolves to a declared entry. A tool the client names
+that is not in the catalogue now gets no KB reference at all, rather than one pointing at nothing.
+
+### 3. Duplicated sentence in client-facing copy — FIXED
+
+The HubSpot reason read "You are on Starter. You are on the entry tier. This build needs
+workflows...". The generic opener is now dropped when the client's own tier is known.
+
+### What `test/brief-check.js` adds on top of the existing suites
+
+- every `kbReferences` entry resolves to an id declared in the KB (the old check only counted them)
+- every tool action and reason is the KB wording, every pipeline stage list is the KB list
+- every confirmed default is a KB default, and no item sits in both the defaults and custom lists
+- every named lead source appears by name, with a KB mechanism; none invented or duplicated
+- exactly three cost-of-inaction estimates, each Basis line built from the client's own figures and
+  free of nulls, printed three times in the PDF
+- compliance flags per vertical (TCPA solar, HIPAA medical, none for the other two)
+- UK English and no em/en dashes in the blueprint and in the drawn PDF text
+- the required figures block generation on the API and on the Netlify function; one figure filled in
+  still blocks and names the other two
+- the 12-question intake set covers all three required figures, and every contract field the
+  extractor produces has a sidebar label
+- no API key material, secret variable names, KB wording, or KB reference ids in `public/`
+
+All eight suites pass: voice, voice-openai, e2e, netlify-sim, pdfcheck, brief-check, ui-design,
+ui-smoke (421 assertions).

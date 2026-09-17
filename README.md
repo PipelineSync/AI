@@ -218,7 +218,9 @@ Run each demo persona from the intake sidebar, then check the blueprint:
 - [ ] Every one of the 12 questions is asked out loud exactly once, in order, with a probe only when
       an answer arrived without its figures
 - [ ] The three required fields (deal size, monthly lead volume, close rate) are captured on the call;
-      anything still unstated is flagged on the review screen and blocks generation
+      anything still unstated is flagged on the review screen and blocks generation, on the API as
+      well as in the browser (`/api/generate` answers 422 with the figures it is still missing, so a
+      blueprint can never be built on `null`)
 - [ ] The lead payload records how the call ran (`voice_call`: provider, models, turns, probes,
       missing required figures at the end) and `audio_retained: false`
 - [ ] No keys in the browser; PDF generated server-side; disclaimer + privacy notice before data
@@ -235,6 +237,12 @@ node test/ui-smoke.js    # drives the real frontend through the voice-first jour
 node test/e2e.js         # API end-to-end across all four verticals (QA assertions)
 node test/netlify-sim.js # invokes the Netlify functions with Lambda-style events
 node test/pdfcheck.js    # validates PDF xref structure of generated samples
+node test/brief-check.js # audits the app against the brief's own QA checklist: every blueprint item
+                         # traces to a knowledge base entry (nothing invented), the pipeline stages and
+                         # lead source mechanisms are the KB ones, defaults stay separate from custom
+                         # items, the three cost-of-inaction bases use the client's numbers, compliance
+                         # flags per vertical, UK English, the required figures block generation on the
+                         # API, and no key or KB text reaches the browser
 node test/ui-design.js   # design-system checks: the stylesheet parses, every class the app renders
                          # has a rule, the tokens clear WCAG AA, touch targets stay 44px, and the
                          # logo is never rendered bare on a dark surface
@@ -275,8 +283,8 @@ pipelinesync/
   public/manifest.webmanifest  PWA manifest (installable, theme colour, icons)
   public/styles.css      design system + responsive layout (mobile-first, see below)
   public/app.js          SPA: entry gate, consent, the voice call, review, blueprint, unlock, booking, done
-  test/                  voice, voice-openai, mock-openai, e2e, netlify-sim, pdfcheck, ui-smoke,
-                         ui-design, personas, sample PDFs
+  test/                  voice, voice-openai, mock-openai, e2e, netlify-sim, pdfcheck, brief-check,
+                         ui-smoke, ui-design, personas, sample PDFs
   docs/VOICE_SETUP.md    how to switch the ChatGPT voice layer on, verify it, cost it, fix it
   .env.example           every setting the app understands (copy to .env, which is gitignored)
   README.md              this file

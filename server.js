@@ -247,6 +247,10 @@ async function handleApi(req, res, url) {
   if (method === 'POST' && route === '/api/generate') {
     const fields = authBody.fields || {};
     try { if (JSON.stringify(fields).length > 100000) return sendJson(res, 400, { error: 'Fields payload too large.' }); } catch (e) {}
+    const missing = core.missingRequiredFields(fields);
+    if (missing.length) {
+      return sendJson(res, 422, { error: core.missingRequiredMessage(missing), missing_required: missing });
+    }
     const bp = core.generate(fields);
     return sendJson(res, 200, { ok: true, blueprint: bp });
   }
