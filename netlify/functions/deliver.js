@@ -8,17 +8,9 @@
  * private app token POST to /crm/v3/objects/contacts.
  */
 const core = require('../../lib/core');
+const { bodyOf, json } = require('../../lib/netlify-helpers');
 const { clampVoiceMeta } = require('../../lib/voice-api');
 
-function bodyOf(event) {
-  if (!event.body) return {};
-  let raw = event.body;
-  if (event.isBase64Encoded) raw = Buffer.from(raw, 'base64').toString('utf8');
-  try { return JSON.parse(raw); } catch (e) { return {}; }
-}
-function json(code, obj) {
-  return { statusCode: code, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify(obj) };
-}
 function logLead(lead) {
   console.log('[hubspot-mock] lead push: ' + JSON.stringify(lead));
 }
@@ -26,13 +18,17 @@ function logLead(lead) {
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const body = bodyOf(event);
-  const payload = core.verifyToken(body.token);
+  let payload;
+  try { payload = core.verifyToken(body.token); } catch (e) {
+    return json(500, { error: 'Server misconfigured: missing token secret.' });
+  }
   if (!payload) return json(401, { error: 'Not signed in.' });
 
   const bp = body.blueprint;
   if (!bp || !bp.meta || !bp.meta.verticalLabel) return json(400, { error: 'No blueprint in request. Generate the blueprint before unlocking the PDF.' });
   const email = String(body.email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(400, { error: 'Enter a valid email to unlock the PDF.' });
+  if (email.length > 254) return json(400, { error: 'Email too long.' });
   if (body.consent !== true) return json(400, { error: 'Please tick the consent box before we send the PDF.' });
 
   const buffer = core.buildPdf(bp);
@@ -41,7 +37,7 @@ exports.handler = async (event) => {
 
   return {
     statusCode: 200,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY' },
     body: JSON.stringify({
       ok: true, contact_id: lead.contact_id, lead_pushed: true,
       filename: core.pdfFilename(bp), pdf_base64: buffer.toString('base64')

@@ -151,6 +151,8 @@ Knobs if that needs to be cheaper:
 | Long pauses between turns | Model latency plus speech, typically 2 to 4 seconds | Keep `gpt-4o-mini`; the orb and status line show exactly what the call is doing |
 | All 12 questions asked but a required field is still "Not stated" | The client skipped those questions | The review screen will not let the blueprint generate until a human fills them in; the "The AI heard ..." button can help |
 | Voice works locally but not on Netlify | Body size or timeout | Recordings are capped at 3.5 MB (a few minutes of audio); keep answers to a sentence or two |
+| The AI's line appears but nothing is heard on the deployed site | A CSP without `media-src` blocks blob:/data: audio | The repo already sends `media-src 'self' blob: data:` (see `netlify.toml` and `lib/netlify-helpers.js`). If you edit the CSP, keep that directive |
+| The call screen is blank inside an embedded preview | Framing headers | Production sends `frame-ancestors 'none'` (correct for your own site). The local dev server is frameless-allowed so it can run in a preview pane; set `PS_ALLOW_FRAMING=0` to make it strict locally too |
 
 ---
 

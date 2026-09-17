@@ -5,6 +5,7 @@
  * All OpenAI calls happen inside this function, so OPENAI_API_KEY stays server-side.
  */
 const { handleVoice } = require('../../lib/voice-api');
+const helpers = require('../../lib/netlify-helpers');
 
 function bodyOf(event, limitBytes) {
   if (!event.body) return {};
@@ -17,8 +18,10 @@ function bodyOf(event, limitBytes) {
   }
   try { return JSON.parse(raw); } catch (e) { return {}; }
 }
+/* Security headers come from the shared helpers, so the voice function matches every other one
+   (nosniff, frame denial, the CSP that allows the voice audio to play). */
 function json(code, obj) {
-  return { statusCode: code, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify(obj) };
+  return helpers.json(code, obj);
 }
 /* The redirect /api/voice/* -> /.netlify/functions/voice keeps the original path in the event, but
    depending on how the request was routed that can be event.path, event.rawUrl, or the function path
@@ -47,8 +50,16 @@ exports.handler = async (event) => {
     return json(e.tooLarge ? 413 : 400, { error: e.tooLarge ? 'That recording is too large. Keep each answer short, or type instead.' : 'Bad request body.' });
   }
   const sub = subRoute(event);
+  // Voice turns spend OpenAI credit, so rate limit per IP per minute (in-memory, per warm instance).
+  const ip = helpers.getClientIp(event);
+  const rl = helpers.checkRateLimit('voice:' + sub + ':' + ip, sub === 'turn' ? 40 : 30, 60 * 1000);
+  if (!rl.allowed) {
+    const headers = helpers.securityHeaders();
+    headers['retry-after'] = String(rl.retryAfter);
+    return { statusCode: 429, headers, body: JSON.stringify({ error: 'Too many voice requests. Wait ' + rl.retryAfter + 's and try again.' }) };
+  }
   try {
-    const out = await handleVoice(sub, body, { env: process.env, fetchImpl: fetch });
+    const out = await handleVoice(sub, body, { env: process.env, fetchImpl: fetch, ip });
     return json(out.status, out.body);
   } catch (e) {
     console.error('[voice] unhandled error:', e && e.message);

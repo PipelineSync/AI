@@ -162,7 +162,10 @@ async function reachCall(page) {
   ok(!!d1.querySelector('.success-card'), 'delivery success card shown');
   ok(d1.body.textContent.includes('HubSpot contact ID'), 'hubspot contact id shown');
 
-  const outbox = await (await fetch(BASE + '/dev/outbox')).text();
+  const outboxRaw = await (await fetch(BASE + '/dev/outbox')).text();
+  // The outbox JSON is HTML-escaped (hardening), so decode it before asserting on the payload.
+  const outbox = outboxRaw.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  ok(/&quot;voice_call&quot;/.test(outboxRaw), 'the outbox escapes the payload it prints (hardening kept)');
   ok(/"voice_call"/.test(outbox), 'the lead carries the voice call metadata (voice_call block)');
   ok(/"audio_retained": false/.test(outbox), 'the lead records that no audio was retained');
   ok(/"turns": \d+/.test(outbox), 'the lead records how many turns the call took');
@@ -194,13 +197,13 @@ async function reachCall(page) {
   ok(!d2.querySelector('#transcript-wrap').open, 'the transcript is still collapsed');
 
   // Type the answers instead, the way a client with a blocked mic would.
-  for (let i = 0; i < 30 && !d2.querySelector('#structure-btn'); i++) {
+  for (let i = 0; i < 80 && !d2.querySelector('#structure-btn'); i++) {
     const inp = d2.querySelector('#intake-input');
-    if (inp) {
+    if (inp && !inp.disabled) {
       inp.value = p2.window.__answerNow();
       d2.getElementById('send-btn').click();
     }
-    await sleep(320);
+    await sleep(300);
   }
   ok(!!d2.querySelector('#structure-btn'), 'the typed journey still reaches the end of the call');
   ok(d2.querySelectorAll('.bubble.user').length >= 12, 'typed answers land in the same transcript');
