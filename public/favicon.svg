@@ -1,5 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="7" fill="#ff7a59"/>
-  <path d="M10 21.5c1.2-4 3.4-6.8 6-7.5m6-3.5c-1.2 4-3.4 6.8-6 7.5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-  <path d="M22 6.5l.4 3.4-3.3.7M10 25.5l-.4-3.4 3.3-.7" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+  <rect width="600" height="600" rx="132" fill="#FFFFFF"/>
+  <g transform="translate(120.6,66) scale(0.78)"><!-- PipelineSync mark: two 180-degree-rotational pipe strokes + sync dot -->
+  <g fill="none" stroke-width="58" stroke-linejoin="miter" stroke-linecap="butt">
+    <path stroke="#0F2F52" d="M402 32 V150 H150 A92.5 92.5 0 0 0 150 335 H200"/>
+    <path stroke="#3E6C8E" d="M58 568 V450 H310 A92.5 92.5 0 0 0 310 265 H260"/>
+  </g>
+  <circle cx="200" cy="335" r="29" fill="#0F2F52"/>
+  <circle cx="260" cy="265" r="29" fill="#3E6C8E"/>
+  <rect x="268" y="308" width="57" height="57" rx="14" fill="#F57C1F"/></g>
 </svg>

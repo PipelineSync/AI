@@ -212,7 +212,8 @@ pipelinesync/
   netlify.toml           publish dir, functions dir, /api/* route mapping incl. /api/voice/*
   netlify/functions/     login, logout, extract (A), generate (B), deliver (C+D), voice, outbox, health
   public/index.html      shell (no CDN, works offline)
-  public/favicon.svg     favicon source mark (referenced by index.html; .ico/.png derived from it)
+  public/logo.svg        brand mark as vector (faithful redraw of the logo-only.png artwork)
+  public/favicon.svg     favicon: mark on a white rounded tile (referenced by index.html)
   public/favicon.ico     multi-size ICO fallback (16/32/48) for legacy browsers
   public/apple-touch-icon.png  180x180 iOS home-screen icon
   public/styles.css      design system
