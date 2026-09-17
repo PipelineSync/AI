@@ -696,9 +696,23 @@ function render() {
   if (state.stage === 'intake') afterCallRender();
 }
 
+/* PipelineSync brand mark as vector (same geometry as public/logo.svg). h = pixel height.
+   Pass mono to render a single-colour variant (e.g. '#FFFFFF' on the call orb). */
+function logoMark(h, mono) {
+  const w = Math.round(h * 460 / 600);
+  const navy = mono || '#0F2F52', steel = mono || '#3E6C8E', dot = mono || '#F57C1F';
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 460 600" aria-hidden="true">' +
+    '<g fill="none" stroke-width="58" stroke-linejoin="miter" stroke-linecap="butt">' +
+    '<path stroke="' + navy + '" d="M402 32 V150 H150 A92.5 92.5 0 0 0 150 335 H200"/>' +
+    '<path stroke="' + steel + '" d="M58 568 V450 H310 A92.5 92.5 0 0 0 310 265 H260"/>' +
+    '</g>' +
+    '<circle cx="200" cy="335" r="29" fill="' + navy + '"/>' +
+    '<circle cx="260" cy="265" r="29" fill="' + steel + '"/>' +
+    '<rect x="268" y="308" width="57" height="57" rx="14" fill="' + dot + '"/></svg>';
+}
 function topbar() {
   return '<div class=\"topbar\"><div class=\"brand\">' +
-    '<div class=\"logo\" aria-hidden=\"true\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 32 32\"><path d=\"M10 21.5c1.2-4 3.4-6.8 6-7.5m6-3.5c-1.2 4-3.4 6.8-6 7.5\" stroke=\"white\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M22 6.5l.4 3.4-3.3.7M10 25.5l-.4-3.4 3.3-.7\" stroke=\"white\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></div>' +
+    '<div class=\"logo\">' + logoMark(30) + '</div>' +
     '<div>PipelineSync AI<small>Revenue operations blueprints</small></div></div>' +
     '<div class=\"topbar-right\"><span>Signed in as <b>' + esc(state.user ? state.user.name : '') + '</b></span>' +
     '<button class=\"btn btn-ghost btn-sm\" id=\"logout-btn\" aria-label=\"Log out\">Log out</button></div></div>';
@@ -722,7 +736,7 @@ function footer() {
 /* ---------------- login ---------------- */
 function loginView() {
   return '<div class=\"login-wrap\"><div class=\"login-hero\">' +
-    '<div class=\"brand\" style=\"margin-bottom:34px\"><div class=\"logo\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 32 32\"><path d=\"M10 21.5c1.2-4 3.4-6.8 6-7.5m6-3.5c-1.2 4-3.4 6.8-6 7.5\" stroke=\"white\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M22 6.5l.4 3.4-3.3.7M10 25.5l-.4-3.4 3.3-.7\" stroke=\"white\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></div><div>PipelineSync AI</div></div>' +
+    '<div class="brand" style="margin-bottom:34px"><div class="logo">' + logoMark(34) + '</div><div>PipelineSync AI</div></div>' +
     '<h1>Talk it through. Get your HubSpot revenue operations blueprint.</h1>' +
     '<p class=\"lede\">A short voice call with our AI interviewer. You review and correct what we heard, then we build a PDF blueprint of the exact HubSpot setup your pipeline needs. A human reviews and sells the build.</p>' +
     '<div class=\"mini-steps\">' +
@@ -811,7 +825,7 @@ function callView() {
     '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
     '<div class="call-body">' +
       '<div class="orb ' + esc(v.status) + (v.listening ? ' live' : '') + '" id="orb" role="img" aria-label="Call state: ' + esc(v.status) + '"><div class="rings"></div>' +
-        '<svg width="34" height="34" viewBox="0 0 32 32"><path d="M10 21.5c1.2-4 3.4-6.8 6-7.5m6-3.5c-1.2 4-3.4 6.8-6 7.5" stroke="white" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M22 6.5l.4 3.4-3.3.7M10 25.5l-.4-3.4 3.3-.7" stroke="white" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+        logoMark(44, '#FFFFFF') + '</div>' +
       '<div class="call-status" id="call-status" role="status" aria-live="polite">' + esc(statusText) + '</div>' +
       '<div class="line ai" id="ai-line" aria-live="polite">' + esc(aiLine) + '</div>' +
       (youLine ? '<div class="line you" id="you-line">' + esc(youLine) + '</div>' : '<div class="line you empty" id="you-line">Your answer appears here as you speak.</div>') +
@@ -1589,7 +1603,7 @@ function doneView() {
   const d = state.delivered;
   const b = state.booking;
   let h = '<div class=\"card\" style=\"max-width:680px;margin:30px auto;text-align:center\">' +
-    '<div class=\"logo\" style=\"width:54px;height:54px;border-radius:14px;background:var(--orange);display:grid;place-items:center;margin:0 auto 14px\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 32 32\"><path d=\"M10 21.5c1.2-4 3.4-6.8 6-7.5m6-3.5c-1.2 4-3.4 6.8-6 7.5\" stroke=\"white\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M22 6.5l.4 3.4-3.3.7M10 25.5l-.4-3.4 3.3-.7\" stroke=\"white\" stroke-width=\"2.4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></div>' +
+    '<div class="logo" style="margin:0 auto 14px">' + logoMark(54) + '</div>' +
     '<h2>Your blueprint is on its way</h2>' +
     '<p class=\"sub\">Everything the brief asks for happened in this run:</p>' +
     '<div style=\"text-align:left;max-width:460px;margin:0 auto\">' +
