@@ -227,3 +227,47 @@ workflows...". The generic opener is now dropped when the client's own tier is k
 
 All eight suites pass: voice, voice-openai, e2e, netlify-sim, pdfcheck, brief-check, ui-design,
 ui-smoke (421 assertions).
+
+---
+
+## Spoken figures were silently read as "Not stated" (2026-09-18)
+
+Found while checking Function A against the brief: the discovery call is **voice**, so answers arrive
+as words, but the extractor only read digits. All three required figures failed on the phrasing a
+client actually says out loud:
+
+| The client says | Before | After |
+|---|---|---|
+| "a typical deal is about one and a half million" | `null` | 1500000 |
+| "most jobs are around eighty thousand each" | `null` | 80000 |
+| "about fifty five leads a month" | `null` | 55 |
+| "we close around thirty percent" | `null` | 30 |
+| "about fifty thousand a month on marketing" | `null` | 50000 |
+| "₱80,000 per job" | `null` | 80000 |
+
+A false null is worse than a missing one: the review screen reports it as "Not stated", so a figure
+the client did give looks like one they never gave, and the Marketing Hub rule (spend at or above
+50,000 a month) silently under-recommends the stack. The peso symbol was also absent from the
+currency class, which had `₴` (hryvnia) where this product is peso-based.
+
+**Fix, all in `lib/core.js`:**
+
+- `WORDS` completed (sixteen to nineteen, seventy, ninety) and a real phrase parser added:
+  `parseNumberPhrase()` reads "fifty five", "two hundred", "two hundred thousand", "one and a half
+  million", and digits alike. `numberByUnit()` / `numberAfterUnit()` bind a phrase to its unit in
+  either word order.
+- The parser stops at "and" once a scaled unit has been applied. Without that, "one and a half
+  million **and three reps** take calls" ran on into the next clause, which both corrupted the value
+  and dragged a count noun into the money match, vetoing it entirely.
+- `moneyMatches()` gained a spoken-money pass (an explicit multiplier is required, and a following
+  count noun vetoes it, so "two thousand installs" is never money) and now recognises `₱` and `£`.
+  Matches carry their position.
+- `spendFigures()` assigns each figure to the keyword it sits nearest, so in "fifty thousand a month
+  on marketing and five thousand on software" the software figure cannot be taken for the marketing
+  spend just because it happens to sit closer to the word "marketing".
+- Nothing is invented: with no number phrase present every field still returns `null`.
+
+`test/brief-check.js` gained 19 assertions covering the spoken forms, the reversed word order, the
+peso symbol, the not-money veto, the null cases, and the digit forms the personas rely on.
+
+All eight suites pass: 440 assertions.

@@ -222,6 +222,39 @@ const kbMechanisms = core.KB.sourceMechanisms.map(m => m.text).concat([core.KB.s
   ok(kbLeak.length === 0, 'the knowledge base text does not ship to the browser');
   ok(!shipped.includes('KB-TIER-01') && !shipped.includes('KB-PIPE-T2'), 'the KB reference ids do not ship to the browser');
 
+  /* --- spoken figures: the call is voice, so answers arrive as words --- */
+  console.log('\n=== Spoken figures (Section 7 contract) ===');
+  const spoken = (id, text, field) => core.extract([{ id, text }])[field];
+  const says = (id, text, field, want, label) => {
+    const got = spoken(id, text, field);
+    ok(got === want, label + ' -> ' + field + ' = ' + got + (got === want ? '' : ' (want ' + want + ')'));
+  };
+  says('deal', 'A typical deal is about one and a half million and three reps take calls', 'typical_deal_size', 1500000,
+    'a spoken deal size is captured, and the clause after it is not swallowed');
+  says('deal', 'A typical deal is about one and a half million and three reps take calls', 'sales_reps_on_calls', 3,
+    'the rep count in the same sentence is still captured');
+  says('deal', 'Most jobs are around eighty thousand each', 'typical_deal_size', 80000, 'a spoken deal size in words');
+  says('deal', '\u20b180,000 per job', 'typical_deal_size', 80000, 'the peso symbol is recognised');
+  says('volumes', 'About fifty five leads a month and we close 12', 'monthly_lead_volume', 55, 'a spoken lead volume');
+  says('volumes', 'Roughly two hundred enquiries a month', 'monthly_lead_volume', 200, 'a spoken round lead volume');
+  says('volumes', 'We close about twenty two percent', 'close_rate', 22, 'a spoken close rate');
+  says('volumes', 'We close around thirty percent of them', 'close_rate', 30, 'a spoken round close rate');
+  says('spend', 'we spend about fifty thousand a month on marketing and five thousand on software', 'monthly_marketing_spend', 50000,
+    'the marketing figure nearest its own keyword, spoken');
+  says('spend', 'we spend about fifty thousand a month on marketing and five thousand on software', 'monthly_software_budget', 5000,
+    'the software figure is not read as the marketing spend');
+  says('spend', 'on marketing we spend 50,000 a month', 'monthly_marketing_spend', 50000, 'the figure may follow the keyword');
+  /* nothing invented: a stated count is not money, and silence is still null */
+  says('volumes', 'We do two thousand installs a year', 'monthly_lead_volume', null, 'a count of installs is not read as money');
+  says('volumes', 'Hard to say, we do not count them', 'monthly_lead_volume', null, 'an unstated volume stays null');
+  says('deal', 'It varies a lot by job', 'typical_deal_size', null, 'an unstated deal size stays null');
+  says('volumes', 'No idea what the rate is', 'close_rate', null, 'an unstated close rate stays null');
+  /* the digit forms the personas use must not regress */
+  says('deal', 'A typical deal is 1,500,000 pesos and three sales reps take calls', 'typical_deal_size', 1500000, 'digits still work');
+  says('volumes', 'About 55 leads a month and we close 12', 'monthly_lead_volume', 55, 'digit volumes still work');
+  says('volumes', 'We close 3 out of 10', 'close_rate', 30, 'the out-of form still works');
+  says('spend', '80,000 on ads, about 15,000 on software', 'monthly_software_budget', 15000, 'digit budgets still work');
+
   srv.stop();
   console.log('\n' + (failures === 0 ? 'BRIEF CHECKS PASSED' : failures + ' CHECK(S) FAILED'));
   process.exit(failures === 0 ? 0 : 1);
