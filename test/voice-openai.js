@@ -92,7 +92,7 @@ function bootBrowser() {
   console.log('\nChatGPT voice path: server and browser against a mock OpenAI endpoint');
 
   // ---- the routes hand ChatGPT audio to the client -------------------------------
-  const login = await (await fetch(APP + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'qa@pipelinesync.ai', password: 'test' }) })).json();
+  const login = await (await fetch(APP + '/api/auth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'QA Tester', email: 'qa@pipelinesync.ai' }) })).json();
   const token = login.token;
   const post = (p, b) => fetch(APP + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ token }, b)) });
 

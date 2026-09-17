@@ -8,9 +8,10 @@
     "test:e2e": "node test/e2e.js",
     "test:pdf": "node test/pdfcheck.js",
     "test:ui": "node test/ui-smoke.js",
+    "test:ui-design": "node test/ui-design.js",
     "test:voice": "node test/voice.js",
     "test:voice-openai": "node test/voice-openai.js",
-    "test:all": "node test/voice.js && node test/voice-openai.js && node test/e2e.js && node test/netlify-sim.js && node test/pdfcheck.js && node test/ui-smoke.js"
+    "test:all": "node test/voice.js && node test/voice-openai.js && node test/e2e.js && node test/netlify-sim.js && node test/pdfcheck.js && node test/ui-design.js && node test/ui-smoke.js"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"

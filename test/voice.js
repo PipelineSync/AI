@@ -187,9 +187,10 @@ async function httpTests() {
     console.log('  (server not running: the HTTP block is skipped; start it with node server.js)');
     return;
   }
-  const login = await (await fetch(BASE + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'qa@pipelinesync.ai', password: 'test' }) })).json();
+  const login = await (await fetch(BASE + '/api/auth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'QA Tester', email: 'qa@pipelinesync.ai' }) })).json();
   const token = login.token;
-  ok(!!token, 'logged in for the route tests');
+  ok(!!token, 'entry gate returns a token for the route tests');
+  ok(login.user && login.user.name === 'QA Tester', 'the entry gate keeps the name the client typed');
   const post = (p, b) => fetch(BASE + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ token }, b)) });
 
   const unauth = await fetch(BASE + '/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
@@ -219,6 +220,7 @@ async function httpTests() {
   }
   ok(turns >= 12 && turns <= 16, 'the call covered the 12 guardrail questions (' + turns + ' turns, probes included)');
   ok(lastLine.length > 0, 'the closing line is spoken');
+  if (sess.mode === 'simulated') ok(/, QA[.!,]/.test(lastLine), 'the closing line uses the name the client entered (' + JSON.stringify(lastLine.slice(0, 48)) + ')');
   ok(capture && capture.missingRequired.length === 0, 'the three required fields were captured by the end');
   ok(asked.join(',') === PLAN_ORDER.join(','), 'guardrail questions were asked once each, in order');
 

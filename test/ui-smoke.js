@@ -88,13 +88,37 @@ function boot(withMic) {
   return { window, document, spoken, errors, speechTimes };
 }
 
-async function reachCall(page) {
-  const { document, spoken, speechTimes } = page;
+/* The app opens on the entry gate: name + email, no password. Pass a name and email to go
+   through it the way a client does, or use the demo account shortcut. */
+async function passGate(page, details) {
+  const { document, window } = page;
   await sleep(200);
-  ok(!!document.querySelector('#lg-email'), 'login screen rendered');
-  document.getElementById('demo-btn').click();
+  ok(!!document.querySelector('#st-name') && !!document.querySelector('#st-email'), 'the entry gate asks for a name and an email');
+  ok(!document.querySelector('input[type=password]'), 'there is no password field: the login is gone');
+  ok(!/\bLog in\b/.test(document.body.textContent), 'nothing on the gate says "Log in"');
+  ok(/voice call/i.test(document.body.textContent), 'the gate says the next step is the AI voice call');
+  ok(!!document.querySelector('#start-form button[type=submit]'), 'the gate has one submit action');
+
+  if (details) {
+    // An empty gate must not start a call: the error is inline and the client stays put.
+    document.getElementById('start-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    await sleep(150);
+    ok(!!document.querySelector('#st-name') && !document.querySelector('#consent-go'), 'an empty gate does not start the call');
+    ok(!document.getElementById('start-error').hidden, 'the gate explains what is missing');
+    document.getElementById('st-name').value = details.name;
+    document.getElementById('st-email').value = details.email;
+    document.getElementById('start-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  } else {
+    document.getElementById('demo-btn').click();
+  }
   await sleep(700);   // the notice is read while the voice layer warms up
-  ok(!!document.querySelector('#consent-go'), 'consent screen after login');
+  ok(!!document.querySelector('#consent-go'), 'consent screen after the entry gate');
+  return page;
+}
+
+async function reachCall(page, details) {
+  const { document, spoken, speechTimes } = page;
+  await passGate(page, details);
   ok(/OpenAI for the voice call/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
   ok(/starts speaking/i.test(document.getElementById('consent-note').textContent), 'the consent screen says the AI starts speaking on agreement');
   ok(/Agree and start the voice call/.test(document.getElementById('consent-go').textContent), 'the button that agrees to the disclaimer is the one that starts the call');
@@ -118,7 +142,9 @@ async function reachCall(page) {
 (async () => {
   console.log('\nScenario 1: a voice discovery call (microphone present)');
   const p1 = boot(true);
-  await reachCall(p1);
+  await reachCall(p1, { name: 'Maria Santos', email: 'maria@solarworks.ph' });
+  ok(/Maria Santos/.test(p1.document.body.textContent) || /Maria/.test(p1.document.body.textContent),
+    'the header shows who is on the call after the entry gate');
   const d1 = p1.document;
 
   ok(!!d1.querySelector('#mic-btn') || !!d1.querySelector('#type-btn'), 'the in-call controls are on screen straight after agreement');
@@ -188,6 +214,7 @@ async function reachCall(page) {
   console.log('\nScenario 2: microphone blocked (preview iframe, no speech recognition)');
   const p2 = boot(false);
   await reachCall(p2);
+  ok(!!p2.document.querySelector('#side-toggle'), 'the captured-answers panel is reachable on a narrow screen');
   const d2 = p2.document;
   await sleep(600);
   ok(p2.spoken.length >= 1, 'the AI speaks even when the microphone is blocked');

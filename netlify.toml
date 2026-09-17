@@ -20,9 +20,16 @@
     Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 
 # API routes -> Netlify functions (same paths the frontend already calls)
+# The entry gate is name + email (no password): /api/auth/start.
+# /api/auth/login is kept as an alias of the same function for cached clients.
+[[redirects]]
+  from = "/api/auth/start"
+  to = "/.netlify/functions/start"
+  status = 200
+
 [[redirects]]
   from = "/api/auth/login"
-  to = "/.netlify/functions/login"
+  to = "/.netlify/functions/start"
   status = 200
 
 [[redirects]]
