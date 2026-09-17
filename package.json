@@ -1,0 +1,15 @@
+{
+  "name": "pipelinesync-ai-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runnable prototype of PipelineSync AI (brief: PipelineSync_AI_Developer_Brief.pdf). The app itself (server.js) has ZERO runtime dependencies: node server.js. The only dev dependency is jsdom, used by the test suite.",
+  "scripts": {
+    "start": "node server.js",
+    "test:e2e": "node test/e2e.js",
+    "test:pdf": "node test/pdfcheck.js",
+    "test:ui": "node test/ui-smoke.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

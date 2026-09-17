@@ -1,0 +1,58 @@
+{
+  "solar": { "label": "Solar installer (demo)", "answers": {
+    "business": "We install residential and commercial solar systems for homeowners and small businesses in Ilocos.",
+    "products": "Residential install at 1,200,000 pesos\nCommercial install at 4,500,000 pesos, and commercial needs a site survey first",
+    "deal": "About 1,500,000 a deal, and three reps take calls",
+    "fulfilment": "Six people, and our own crew does the installs",
+    "owner": "It is me, with one operations assistant",
+    "close": "Two calls. First we qualify and do the survey, then we present the proposal",
+    "sources": "Google Ads about 25 a month, tracked\nFacebook about 18 a month, tracked\nWalk-ins about 10 a month, not tracked",
+    "capture": "They land in a spreadsheet, and I use HubSpot Starter plus WhatsApp and Excel",
+    "volumes": "55 leads a month, I close 12, so about 22 percent, and three weeks from first call to signed",
+    "spend": "80,000 on ads, about 15,000 on software",
+    "headache": "Follow-ups slip and I have no visibility on who is where in the process",
+    "goal": "20 closed installs a month"
+  }},
+  "medical": { "label": "Dental clinic (demo)", "answers": {
+    "business": "We run a dental clinic in Ilocos with four chairs and general plus cosmetic dentistry.",
+    "products": "General check-up at 1,500 pesos\nWhitening at 8,000 pesos, after an evaluation\nImplants at 45,000 pesos, after an x-ray and treatment plan",
+    "deal": "About 6,000 a typical deal, and two people take calls",
+    "fulfilment": "Four dentists and two assistants, we deliver everything in-house",
+    "owner": "My operations manager, Rosa",
+    "close": "One call, they book the first visit straight away",
+    "sources": "Google about 30 a month, tracked\nReferrals about 12 a month, not tracked\nWalk-ins about 40 a month, not tracked",
+    "capture": "We book in Excel and take messages on WhatsApp, no CRM",
+    "volumes": "80 leads a month, we close about 60, so roughly 75 percent, and the cycle is two weeks",
+    "spend": "30,000 on Google and a bit of Facebook, 5,000 on software",
+    "headache": "No-shows and no follow-up, so people book and then disappear",
+    "goal": "30 percent more bookings and fewer no-shows"
+  }},
+  "home": { "label": "HVAC and plumbing (demo)", "answers": {
+    "business": "We do aircon and plumbing service and installation for homes in and around Ilocos.",
+    "products": "AC service at 2,500 pesos\nAC installation at 18,000 pesos\nPlumbing repair at 1,800 pesos",
+    "deal": "Around 12,000 a typical job, four people take calls",
+    "fulfilment": "Eight technicians, our own team does all the work",
+    "owner": "Me, and my brother handles the jobs",
+    "close": "Two calls usually. One to quote, one to confirm the slot",
+    "sources": "Website about 35 a month, tracked\nPhone calls about 50 a month, not tracked\nReferrals about 10 a month, not tracked",
+    "capture": "Paper and WhatsApp, no CRM at all",
+    "volumes": "90 leads a month, we finish about 18 jobs, so 20 percent, and a week from call to job",
+    "spend": "25,000 on Google, 3,000 on software",
+    "headache": "We miss calls all the time and I have no idea how many jobs are in the pipeline",
+    "goal": "25 completed jobs a month"
+  }},
+  "ecommerce": { "label": "Coffee e-commerce (demo)", "answers": {
+    "business": "We sell single-origin coffee online in the Philippines, mostly subscriptions and hampers.",
+    "products": "Subscription box at 950 pesos a month\nSingle-origin bag at 450 pesos\nCorporate hampers at 3,500 pesos",
+    "deal": "About 1,200 a typical order, one person handles the phone",
+    "fulfilment": "Five people, we pack and ship from our own warehouse",
+    "owner": "I handle marketing and operations",
+    "close": "One call, and most orders are self-checkout online",
+    "sources": "Instagram about 200 a month, tracked\nGoogle about 80 a month, tracked\nEmail about 120 a month, tracked",
+    "capture": "Shopify and Mailchimp, no real CRM",
+    "volumes": "400 leads a month, we convert about 150, so roughly 38 percent, and it is same week",
+    "spend": "60,000 on ads, 10,000 on software",
+    "headache": "Repeat purchase is flat, so everything depends on new customers",
+    "goal": "30 percent more revenue in six months"
+  }}
+}

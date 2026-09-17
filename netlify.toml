@@ -1,0 +1,46 @@
+# Netlify configuration for the PipelineSync AI prototype.
+# Static app in /public, stateless API in /netlify/functions.
+# No build step needed: the app is plain HTML/CSS/JS.
+
+[build]
+  publish = "public"
+
+[functions]
+  directory = "netlify/functions"
+
+# API routes -> Netlify functions (same paths the frontend already calls)
+[[redirects]]
+  from = "/api/auth/login"
+  to = "/.netlify/functions/login"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/logout"
+  to = "/.netlify/functions/logout"
+  status = 200
+
+[[redirects]]
+  from = "/api/extract"
+  to = "/.netlify/functions/extract"
+  status = 200
+
+[[redirects]]
+  from = "/api/generate"
+  to = "/.netlify/functions/generate"
+  status = 200
+
+[[redirects]]
+  from = "/api/deliver"
+  to = "/.netlify/functions/deliver"
+  status = 200
+
+[[redirects]]
+  from = "/api/health"
+  to = "/.netlify/functions/health"
+  status = 200
+
+# Dev view: where leads land (Netlify variant explains the logs)
+[[redirects]]
+  from = "/dev/outbox"
+  to = "/.netlify/functions/outbox"
+  status = 200
