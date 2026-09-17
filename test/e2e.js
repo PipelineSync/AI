@@ -1,7 +1,9 @@
-/* Quick end-to-end API test for the prototype (run: node test/e2e.js) */
+/* Quick end-to-end API test for the prototype (run: node test/e2e.js).
+   Self-contained: starts its own dedicated server instance via test/harness.js. */
 const fs = require('fs');
 const path = require('path');
-const BASE = 'http://127.0.0.1:8080';
+const { startServer } = require('./harness');
+let BASE;
 
 const PERSONAS = JSON.parse(fs.readFileSync(path.join(__dirname, 'personas.json'), 'utf8'));
 
@@ -16,6 +18,9 @@ async function get(p) {
 }
 
 (async () => {
+  const srv = await startServer(8092);
+  BASE = srv.base;
+  process.on('exit', () => srv.stop());
   let failures = 0;
   const ok = (cond, msg) => {
     console.log((cond ? '  PASS  ' : '  FAIL  ') + msg);
