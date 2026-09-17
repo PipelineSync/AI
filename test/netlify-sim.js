@@ -2,7 +2,8 @@
    so the deployed code path is tested before pushing to GitHub. */
 const path = require('path');
 const F = dir => require(path.join(__dirname, '..', 'netlify', 'functions', dir));
-const login = F('login.js').handler;
+const start = F('start.js').handler;
+const login = F('login.js').handler;   // alias of start.js
 const logout = F('logout.js').handler;
 const extract = F('extract.js').handler;
 const generate = F('generate.js').handler;
@@ -19,12 +20,18 @@ const ok = (cond, msg) => { console.log((cond ? '  PASS  ' : '  FAIL  ') + msg);
   const h = await health({ httpMethod: 'GET', path: '/api/health' });
   ok(h.statusCode === 200 && JSON.parse(h.body).mode === 'netlify', 'health function (netlify mode)');
 
-  const bad = await login({ httpMethod: 'POST', path: '/api/auth/login', body: JSON.stringify({ email: 'nope', password: 'x' }) });
-  ok(bad.statusCode === 400, 'login rejects bad email');
+  const bad = await start({ httpMethod: 'POST', path: '/api/auth/start', body: JSON.stringify({ name: 'Allen', email: 'nope' }) });
+  ok(bad.statusCode === 400, 'entry gate rejects a bad email');
+  const noName = await start({ httpMethod: 'POST', path: '/api/auth/start', body: JSON.stringify({ email: 'allen@pipelinesync.ai' }) });
+  ok(noName.statusCode === 400, 'entry gate rejects a missing name');
 
-  const lg = await login({ httpMethod: 'POST', path: '/api/auth/login', body: JSON.stringify({ email: 'allen@pipelinesync.ai', password: 'demo1234' }) });
-  ok(lg.statusCode === 200 && JSON.parse(lg.body).token, 'login returns signed token');
+  const lg = await start({ httpMethod: 'POST', path: '/api/auth/start', body: JSON.stringify({ name: 'Allen Reyes', email: 'allen@pipelinesync.ai' }) });
+  ok(lg.statusCode === 200 && JSON.parse(lg.body).token, 'entry gate returns a signed token');
+  ok(JSON.parse(lg.body).user.name === 'Allen Reyes', 'the token carries the name the client typed');
   const T = JSON.parse(lg.body).token;
+
+  const alias = await login({ httpMethod: 'POST', path: '/api/auth/login', body: JSON.stringify({ name: 'Allen Reyes', email: 'allen@pipelinesync.ai' }) });
+  ok(alias.statusCode === 200 && JSON.parse(alias.body).token, 'the login function still serves the entry gate (alias)');
 
   // token must verify across "cold starts": require the core fresh
   delete require.cache[require.resolve('../lib/core')];

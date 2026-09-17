@@ -2,16 +2,30 @@
 <html lang="en-GB">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Responsive: the viewport is the contract for the whole layout. interactive-widget keeps the
+       call controls above the on-screen keyboard on Android Chrome. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#0F2F52">
+  <meta name="description" content="Talk through your business with the PipelineSync AI interviewer and get a HubSpot revenue operations blueprint: pipeline design, tool mapping and a cost-of-inaction estimate grounded in your own numbers.">
   <title>PipelineSync AI | Revenue Operations Blueprints</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="48x48 32x32 16x16">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div id="app" aria-live="polite"></div>
   <div id="toast" class="toast" role="status"></div>
+  <noscript>
+    <div class="noscript">
+      <h1>PipelineSync AI needs JavaScript</h1>
+      <p>The discovery call runs in your browser: the AI interviewer speaks each question and listens
+      while you answer out loud. Please enable JavaScript and reload this page to start the call.</p>
+    </div>
+  </noscript>
   <script src="app.js"></script>
 </body>
 </html>

@@ -27,12 +27,23 @@ async function get(p) {
     if (!cond) failures++;
   };
 
-  // 1. login
-  const lg = await post('/api/auth/login', { email: 'allen@pipelinesync.ai', password: 'demo1234' });
-  ok(lg.code === 200 && lg.j.token, 'login returns a token');
+  // 1. the entry gate: name + email, no password
+  const lg = await post('/api/auth/start', { name: 'Allen Reyes', email: 'allen@pipelinesync.ai' });
+  ok(lg.code === 200 && lg.j.token, 'the entry gate returns a token');
+  ok(lg.j.user && lg.j.user.name === 'Allen Reyes', 'the token keeps the name the client typed');
+  ok(lg.j.user && lg.j.user.first_name === 'Allen', 'the first name for the call greeting is derived');
   const T = lg.j.token;
-  const lg2 = await post('/api/auth/login', { email: 'bad', password: 'x' });
-  ok(lg2.code === 400, 'login rejects bad email');
+  const lg2 = await post('/api/auth/start', { name: 'Allen Reyes', email: 'bad' });
+  ok(lg2.code === 400, 'the entry gate rejects a bad email');
+  const lg3 = await post('/api/auth/start', { name: '', email: 'allen@pipelinesync.ai' });
+  ok(lg3.code === 400, 'the entry gate rejects a missing name');
+  const lg4 = await post('/api/auth/start', { name: '<img src=x onerror=alert(1)>Al', email: 'allen@pipelinesync.ai' });
+  ok(lg4.code === 200 && !/[<>]/.test(lg4.j.user.name) && !/script/i.test(lg4.j.user.name),
+    'markup is stripped from the name (' + JSON.stringify(lg4.j.user && lg4.j.user.name) + ')');
+  const lg5 = await post('/api/auth/login', { name: 'Allen Reyes', email: 'allen@pipelinesync.ai' });
+  ok(lg5.code === 200 && lg5.j.token, 'the old /api/auth/login path still works as an alias');
+  const lg6 = await post('/api/auth/start', { name: 'Allen Reyes', email: 'allen@pipelinesync.ai', password: 'ignored' });
+  ok(lg6.code === 200, 'no password is required');
 
   for (const [key, persona] of Object.entries(PERSONAS)) {
     console.log('\n=== ' + persona.label + ' ===');

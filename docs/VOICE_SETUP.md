@@ -60,7 +60,7 @@ never reaches the browser.
 
 1. Netlify dashboard → your site → **Site configuration → Environment variables → Add a variable**.
 2. Add `OPENAI_API_KEY` = your key (`sk-...`). Keep the scope to Functions (the default is fine).
-3. Add `PS_TOKEN_SECRET` if you have not already (any long random string) so login tokens and voice
+3. Add `PS_TOKEN_SECRET` if you have not already (any long random string) so entry-gate tokens and voice
    call tickets are signed with your own secret.
 4. **Deploys → Trigger deploy → Deploy site.** Environment changes need a redeploy for functions to
    pick them up.
@@ -206,7 +206,7 @@ the same screen and create a new one.
 |---|---|---|
 | C1 | Netlify -> your site -> **Site configuration** | Open **Environment variables** |
 | C2 | Environment variables | **Add a variable**: key `OPENAI_API_KEY`, value your `sk-...` key. Leave the scopes at their default so **Functions** can read it (a variable scoped to Builds only will not reach the functions) |
-| C3 | Same screen | Add `PS_TOKEN_SECRET` if it is not there yet: any long random string (`openssl rand -hex 16`). It signs the login tokens and the voice call tickets |
+| C3 | Same screen | Add `PS_TOKEN_SECRET` if it is not there yet: any long random string (`openssl rand -hex 16`). It signs the entry-gate session tokens and the voice call tickets |
 | C4 | Netlify -> **Deploys** | **Trigger deploy -> Clear cache and deploy site**. Environment changes only reach functions on a new deploy |
 
 Optional, to change how it sounds or what it costs:
@@ -224,7 +224,7 @@ Optional, to change how it sounds or what it costs:
 
 | # | Where | Do this | You should see |
 |---|---|---|---|
-| D1 | Open your site | Log in, tick the disclaimer, agree | The AI speaks immediately, no text box |
+| D1 | Open your site | Enter your name and email, tick the disclaimer, agree | The AI speaks immediately, no text box |
 | D2 | The call screen | The badge in the "This call" card | **ChatGPT voice**, not "Simulated voice" |
 | D3 | Same card | Read the model line | `gpt-4o-mini-tts`, voice `alloy`, and the transcription model |
 | D4 | Finish the call | Answer out loud, then structure the answers | The sidebar captured the fields and the three required numbers are filled |

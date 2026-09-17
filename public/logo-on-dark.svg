@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 640" width="520" height="640">
+  <!-- PipelineSync mark on a light plate: use this version on dark backgrounds (navy hero panels,
+       dark slides, dark-mode decks). The bare mark in logo.svg is navy #0F2F52 and steel #3E6C8E,
+       which measure 1.00:1 and 2.42:1 against #0F2F52 and disappear. On this plate the mark is
+       13.56:1 and 5.61:1. Use logo.svg on light backgrounds. -->
+  <rect width="520" height="640" rx="104" fill="#FFFFFF"/>
+  <g transform="translate(48.4,44) scale(0.92)">
+    <!-- PipelineSync mark: two 180-degree-rotational pipe strokes + sync dot -->
+    <g fill="none" stroke-width="58" stroke-linejoin="miter" stroke-linecap="butt">
+      <path stroke="#0F2F52" d="M402 32 V150 H150 A92.5 92.5 0 0 0 150 335 H200"/>
+      <path stroke="#3E6C8E" d="M58 568 V450 H310 A92.5 92.5 0 0 0 310 265 H260"/>
+    </g>
+    <circle cx="200" cy="335" r="29" fill="#0F2F52"/>
+    <circle cx="260" cy="265" r="29" fill="#3E6C8E"/>
+    <rect x="268" y="308" width="57" height="57" rx="14" fill="#F57C1F"/>
+  </g>
+</svg>

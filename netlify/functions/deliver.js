@@ -22,7 +22,7 @@ exports.handler = async (event) => {
   try { payload = core.verifyToken(body.token); } catch (e) {
     return json(500, { error: 'Server misconfigured: missing token secret.' });
   }
-  if (!payload) return json(401, { error: 'Not signed in.' });
+  if (!payload) return json(401, { error: 'Your session has ended. Enter your name and email to start again.' });
 
   const bp = body.blueprint;
   if (!bp || !bp.meta || !bp.meta.verticalLabel) return json(400, { error: 'No blueprint in request. Generate the blueprint before unlocking the PDF.' });

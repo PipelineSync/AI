@@ -74,7 +74,7 @@ function securityHeaders() {
   };
 }
 
-// Simple in-memory rate limiter for login (per IP)
+// Simple in-memory rate limiter for the entry gate and the voice routes (per IP)
 const rateLimitMap = new Map(); // ip -> { count, resetAt }
 function checkRateLimit(ip, max = 20, windowMs = 60 * 1000) {
   const now = Date.now();
@@ -155,7 +155,7 @@ function getStatic(req, res, urlPath) {
     fs.readFile(safeJoined, (err2, buf) => {
       if (err2) { res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain' }, securityHeaders())); return res.end('not found'); }
       const ext = path.extname(safeJoined).toLowerCase();
-      const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' }[ext] || 'application/octet-stream';
+      const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json; charset=utf-8', '.json': 'application/json; charset=utf-8' }[ext] || 'application/octet-stream';
       res.writeHead(200, Object.assign({ 'Content-Type': mime, 'Cache-Control': 'no-store' }, securityHeaders()));
       res.end(buf);
     });
@@ -181,22 +181,27 @@ async function handleApi(req, res, url) {
   if (method === 'GET' && route === '/api/health') return sendJson(res, 200, { ok: true, service: 'pipelinesync-ai-prototype', version: '0.2', mode: 'local' });
   if (method === 'GET' && route === '/dev/outbox') return outboxPage(res);
 
-  if (method === 'POST' && route === '/api/auth/login') {
-    const rl = checkRateLimit('login:' + ip, 20, 60 * 1000);
+  /* Entry gate: name + email, no password. /api/auth/login is kept as an alias so any
+     already-deployed client or bookmarked redirect still reaches the same handler. */
+  if (method === 'POST' && (route === '/api/auth/start' || route === '/api/auth/login')) {
+    const rl = checkRateLimit('start:' + ip, 20, 60 * 1000);
     if (!rl.allowed) {
       res.writeHead(429, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(rl.retryAfter) }, securityHeaders()));
-      return res.end(JSON.stringify({ error: 'Too many login attempts. Please wait ' + rl.retryAfter + 's.' }));
+      return res.end(JSON.stringify({ error: 'Too many attempts. Please wait ' + rl.retryAfter + 's.' }));
     }
     const body = await readBody(req);
-    const email = String(body.email || '').trim().toLowerCase();
-    const password = String(body.password || '');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendJson(res, 400, { error: 'Enter a valid email address.' });
-    if (email.length > 254) return sendJson(res, 400, { error: 'Email too long.' });
-    if (password.length < 4) return sendJson(res, 400, { error: 'Password must be at least 4 characters (prototype rule).' });
-    if (password.length > 128) return sendJson(res, 400, { error: 'Password too long.' });
-    const name = core.loginNameFor(email);
-    const token = core.signToken({ email, name, exp: Date.now() + core.TOKEN_TTL_MS });
-    return sendJson(res, 200, { ok: true, token, user: { name, email } });
+    const entry = core.validateEntry(body);
+    if (!entry.ok) return sendJson(res, 400, { error: entry.error });
+    try {
+      const token = core.signToken({ email: entry.email, name: entry.name, exp: Date.now() + core.TOKEN_TTL_MS });
+      return sendJson(res, 200, {
+        ok: true, token,
+        user: { name: entry.name, email: entry.email, first_name: core.firstNameOf(entry.name), initials: core.initialsOf(entry.name) }
+      });
+    } catch (e) {
+      console.error('[security] entry gate failed:', e.message);
+      return sendJson(res, 500, { error: 'Server misconfigured: missing token secret.' });
+    }
   }
   if (method === 'POST' && route === '/api/auth/logout') {
     await readBody(req);
@@ -224,7 +229,7 @@ async function handleApi(req, res, url) {
   // Authenticated routes: token is in the JSON body (client always sends it)
   const authBody = await readBody(req);
   const payload = core.verifyToken(authBody.token);
-  if (!payload) return sendJson(res, 401, { error: 'Not signed in.' });
+  if (!payload) return sendJson(res, 401, { error: 'Your session has ended. Enter your name and email to start again.' });
 
   if (method === 'POST' && route === '/api/extract') {
     const answers = Array.isArray(authBody.answers) ? authBody.answers : [];
@@ -254,7 +259,8 @@ async function handleApi(req, res, url) {
     if (email.length > 254) return sendJson(res, 400, { error: 'Email too long.' });
     if (authBody.consent !== true) return sendJson(res, 400, { error: 'Please tick the consent box before we send the PDF.' });
     const buffer = core.buildPdf(bp);
-    const lead = core.makeLeadPayload(email, payload.name, authBody.fields || null, bp, clampVoiceMeta(authBody.voice_meta));
+    const leadName = core.cleanName(payload.name) || core.loginNameFor(payload.email || email);
+    const lead = core.makeLeadPayload(email, leadName, authBody.fields || null, bp, clampVoiceMeta(authBody.voice_meta));
     hubSpotOutbox.push(lead);
     console.log('[hubspot-mock] lead push: ' + JSON.stringify(lead));
     return sendJson(res, 200, {

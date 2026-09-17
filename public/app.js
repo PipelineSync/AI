@@ -120,7 +120,7 @@ const REQUIRED = ['typical_deal_size', 'monthly_lead_volume', 'close_rate'];
 const state = {
   token: store.get('ps_token') || null,
   user: JSON.parse(store.get('ps_user') || 'null'),
-  stage: 'login',
+  stage: 'start',        // the entry gate: name + email, then straight to the voice call
   answers: [],           // [{id, text}] captured on the call (or by typing)
   fields: null,          // Section 7 contract
   blueprint: null,
@@ -129,6 +129,7 @@ const state = {
   fieldStatus: {},       // live sidebar state
   voice: null,           // live call state (see newVoiceState in the voice engine)
   showTranscript: false, // transcript panel is collapsed; the call is spoken
+  sideOpen: false,       // mobile: the call progress panel is a drawer
   fieldError: null       // live capture status problems, surfaced instead of failing silently
 };
 function saveAuth() {
@@ -139,7 +140,7 @@ function resetJourney() {
   stopSpeaking(); stopListening();
   state.stage = 'consent'; state.answers = []; state.fields = null;
   state.blueprint = null; state.delivered = null; state.booking = null; state.fieldStatus = {};
-  state.voice = null; state.showTranscript = false; state.fieldError = null;
+  state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
 }
 
 /* ---------------- api ---------------- */
@@ -148,7 +149,7 @@ const api = {
     const r = await fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ token: state.token }, body)) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
-      if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'login'; render(); }
+      if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
       throw new Error(j.error || 'HTTP ' + r.status);
     }
     return j;
@@ -679,7 +680,7 @@ function finishCall() {
 /* ---------------- rendering ---------------- */
 function render() {
   const app = $('#app');
-  if (!state.token) { app.innerHTML = loginView(); return; }
+  if (!state.token) { app.innerHTML = startView(); return; }
   let h = topbar() + '<main class=\"main\" id=\"main-content\" tabindex=\"-1\">' + steps();
   switch (state.stage) {
     case 'consent': h += consentView(); break;
@@ -710,72 +711,170 @@ function logoMark(h, mono) {
     '<circle cx="260" cy="265" r="29" fill="' + steel + '"/>' +
     '<rect x="268" y="308" width="57" height="57" rx="14" fill="' + dot + '"/></svg>';
 }
-function topbar() {
-  return '<div class=\"topbar\"><div class=\"brand\">' +
-    '<div class=\"logo\">' + logoMark(30) + '</div>' +
-    '<div>PipelineSync AI<small>Revenue operations blueprints</small></div></div>' +
-    '<div class=\"topbar-right\"><span>Signed in as <b>' + esc(state.user ? state.user.name : '') + '</b></span>' +
-    '<button class=\"btn btn-ghost btn-sm\" id=\"logout-btn\" aria-label=\"Log out\">Log out</button></div></div>';
+/* Initials for the header chip. The server returns them, but a session restored from an
+   older token may not carry them, so derive them the same way here. */
+function initialsFor(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
+function firstName() {
+  return String((state.user && state.user.name) || '').trim().split(/\s+/)[0] || '';
+}
+/* The mark on a light plate. Its strokes are navy (#0F2F52) and steel (#3E6C8E), so on a dark
+   surface - the entry-gate hero is a navy gradient - an un-plated mark measures 1.0:1 against it
+   and disappears. The plate is the same treatment public/favicon.svg and logo-on-dark.svg use. */
+function logoTile(h) {
+  return '<span class="logo-plate">' + logoMark(h) + '</span>';
+}
+function topbar() {
+  const u = state.user || {};
+  const name = esc(u.name || '');
+  const initials = esc(u.initials || initialsFor(u.name));
+  return '<header class="topbar">' +
+    '<a class="skip-link" href="#main-content">Skip to content</a>' +
+    '<div class="brand">' +
+      '<span class="logo">' + logoTile(28) + '</span>' +
+      '<span class="brand-text">PipelineSync AI<small>Revenue operations blueprints</small></span>' +
+    '</div>' +
+    '<div class="topbar-right">' +
+      '<div class="userchip" title="Signed in as ' + esc(u.email || '') + '">' +
+        '<span class="userchip-av" aria-hidden="true">' + initials + '</span>' +
+        '<span class="userchip-name"><b>' + name + '</b><small>' + esc(u.email || '') + '</small></span>' +
+      '</div>' +
+      '<button class="btn btn-ghost btn-sm" id="logout-btn" aria-label="Start over with another business">Start over</button>' +
+    '</div>' +
+  '</header>';
+}
+/* The step rail doubles as the progress bar: a compact count on phones, the full rail on
+   desktop. Labels are wrapped in .label so CSS can drop them at narrow widths. */
 function steps() {
   const order = ['intake', 'review', 'blueprint', 'done', 'booking'];
   const idx = state.stage === 'consent' ? 0 : state.stage === 'extracting' ? 1 : order.indexOf(state.stage);
-  const labels = [['1', 'Discovery call'], ['2', 'Review and correct'], ['3', 'Blueprint'], ['4', 'PDF and lead'], ['5', 'Book a call']];
-  let h = '<div class=\"steps\" aria-label=\"Progress\">';
+  const labels = ['Discovery call', 'Review and correct', 'Blueprint', 'PDF and lead', 'Book a call'];
+  const at = Math.max(0, Math.min(labels.length - 1, idx));
+  const pct = Math.max(0, Math.min(100, Math.round(((at + 1) / labels.length) * 100)));
+  let h = '<nav class="steps" aria-label="Progress">' +
+    '<p class="steps-count">Step ' + (at + 1) + ' of ' + labels.length +
+    '<span class="steps-now">' + esc(labels[at]) + '</span></p>' +
+    '<div class="steps-rail" role="list">';
   labels.forEach((l, i) => {
-    const cls = i < idx ? 'done' : i === idx ? 'active' : '';
-    const aria = i === idx ? ' aria-current=\"step\"' : '';
-    h += '<div class=\"step ' + cls + '\"' + aria + '><span class=\"n\" aria-hidden=\"true\">' + (i < idx ? '&#10003;' : l[0]) + '</span>' + esc(l[1]) + '</div>';
+    const cls = i < at ? 'done' : i === at ? 'active' : '';
+    const aria = i === at ? ' aria-current="step"' : '';
+    h += '<div class="step ' + cls + '"' + aria + ' role="listitem">' +
+      '<span class="n" aria-hidden="true">' + (i < at ? '&#10003;' : (i + 1)) + '</span>' +
+      '<span class="label">' + esc(l) + '</span></div>';
   });
-  return h + '</div>';
+  h += '</div></nav>';
+  return h + '<div class="steps-bar" aria-hidden="true"><span style="width:' + pct + '%"></span></div>';
 }
 function footer() {
   return '<div class="footer"><span>Prototype build v0.2 (hardened + voice)</span><span>The discovery call runs on the real OpenAI voice layer (ChatGPT wording, OpenAI speech and transcription) when OPENAI_API_KEY is set; extraction, PDF, and CRM steps are still simulated locally, with Supabase for auth and data in production.</span><span>All keys live server-side, never in the browser.</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></div>';
 }
 
-/* ---------------- login ---------------- */
-function loginView() {
-  return '<div class=\"login-wrap\"><div class=\"login-hero\">' +
-    '<div class="brand" style="margin-bottom:34px"><div class="logo">' + logoMark(34) + '</div><div>PipelineSync AI</div></div>' +
-    '<h1>Talk it through. Get your HubSpot revenue operations blueprint.</h1>' +
-    '<p class=\"lede\">A short voice call with our AI interviewer. You review and correct what we heard, then we build a PDF blueprint of the exact HubSpot setup your pipeline needs. A human reviews and sells the build.</p>' +
-    '<div class=\"mini-steps\">' +
-    '<div class=\"mini-step\"><span class=\"n\">1</span><div><b>Talk through your business</b><span>Two minutes of voice, like a conversation, not a form.</span></div></div>' +
-    '<div class=\"mini-step\"><span class=\"n\">2</span><div><b>We structure the answers</b><span>AI extracts the facts into a clean data contract. Nothing invented.</span></div></div>' +
-    '<div class=\"mini-step\"><span class=\"n\">3</span><div><b>You review and correct</b><span>Every field is editable. Unstated items are flagged, not guessed.</span></div></div>' +
-    '<div class=\"mini-step\"><span class=\"n\">4</span><div><b>Your blueprint, your lead</b><span>A PDF built server-side, grounded in our knowledge base, plus a booking link.</span></div></div>' +
-    '</div></div>' +
-    '<div class=\"login-side\"><div class=\"login-card\"><div class=\"card\">' +
-    '<h2>Log in to start</h2>' +
-    '<p class=\"sub\">Login is required. In production this is Supabase Auth; the prototype uses a local session.</p>' +
-    '<div class=\"field\"><label for=\"lg-email\">Email</label><input type=\"email\" id=\"lg-email\" placeholder=\"you@yourbusiness.ph\" maxlength=\"254\" autocomplete=\"email\"></div>' +
-    '<div class=\"field\"><label for=\"lg-pass\">Password</label><input type=\"password\" id=\"lg-pass\" placeholder=\"Any 4+ characters in the prototype\" maxlength=\"128\" autocomplete=\"current-password\"></div>' +
-    '<button class=\"btn btn-primary\" id=\"lg-btn\" style=\"width:100%\">Log in</button>' +
-    '<button class=\"btn btn-ghost mt8\" id=\"demo-btn\" style=\"width:100%\">Use the demo account</button>' +
-    '<p class=\"login-note\">By continuing you agree to the AI disclaimer and privacy notice shown before data collection begins.</p>' +
-    '</div></div></div></div>';
+/* ---------------- the entry gate: name + email, then the AI voice call ----------------
+ * There is no password and no account to create. The name is what the AI interviewer
+ * calls the client on the call (sent as client_name on /api/voice/turn) and what lands
+ * on the HubSpot lead. The email is where the finished blueprint PDF is delivered.
+ * Production swaps this form for Supabase Auth (magic link or OTP) with the same shape. */
+function initialsFor(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
-function bindLogin() {
-  const go = (email, pass) => {
-    const btn = $('#lg-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Logging in...'; }
-    api.post('/api/auth/login', { email, password: pass }).then(j => {
-      state.token = j.token; state.user = j.user; saveAuth();
+const NAME_RE = /[A-Za-z\u00C0-\u024F\u0400-\u04FF]/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function startView() {
+  const lastName = store.get('ps_last_name') || '';
+  const lastEmail = store.get('ps_last_email') || '';
+  return '<div class="gate">' +
+    '<div class="gate-brand">' +
+      '<div class="gate-brand-inner">' +
+        '<div class="brand brand-lg"><div class="logo">' + logoTile(38) + '</div><div>PipelineSync AI<small>Revenue operations blueprints</small></div></div>' +
+        '<h1>Talk it through. <span class="accent">Get your HubSpot revenue operations blueprint.</span></h1>' +
+        '<p class="lede">A short voice call with Alex, our AI interviewer. You review and correct what we heard, then we build a PDF blueprint of the exact HubSpot setup your pipeline needs. A human reviews and sells the build.</p>' +
+        '<ul class="mini-steps">' +
+          '<li class="mini-step"><span class="n">1</span><div><b>Talk through your business</b><span>Two minutes of voice, like a conversation, not a form.</span></div></li>' +
+          '<li class="mini-step"><span class="n">2</span><div><b>We structure the answers</b><span>AI extracts the facts into a clean data contract. Nothing invented.</span></div></li>' +
+          '<li class="mini-step"><span class="n">3</span><div><b>You review and correct</b><span>Every field is editable. Unstated items are flagged, not guessed.</span></div></li>' +
+          '<li class="mini-step"><span class="n">4</span><div><b>Your blueprint, your lead</b><span>A PDF built server-side, grounded in our knowledge base, plus a booking link.</span></div></li>' +
+        '</ul>' +
+        '<div class="gate-trust"><span class="trust-item"><span class="dot" aria-hidden="true"></span>No password needed</span>' +
+        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Audio transcribed, never stored</span>' +
+        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Human review before any build</span></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="gate-side"><div class="gate-card">' +
+      '<h2>Start your AI voice call</h2>' +
+      '<p class="sub">Enter your name and email to proceed. We connect you straight to the AI interviewer, who speaks first and listens while you answer.</p>' +
+      '<form id="start-form" novalidate>' +
+        '<div class="field"><label for="st-name">Your name <span class="req">Required</span></label>' +
+          '<input type="text" id="st-name" name="name" value="' + esc(lastName) + '" placeholder="Maria Santos" maxlength="80" autocomplete="name" autocapitalize="words" spellcheck="false" aria-describedby="st-name-hint">' +
+          '<p class="hint" id="st-name-hint">This is what the AI calls you on the call.</p></div>' +
+        '<div class="field"><label for="st-email">Work email <span class="req">Required</span></label>' +
+          '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false" aria-describedby="st-email-hint">' +
+          '<p class="hint" id="st-email-hint">The finished blueprint PDF is delivered here.</p></div>' +
+        '<p class="form-error" id="start-error" role="alert" hidden></p>' +
+        '<button class="btn btn-primary btn-lg btn-block" id="st-btn" type="submit">Start my AI voice call</button>' +
+      '</form>' +
+      '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
+      '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use the demo account</button>' +
+      '<p class="gate-note">By continuing you agree to the AI disclaimer and privacy notice shown next. Your microphone is used only during the call; audio is transcribed and never stored.</p>' +
+    '</div></div>' +
+  '</div>';
+}
+function bindStart() {
+  const form = $('#start-form');
+  const nameEl = $('#st-name');
+  const emailEl = $('#st-email');
+  const errEl = $('#start-error');
+  const btn = $('#st-btn');
+  const fail = (msg, focusEl) => {
+    if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
+    if (focusEl) { focusEl.setAttribute('aria-invalid', 'true'); focusEl.focus(); }
+    if (btn) { btn.disabled = false; btn.textContent = 'Start my AI voice call'; }
+    const demoBtn = $('#demo-btn');
+    if (demoBtn) { demoBtn.disabled = false; demoBtn.textContent = 'Use the demo account'; }
+    toast(msg, true);
+  };
+  const clearErrors = () => {
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+    [nameEl, emailEl].forEach(el => { if (el) el.removeAttribute('aria-invalid'); });
+  };
+  const go = (name, email) => {
+    const cleanName = String(name || '').replace(/\s+/g, ' ').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    clearErrors();
+    if (!cleanName || cleanName.length < 2) return fail('Enter your name so the AI knows what to call you on the call.', nameEl);
+    if (!NAME_RE.test(cleanName)) return fail('Please enter your name using letters.', nameEl);
+    if (!EMAIL_RE.test(cleanEmail)) return fail('Enter a valid email address, like you@yourbusiness.ph.', emailEl);
+    if (btn) { btn.disabled = true; btn.textContent = 'Connecting you to the AI...'; }
+    api.post('/api/auth/start', { name: cleanName, email: cleanEmail }).then(j => {
+      state.token = j.token;
+      state.user = j.user;
+      saveAuth();
+      store.set('ps_last_name', cleanName);
+      store.set('ps_last_email', cleanEmail);
       state.stage = 'consent';
       render();
-    }).catch(e => {
-      toast(e.message, true);
-      if (btn) { btn.disabled = false; btn.textContent = 'Log in'; }
-    });
+      toast('Ready when you are, ' + (j.user.first_name || cleanName.split(' ')[0]) + '.');
+    }).catch(e => fail(e.message, nameEl));
   };
-  $('#lg-btn').onclick = () => go($('#lg-email').value, $('#lg-pass').value);
-  $('#demo-btn').onclick = () => go('allen@pipelinesync.ai', 'demo1234');
-  ['#lg-email', '#lg-pass'].forEach(sel => {
-    const el = $(sel);
-    if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') go($('#lg-email').value, $('#lg-pass').value); });
-  });
-  const first = $('#lg-email');
-  if (first) first.focus();
+  if (form) form.addEventListener('submit', e => { e.preventDefault(); go(nameEl.value, emailEl.value); });
+  const demo = $('#demo-btn');
+  if (demo) demo.onclick = () => {
+    clearErrors();
+    demo.disabled = true;
+    demo.textContent = 'Loading the demo account...';
+    go('Demo Owner', 'demo@pipelinesync.ai');
+  };
+  [nameEl, emailEl].forEach(el => { if (el) el.addEventListener('input', clearErrors); });
+  // Put the cursor in the first empty field, and keep the keyboard out of the way on phones.
+  if (nameEl && !nameEl.value) nameEl.focus();
+  else if (emailEl && !emailEl.value) emailEl.focus();
 }
 
 /* ---------------- consent ---------------- */
@@ -821,7 +920,8 @@ function callView() {
   let h = '<div class="intake-wrap"><div class="call">' +
     '<div class="call-head"><div class="who"><div class="avatar">AI</div><div><b>AI discovery call</b><span class="small muted" id="call-mode">' +
       (v.cfg ? (v.mode === 'openai' ? 'ChatGPT voice, ' + esc(v.cfg.models.tts) : 'simulated voice (no API key)') : 'connecting...') + '</span></div></div>' +
-      '<div class="progress" id="call-progress">' + (started ? 'Question ' + Math.min(answered + 1, total) + ' of ' + total : 'Not started') + '</div></div>' +
+      '<div class="call-head-right"><div class="progress" id="call-progress">' + (started ? 'Question ' + Math.min(answered + 1, total) + ' of ' + total : 'Not started') + '</div>' +
+      '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress<span class="side-toggle-count">' + answered + '/' + total + '</span></button></div></div>' +
     '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
     '<div class="call-body">' +
       '<div class="orb ' + esc(v.status) + (v.listening ? ' live' : '') + '" id="orb" role="img" aria-label="Call state: ' + esc(v.status) + '"><div class="rings"></div>' +
@@ -842,7 +942,7 @@ function callControls(started, total) {
     const ready = !!v.opening;
     return '<div class="call-row"><button class="btn btn-primary btn-lg" id="start-call">&#9654; Start the discovery call (voice)</button>' +
       '<button class="btn btn-ghost" id="type-btn-pre">Type my answers instead</button></div>' +
-      '<p class="small mt8" style="color:' + (ready ? 'var(--green)' : 'var(--muted)') + '">' +
+      '<p class="small mt8 ' + (ready ? 'txt-ok' : 'muted') + '">' +
       (ready
         ? 'Ready. The AI speaks the first question out loud the instant you press start.'
         : (v.prefetching || v.sessionPromise ? 'Preparing the AI voice...' : 'The AI speaks every question out loud and listens for your answer. Your microphone is used only during the call; audio is transcribed and not stored.')) + '</p>';
@@ -889,9 +989,9 @@ function callSidebar() {
     '<div class="provider-card">' + providerBadge() + '<span class="small muted">' + (v.mode === 'openai' ? 'OpenAI, server-side' : 'built-in questions, browser voice') + '</span></div>' +
     '<p class="small muted mt8">' + esc(v.why || 'Checking which voice provider is available...') + '</p>' +
     (v.cfg ? '<p class="small muted">Speaking: ' + esc(v.cfg.models.tts) + ' voice ' + esc(v.cfg.tts_voice) + '<br>Listening: ' + (v.engine === 'openai' ? 'OpenAI transcription (' + esc(v.cfg.models.stt) + ')' : 'browser microphone') + '<br>Turns so far: ' + v.turns + '<br>Audio is transcribed, never stored.</p>' : '') +
-    (v.warnings && v.warnings.length ? '<p class="small" style="color:var(--amber)">' + esc(v.warnings[v.warnings.length - 1]) + '</p>' : '') +
+    (v.warnings && v.warnings.length ? '<p class="small txt-warn">' + esc(v.warnings[v.warnings.length - 1]) + '</p>' : '') +
     '</div>';
-  const errNote = state.fieldError ? '<p class="small" role="alert" style="color:var(--red);margin-top:8px">' + esc(state.fieldError) + '</p>' : '';
+  const errNote = state.fieldError ? '<p class="small txt-err mt8" role="alert">' + esc(state.fieldError) + '</p>' : '';
   const reqCard = missingReq.length
     ? '<div class="side-card warn"><h3>Needed before the blueprint</h3><p class="small">Still unstated: <b>' + missingReq.map(k => esc(labels[k] || FIELD_LABELS[k])).join(', ') + '</b>. The AI will ask again on the call, and you can add them on the review screen. Nothing is ever invented.</p></div>'
     : '<div class="side-card ok"><h3>Required numbers captured</h3><p class="small">Deal size, monthly lead volume and close rate are all captured, so the blueprint can be grounded in your own figures.</p></div>';
@@ -899,14 +999,15 @@ function callSidebar() {
   const personaCard = '<div class="side-card"><h3>QA shortcut</h3>' +
     '<label class="small muted" for="persona-sel">Load a demo business without a call (Section 9 checklist)</label>' +
     '<select id="persona-sel"><option value="">Choose a vertical...</option>' + personaOpts + '</select>' +
-    '<button class="btn btn-ghost btn-sm" id="persona-go" style="width:100%;margin-top:8px">Load demo answers</button>' +
+    '<button class="btn btn-ghost btn-sm btn-block mt8" id="persona-go">Load demo answers</button>' +
     '<p class="small muted mt8">Typed demo answers for the four verticals (solar, medical, home services, e-commerce). Use these to check the blueprint quality checks.</p></div>';
   const bubbles = v.transcript.map(t => '<div class="bubble ' + (t.role === 'ai' ? 'ai' : 'user') + '">' + esc(t.text) + '</div>').join('');
   const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
     '<p class="small muted">The call is spoken. This is the written record the AI will structure.</p>' +
     '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
     '<div class="chat-body" id="chat-body">' + (bubbles || '<p class="small muted">Nothing yet.</p>') + '</div></details></div>';
-  return '<div>' + modeCard + '<div class="side-card"><h3>What we have captured</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + personaCard + '</div>';
+  return '<aside class="intake-side" id="intake-side" aria-label="Call progress and captured answers">' +
+    modeCard + '<div class="side-card"><h3>What we have captured</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + personaCard + '</aside>';
 }
 function updateLiveLine() {
   const v = voiceSync();
@@ -993,6 +1094,15 @@ function bindCall() {
   };
   const tw = $('#transcript-wrap');
   if (tw) tw.addEventListener('toggle', () => { state.showTranscript = tw.open; });
+  // On phones the captured-answers panel is a drawer under the call, opened from the call head.
+  const sideToggle = $('#side-toggle');
+  const wrapEl = $('.intake-wrap');
+  if (sideToggle) sideToggle.onclick = () => {
+    state.sideOpen = !state.sideOpen;
+    if (wrapEl) wrapEl.classList.toggle('side-open', state.sideOpen);
+    sideToggle.setAttribute('aria-expanded', state.sideOpen ? 'true' : 'false');
+  };
+  if (wrapEl) wrapEl.classList.toggle('side-open', state.sideOpen);
 }
 function listNow() {
   const v = voiceSync();
@@ -1125,25 +1235,25 @@ function reviewView() {
       if (cfg.type === 'products') {
         const rows = (f.products || []).map((p, i) =>
           '<tr><td><input data-prod=\"' + i + '\" data-pk=\"name\" value=\"' + esc(p.name) + '\" maxlength=\"200\" aria-label=\"Product name\"></td>' +
-          '<td style=\"width:150px\"><input data-prod=\"' + i + '\" data-pk=\"price\" value=\"' + esc(p.price) + '\" placeholder=\"PHP\" aria-label=\"Product price\"></td>' +
-          '<td style=\"width:200px\"><input data-prod=\"' + i + '\" data-pk=\"prerequisite\" value=\"' + esc(p.prerequisite) + '\" placeholder=\"Needs...\" maxlength=\"200\" aria-label=\"Prerequisite\"></td>' +
+          '<td class=\"col-price\"><input data-prod=\"' + i + '\" data-pk=\"price\" value=\"' + esc(p.price) + '\" placeholder=\"PHP\" aria-label=\"Product price\"></td>' +
+          '<td class=\"col-pre\"><input data-prod=\"' + i + '\" data-pk=\"prerequisite\" value=\"' + esc(p.prerequisite) + '\" placeholder=\"Needs...\" maxlength=\"200\" aria-label=\"Prerequisite\"></td>' +
           '<td><button class=\"del\" data-del-prod=\"' + i + '\" title=\"Remove row\" aria-label=\"Remove product\">&times;</button></td></tr>'
         ).join('');
-        h += '<div class=\"field is-null' + (nullish ? ' is-null' : '') + ' review-full\"><label>Products and services ' + badge + '</label>' +
-          '<table class=\"tbl\"><tr><th>Product / service</th><th>Price</th><th>Prerequisite</th><th></th></tr>' + rows + '</table>' +
+        h += '<div class=\"field review-full' + (nullish ? ' is-null' : '') + '\"><label>Products and services ' + badge + '</label>' +
+          '<div class="tbl-wrap"><table class="tbl tbl-edit"><tr><th>Product / service</th><th>Price</th><th>Prerequisite</th><th class="col-del"><span class="sr-only">Remove</span></th></tr>' + rows + '</table></div>' +
           '<button class=\"btn btn-ghost btn-sm mt8\" id=\"add-prod\">Add product</button></div>';
       } else if (cfg.type === 'sources') {
         const rows = (f.lead_sources || []).map((s, i) =>
           '<tr><td><input data-src=\"' + i + '\" data-sk=\"source\" value=\"' + esc(s.source) + '\" maxlength=\"100\" aria-label=\"Lead source\"></td>' +
-          '<td style=\"width:130px\"><input data-src=\"' + i + '\" data-sk=\"monthly_volume\" value=\"' + esc(s.monthly_volume) + '\" placeholder=\"per month\" aria-label=\"Monthly volume\"></td>' +
-          '<td style=\"width:150px\"><select data-src=\"' + i + '\" data-sk=\"tracked\" aria-label=\"Tracked?\">' +
+          '<td class=\"col-vol\"><input data-src=\"' + i + '\" data-sk=\"monthly_volume\" value=\"' + esc(s.monthly_volume) + '\" placeholder=\"per month\" aria-label=\"Monthly volume\"></td>' +
+          '<td class=\"col-tracked\"><select data-src=\"' + i + '\" data-sk=\"tracked\" aria-label=\"Tracked?\">' +
           '<option value=\"unknown\"' + (s.tracked == null ? ' selected' : '') + '>Unknown</option>' +
           '<option value=\"yes\"' + (s.tracked === true ? ' selected' : '') + '>Tracked</option>' +
           '<option value=\"no\"' + (s.tracked === false ? ' selected' : '') + '>Not tracked</option></select></td>' +
           '<td><button class=\"del\" data-del-src=\"' + i + '\" title=\"Remove row\" aria-label=\"Remove source\">&times;</button></td></tr>'
         ).join('');
-        h += '<div class=\"field review-full\"><label>Lead sources ' + badge + '</label>' +
-          '<table class=\"tbl\"><tr><th>Source</th><th>Monthly volume</th><th>Tracked?</th><th></th></tr>' + rows + '</table>' +
+        h += '<div class=\"field review-full' + (nullish ? ' is-null' : '') + '\"><label>Lead sources ' + badge + '</label>' +
+          '<div class="tbl-wrap"><table class="tbl tbl-edit"><tr><th>Source</th><th>Monthly volume</th><th>Tracked?</th><th class="col-del"><span class="sr-only">Remove</span></th></tr>' + rows + '</table></div>' +
           '<button class=\"btn btn-ghost btn-sm mt8\" id=\"add-src\">Add source</button></div>';
       } else if (cfg.type === 'tags') {
         h += '<div class=\"field' + full + '\"><label>Current tools ' + badge + '</label>' +
@@ -1152,7 +1262,7 @@ function reviewView() {
         const opts = cfg.options.map(o => '<option value=\"' + o + '\"' + (v === o ? ' selected' : '') + '>' + o + '</option>').join('');
         h += '<div class=\"field' + (nullish ? ' is-null' : '') + full + '\"><label>' + esc(cfg.label) + req + badge + '</label>' +
           '<select data-key=\"' + cfg.k + '\" data-type=\"select\"' + (v == null ? ' data-nullsel=\"1\"' : '') + ' aria-label=\"' + esc(cfg.label) + '\">' + (v == null ? '<option value=\"\" selected>Not stated - please select</option>' : '') + opts + '</select>' +
-          (cfg.k === 'close_type' && nullish ? '<div class="small" style="color:var(--amber);margin-top:4px">Please select how you close - this affects pipeline stages</div>' : '') +
+          (cfg.k === 'close_type' && nullish ? '<div class="small field-warn">Please select how you close - this affects pipeline stages</div>' : '') +
           (nullish ? heardNote(cfg.k) : '') + '</div>';
       } else if (cfg.type === 'textarea') {
         h += '<div class=\"field' + (nullish ? ' is-null' : '') + ' review-full\"><label>' + esc(cfg.label) + req + badge + '</label>' +
@@ -1389,11 +1499,11 @@ function blueprintView() {
   ).join('');
   const stats = bp.summary.stats.map(s => '<div class=\"stat\"><div class=\"v\">' + esc(s.value) + '</div><div class=\"l\">' + esc(s.label) + '</div></div>').join('');
   const tools = bp.tools.length
-    ? '<table class=\"tbl\"><tr><th>Tool</th><th>Recommendation</th><th>Why</th></tr>' +
+    ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tool</th><th>Recommendation</th><th>Why</th></tr></thead><tbody>' +
       bp.tools.map(t => {
         const cls = t.action.toLowerCase().includes('keep') ? 'action-keep' : t.action.toLowerCase().includes('upgrade') ? 'action-upgrade' : t.action.toLowerCase().includes('replace') ? 'action-replace' : 'action-consolidate';
         return '<tr><td><b>' + esc(t.name) + '</b></td><td class=\"' + cls + '\">' + esc(t.action) + '</td><td class=\"small\">' + esc(t.reason) + '</td></tr>';
-      }).join('') + '</table>'
+      }).join('') + '</tbody></table></div>'
     : '<p class=\"muted\">No tools were stated. The stack is reviewed at the build call.</p>';
   const srcs = bp.leadSources.map(s =>
     '<li><b>' + esc(s.name) + '</b> (' + (s.monthlyVolume != null ? s.monthlyVolume : '?') + '/mo, ' + (s.tracked === false ? 'currently untracked' : s.tracked === true ? 'tracked' : 'tracking unclear') + '): ' + esc(s.mechanism) + '</li>'
@@ -1466,10 +1576,10 @@ function bindBlueprint() {
   const ub = $('#unlock-btn');
   if (ub) ub.onclick = () => {
     const holder = $('#unlock-holder');
-    holder.innerHTML = '<div class=\"unlock-panel\"><h3 style=\"font-size:16px;margin-bottom:4px\">Unlock your blueprint PDF</h3>' +
+    holder.innerHTML = '<div class=\"unlock-panel\"><h3 class="unlock-title">Unlock your blueprint PDF</h3>' +
       '<p class=\"small muted\">Delivery is gated behind email, and your lead is created in HubSpot at the same moment.</p>' +
       '<div class=\"grid-2\"><div class=\"field\"><label for=\"un-email\">Email for delivery</label><input type=\"email\" id=\"un-email\" value=\"' + esc(state.user.email) + '\" maxlength=\"254\"></div>' +
-      '<div class=\"field\" style=\"display:flex;align-items:flex-end;padding-bottom:6px\"><label class=\"checkline\" style=\"margin:0\"><input type=\"checkbox\" id=\"un-consent\"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
+      '<div class="field field-check"><label class="checkline"><input type=\"checkbox\" id=\"un-consent\"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
       '<button class=\"btn btn-primary\" id=\"un-go\" disabled>Generate and send my PDF</button></div>';
     const cb = $('#un-consent'), go = $('#un-go');
     cb.onchange = () => { go.disabled = !cb.checked; };
@@ -1548,8 +1658,8 @@ function bookingView() {
   }).join('');
   let h = '<div class=\"booking\"><div class=\"card\"><h2>Book a call</h2>' +
     '<p class=\"sub\">30 minutes to walk through your blueprint and confirm scope. In production this panel is the embedded HubSpot Meetings scheduler (the link Allen provides).</p>' +
-    '<h3 style=\"font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px\">Pick a day</h3><div class=\"day-strip\" role=\"group\" aria-label=\"Pick a day\">' + dayBtns + '</div>' +
-    '<h3 style=\"font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px\">Pick a time (your local time)</h3><div class=\"slot-grid\" role=\"group\" aria-label=\"Pick a time\">' + slotBtns + '</div>' +
+    '<h3 class="pick-label">Pick a day</h3><div class="day-strip" role="group" aria-label="Pick a day">' + dayBtns + '</div>' +
+    '<h3 class="pick-label">Pick a time (your local time)</h3><div class="slot-grid" role="group" aria-label="Pick a time">' + slotBtns + '</div>' +
     '<div class=\"btn-row\">' +
     '<button class=\"btn btn-primary\" id=\"book-go\" ' + (b.day && b.slot ? '' : 'disabled') + ' aria-label=\"Request this slot\">Request this slot</button>' +
     '<button class=\"btn btn-ghost\" id=\"back-blueprint\">Back to blueprint</button></div>' +
@@ -1602,17 +1712,17 @@ function doneView() {
   const bp = state.blueprint;
   const d = state.delivered;
   const b = state.booking;
-  let h = '<div class=\"card\" style=\"max-width:680px;margin:30px auto;text-align:center\">' +
-    '<div class="logo" style="margin:0 auto 14px">' + logoMark(54) + '</div>' +
+  let h = '<div class="card done-card">' +
+    '<div class="done-mark">' + logoTile(54) + '</div>' +
     '<h2>Your blueprint is on its way</h2>' +
     '<p class=\"sub\">Everything the brief asks for happened in this run:</p>' +
-    '<div style=\"text-align:left;max-width:460px;margin:0 auto\">' +
+    '<div class="done-list">' +
     '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ' vertical, ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) + ' (generated server-side)' : 'not unlocked yet') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">HubSpot lead</span><span class=\"v mono\">' + (d ? esc(d.contact_id) : 'not created') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">Call booking</span><span class=\"v\">' + (b && b.confirmed ? esc(b.day) + ' at ' + esc(b.slot) : 'not booked') + '</span></div>' +
     '</div>' +
-    '<div class=\"btn-row\" style=\"justify-content:center\">' +
+    '<div class="btn-row btn-row-center">' +
     '<button class=\"btn btn-primary\" id=\"new-biz2\">Run another business</button>' +
     '<a class=\"btn btn-ghost\" href=\"/dev/outbox\" target=\"_blank\" rel=\"noopener\">Inspect the HubSpot outbox (dev)</a>' +
     '</div>' +
@@ -1633,14 +1743,14 @@ function bindGlobal() {
   const lo = $('#logout-btn');
   if (lo) lo.onclick = async () => {
     try { await api.post('/api/auth/logout', {}); } catch (e) {}
-    state.token = null; state.user = null; saveAuth(); resetJourney(); state.stage = 'login';
+    state.token = null; state.user = null; saveAuth(); resetJourney(); state.stage = 'start';
     render();
   };
 }
 function routeBindings() {
   bindGlobal();
   switch (state.stage) {
-    case 'login': bindLogin(); break;
+    case 'start': bindStart(); break;
     case 'consent': {
       const cb = $('#consent-cb'), go = $('#consent-go');
       if (cb && go) {
@@ -1665,7 +1775,7 @@ function routeBindings() {
   }
   // Focus main content for screen readers after navigation
   const main = document.getElementById('main-content');
-  if (main && state.stage !== 'intake' && state.stage !== 'login') {
+  if (main && state.stage !== 'intake' && state.stage !== 'start') {
     // Don't steal focus from inputs, only if no active input
     const active = document.activeElement;
     const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.tagName === 'BUTTON');

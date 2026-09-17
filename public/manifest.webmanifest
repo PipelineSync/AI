@@ -1,0 +1,14 @@
+{
+  "name": "PipelineSync AI",
+  "short_name": "PipelineSync",
+  "description": "Talk through your business with the AI interviewer and get a HubSpot revenue operations blueprint.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F6F9",
+  "theme_color": "#0F2F52",
+  "lang": "en-GB",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}
