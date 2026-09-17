@@ -6,7 +6,10 @@ const { bodyOf, json, validateAnswers } = require('../../lib/netlify-helpers');
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const body = bodyOf(event);
-  const payload = core.verifyToken(body.token);
+  let payload;
+  try { payload = core.verifyToken(body.token); } catch (e) {
+    return json(500, { error: 'Server misconfigured: missing token secret.' });
+  }
   if (!payload) return json(401, { error: 'Your session has ended. Enter your name and email to start again.' });
   const v = validateAnswers(body.answers || []);
   if (!v.ok) return json(400, { error: v.error });
