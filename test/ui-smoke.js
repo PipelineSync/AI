@@ -1,5 +1,8 @@
-/* Drives the real frontend (public/app.js) through the whole journey in jsdom,
-   hitting the real local server. Catches runtime JS errors the browser would hit. */
+/* Drives the real frontend (public/app.js) through the voice-first journey in jsdom, hitting the
+   real local server. Catches runtime JS errors the browser would hit, and proves the two rules:
+     1. the AI speaks every line (browser voice or OpenAI audio) instead of chatting, and
+     2. the call still captures the full Section 7 contract.
+   A second scenario blocks the microphone and proves the "Type instead" fallback still works. */
 const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
@@ -13,75 +16,195 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 let failures = 0;
 const ok = (cond, msg) => { console.log((cond ? '  PASS  ' : '  FAIL  ') + msg); if (!cond) failures++; };
 
-(async () => {
+/* Demo answers, mapped from whatever the AI just asked (so probes are answered too). */
+const SOLAR = {
+  business: 'We install residential and commercial solar systems for homeowners and small businesses in Ilocos.',
+  products: 'Residential install at 1,200,000 pesos\nCommercial install at 4,500,000 pesos, and commercial needs a site survey first',
+  deal: 'About 1,500,000 a deal, and three reps take calls',
+  fulfilment: 'Six people, and our own crew does the installs',
+  owner: 'It is me, with one operations assistant',
+  close: 'Two calls. First we qualify and do the survey, then we present the proposal',
+  sources: 'Google Ads about 25 a month, tracked\nFacebook about 18 a month, tracked\nWalk-ins about 10 a month, not tracked',
+  capture: 'They land in a spreadsheet, and I use HubSpot Starter plus WhatsApp and Excel',
+  volumes: '55 leads a month, I close 12, so about 22 percent, and three weeks from first call to signed',
+  spend: '80,000 on ads, about 15,000 on software',
+  headache: 'Follow-ups slip and I have no visibility on who is where in the process',
+  goal: '20 closed installs a month'
+};
+const QMAP = [
+  ['who do you sell to', 'business'], ['what do they cost', 'products'], ['how big is a typical deal', 'deal'],
+  ['how many people handle fulfilment', 'fulfilment'], ['who owns marketing', 'owner'], ['how do most customers buy', 'close'],
+  ['where do your leads come from', 'sources'], ['how do you capture leads', 'capture'],
+  ['how many leads do you get a month', 'volumes'], ['what do you spend per month', 'spend'],
+  ['biggest headache', 'headache'], ['six months from now', 'goal']
+];
+
+/* A jsdom page wired the way the sandbox preview would be, with the microphone and voice faked. */
+function boot(withMic) {
   const dom = new JSDOM(html, { url: BASE + '/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   const { document } = window;
+  const spoken = [];
+  const errors = [];
   window.fetch = (p, o) => fetch(new URL(p, BASE).toString(), o);
-  window.addEventListener('error', e => { console.log('  WINDOW ERROR:', e.message); failures++; });
-
+  window.addEventListener('error', e => { errors.push(e.message); });
+  window.__PS_VOICE_TIMING__ = { silenceMs: 50, noSpeechMs: 400, maxListenMs: 1500, speakFactorMs: 4, minSpeakMs: 10, maxSpeakMs: 120 };
+  // Faked spoken voice: the AI can also receive OpenAI audio, in which case Audio fires onended.
+  const speechTimes = [];
+  window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+  window.speechSynthesis = {
+    getVoices() { return [{}]; },
+    speak(u) { spoken.push(String(u.text)); speechTimes.push(Date.now()); setTimeout(() => { if (u.onend) u.onend(); }, 5); },
+    cancel() {}
+  };
+  window.Audio = class {
+    constructor(url) { this.url = url; }
+    play() { setTimeout(() => { if (this.onended) this.onended(); }, 5); return Promise.resolve(); }
+    pause() {}
+  };
+  // Faked microphone: answers whatever the AI just asked, then goes quiet.
+  let lastKey = 'business';
+  const answerNow = () => {
+    const line = ((document.getElementById('ai-line') || {}).textContent || '').toLowerCase();
+    for (const [frag, key] of QMAP) if (line.includes(frag)) { lastKey = key; break; }
+    return SOLAR[lastKey];
+  };
+  window.__answerNow = answerNow;
+  window.__spoken = spoken;
+  window.__speechTimes = speechTimes;
+  if (withMic) {
+    window.SpeechRecognition = class {
+      constructor() { this.lang = ''; this.interimResults = false; this.continuous = false; }
+      start() { const self = this; setTimeout(() => { if (self.onresult) self.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: answerNow() + ' ' }], { isFinal: true })] }); setTimeout(() => { if (self.onend) self.onend(); }, 20); }, 30); }
+      stop() { if (this.onend) this.onend(); }
+    };
+  } else {
+    delete window.SpeechRecognition;
+    delete window.webkitSpeechRecognition;
+    delete window.MediaRecorder;
+    Object.defineProperty(window.navigator, 'mediaDevices', { value: undefined, configurable: true });
+  }
   window.eval(appJs);
-  await sleep(200);
+  return { window, document, spoken, errors, speechTimes };
+}
 
-  ok(document.querySelector('#lg-email'), 'login screen rendered');
+async function reachCall(page) {
+  const { document } = page;
+  await sleep(200);
+  ok(!!document.querySelector('#lg-email'), 'login screen rendered');
   document.getElementById('demo-btn').click();
   await sleep(400);
-  ok(document.querySelector('#consent-go'), 'consent screen after login');
-
+  ok(!!document.querySelector('#consent-go'), 'consent screen after login');
+  ok(/OpenAI for the voice call/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
   document.getElementById('consent-cb').click();
   document.getElementById('consent-go').click();
-  await sleep(200);
-  ok(document.querySelector('#intake-input'), 'intake screen with input');
-  ok(document.querySelectorAll('.bubble.ai').length >= 1, 'interviewer asked first question');
+  await sleep(150);
+}
 
-  // load the solar persona
-  document.getElementById('persona-sel').value = 'solar';
-  document.getElementById('persona-go').click();
-  await sleep(600);
-  ok(document.querySelector('#structure-btn'), 'structure button shown after persona load');
-  ok(document.querySelectorAll('.bubble.user').length === 12, 'all 12 demo answers in chat');
+/* ------------------------------------------------------------------ */
+(async () => {
+  console.log('\nScenario 1: a voice discovery call (microphone present)');
+  const p1 = boot(true);
+  await reachCall(p1);
+  const d1 = p1.document;
 
-  // structure (loader ~2.3s + api)
-  document.getElementById('structure-btn').click();
-  await sleep(4200);
-  ok(document.querySelector('#confirm-fields'), 'review screen rendered');
-  const nullBadges = document.querySelectorAll('.nullbadge').length;
+  ok(!!d1.querySelector('#start-call'), 'the call starts from a Start the discovery call button');
+  ok(!d1.querySelector('#intake-input'), 'no text box on screen: the discovery call starts as voice, not chat');
+  await sleep(600);   // the opening line is prefetched while the client reads the screen
+  ok(/Preparing|Ready/.test(d1.getElementById('call-controls').textContent), 'the screen shows the AI voice being prepared');
+  ok(/Ready\. The AI speaks/.test(d1.getElementById('call-controls').textContent), 'the call screen says the AI will speak the moment you press start');
+
+  const clickedAt = Date.now();
+  d1.getElementById('start-call').click();
+  await sleep(350);
+  ok(p1.spoken.length >= 1, 'the AI spoke its first line out loud (' + JSON.stringify((p1.spoken[0] || '').slice(0, 60)) + '...)');
+  const delay = (p1.speechTimes[0] || Infinity) - clickedAt;
+  ok(delay < 250, 'the AI starts speaking immediately on start, with no wait for the network (' + delay + ' ms)');
+  ok(/what do you do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
+  ok(/PipelineSync/.test(p1.spoken[0] || ''), 'the AI introduces itself on the first line (AI disclosure on the call)');
+  ok(/ChatGPT voice|Simulated voice/.test(d1.body ? d1.body.textContent : d1.body.textContent), 'the screen states which voice provider is live');
+  ok(!!d1.querySelector('.orb.listening, .orb.speaking, .orb.thinking, .orb.ready'), 'the call UI shows the live call state');
+
+  for (let i = 0; i < 40 && !d1.querySelector('#structure-btn'); i++) await sleep(250);
+  ok(!!d1.querySelector('#structure-btn'), 'the AI worked through the intake set and closed the call');
+  ok(p1.spoken.length >= 12, 'the AI spoke every question (' + p1.spoken.length + ' lines)');
+  ok(d1.querySelectorAll('.bubble.user').length >= 12, 'the transcript holds the spoken answers');
+  ok(d1.querySelectorAll('.bubble.ai').length >= 12, 'the transcript holds the AI lines');
+  const details = d1.querySelector('#transcript-wrap');
+  ok(!!details && !details.open, 'the transcript stays collapsed: the call is voice, not chat');
+  ok(d1.querySelectorAll('.side-chip.filled').length >= 15, 'the sidebar shows captured values (' + d1.querySelectorAll('.side-chip.filled').length + ' fields)');
+  ok(/Required numbers captured/.test(d1.body.textContent), 'deal size, lead volume and close rate were captured live');
+  ok(p1.errors.length === 0, 'no runtime errors during the voice call' + (p1.errors.length ? ': ' + p1.errors[0] : ''));
+
+  // hand-off to Function A and the rest of the journey
+  d1.getElementById('structure-btn').click();
+  await sleep(3200);
+  ok(!!d1.querySelector('#confirm-fields'), 'review screen rendered from the call transcript');
+  ok(/ChatGPT voice|Simulated voice/.test(d1.querySelector('.call-summary').textContent), 'the review screen records how the call was run');
+  const nullBadges = d1.querySelectorAll('.nullbadge').length;
   console.log('  (review shows ' + nullBadges + ' "Not stated" badges)');
-  ok(document.querySelector('.side-chip.filled') || document.querySelector('input[data-key]'), 'review fields present');
 
-  // confirm -> generating (~5.5s + api)
-  document.getElementById('confirm-fields').click();
+  d1.getElementById('confirm-fields').click();
   await sleep(7000);
-  ok(document.querySelector('.doc'), 'blueprint document rendered');
-  ok(document.querySelector('.coa-item'), 'cost of inaction items rendered');
-  ok(document.querySelectorAll('.chip.kb').length > 5, 'KB reference chips rendered');
-  const emDash = document.querySelector('.doc').textContent.includes('\u2014');
-  ok(!emDash, 'no em dashes in blueprint view');
+  ok(!!d1.querySelector('.doc'), 'blueprint document rendered');
+  ok(!!d1.querySelector('.coa-item'), 'cost of inaction items rendered');
+  ok(d1.querySelectorAll('.chip.kb').length > 5, 'KB reference chips rendered');
+  ok(!d1.querySelector('.doc').textContent.includes('\u2014'), 'no em dashes in the blueprint view');
 
-  // unlock PDF
-  document.getElementById('unlock-btn').click();
+  d1.getElementById('unlock-btn').click();
   await sleep(100);
-  document.getElementById('un-consent').click();
-  document.getElementById('un-go').click();
-  await sleep(1200);
-  ok(document.querySelector('.success-card'), 'delivery success card shown');
-  ok(document.body.textContent.includes('HubSpot contact ID'), 'hubspot contact id shown');
+  d1.getElementById('un-consent').click();
+  d1.getElementById('un-go').click();
+  await sleep(1400);
+  ok(!!d1.querySelector('.success-card'), 'delivery success card shown');
+  ok(d1.body.textContent.includes('HubSpot contact ID'), 'hubspot contact id shown');
 
-  // booking
-  document.getElementById('book-btn').click();
+  const outbox = await (await fetch(BASE + '/dev/outbox')).text();
+  ok(/"voice_call"/.test(outbox), 'the lead carries the voice call metadata (voice_call block)');
+  ok(/"audio_retained": false/.test(outbox), 'the lead records that no audio was retained');
+  ok(/"turns": \d+/.test(outbox), 'the lead records how many turns the call took');
+
+  d1.getElementById('book-btn').click();
   await sleep(200);
-  const dayBtn = document.querySelector('[data-day]');
+  const dayBtn = d1.querySelector('[data-day]');
   ok(!!dayBtn, 'booking screen rendered with days');
   dayBtn.click();
   await sleep(150);
-  document.querySelectorAll('[data-slot]')[1].click();
+  d1.querySelectorAll('[data-slot]')[1].click();
   await sleep(150);
-  document.getElementById('book-go').click();
+  d1.getElementById('book-go').click();
   await sleep(150);
-  ok(document.body.textContent.includes('Meeting requested'), 'meeting requested state');
-  document.getElementById('finish-btn').click();
+  ok(d1.body.textContent.includes('Meeting requested'), 'meeting requested state');
+  d1.getElementById('finish-btn').click();
   await sleep(150);
-  ok(document.body.textContent.includes('Your blueprint is on its way'), 'done screen rendered');
+  ok(d1.body.textContent.includes('Your blueprint is on its way'), 'done screen rendered');
+
+  console.log('\nScenario 2: microphone blocked (preview iframe, no speech recognition)');
+  const p2 = boot(false);
+  await reachCall(p2);
+  const d2 = p2.document;
+  d2.getElementById('start-call').click();
+  await sleep(600);
+  ok(/Type instead/.test(d2.body.textContent), 'the blocked microphone is explained with the Type instead route');
+  ok(!!d2.querySelector('#intake-input'), 'typing is offered when the microphone cannot be used');
+  ok(p2.spoken.length >= 1, 'the AI still speaks the questions (browser voice)');
+  ok(!d2.querySelector('#transcript-wrap').open, 'the transcript is still collapsed');
+
+  // Type the answers instead, the way a client with a blocked mic would.
+  for (let i = 0; i < 30 && !d2.querySelector('#structure-btn'); i++) {
+    const inp = d2.querySelector('#intake-input');
+    if (inp) {
+      inp.value = p2.window.__answerNow();
+      d2.getElementById('send-btn').click();
+    }
+    await sleep(320);
+  }
+  ok(!!d2.querySelector('#structure-btn'), 'the typed journey still reaches the end of the call');
+  ok(d2.querySelectorAll('.bubble.user').length >= 12, 'typed answers land in the same transcript');
+  d2.getElementById('structure-btn').click();
+  await sleep(3200);
+  ok(!!d2.querySelector('#confirm-fields'), 'typed answers structure into the review screen');
+  ok(p2.errors.length === 0, 'no runtime errors in the typed fallback' + (p2.errors.length ? ': ' + p2.errors[0] : ''));
 
   console.log('\n' + (failures === 0 ? 'UI SMOKE TEST PASSED' : failures + ' UI FAILURES'));
   process.exit(failures === 0 ? 0 : 1);

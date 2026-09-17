@@ -8,6 +8,7 @@
  * private app token POST to /crm/v3/objects/contacts.
  */
 const core = require('../../lib/core');
+const { clampVoiceMeta } = require('../../lib/voice-api');
 
 function bodyOf(event) {
   if (!event.body) return {};
@@ -35,7 +36,7 @@ exports.handler = async (event) => {
   if (body.consent !== true) return json(400, { error: 'Please tick the consent box before we send the PDF.' });
 
   const buffer = core.buildPdf(bp);
-  const lead = core.makeLeadPayload(email, payload.name, body.fields || null, bp);
+  const lead = core.makeLeadPayload(email, payload.name, body.fields || null, bp, clampVoiceMeta(body.voice_meta));
   logLead(lead);
 
   return {

@@ -34,6 +34,13 @@
   to = "/.netlify/functions/deliver"
   status = 200
 
+# Voice layer: one function serves /api/voice/session, /turn, /transcribe and /speak.
+# OPENAI_API_KEY is read inside the function and never sent to the browser.
+[[redirects]]
+  from = "/api/voice/*"
+  to = "/.netlify/functions/voice"
+  status = 200
+
 [[redirects]]
   from = "/api/health"
   to = "/.netlify/functions/health"
