@@ -129,11 +129,9 @@ function bootBrowser() {
   await sleep(400);
   document.getElementById('consent-cb').click();
   document.getElementById('consent-go').click();
-  await sleep(150);
-  ok(!!document.querySelector('#start-call'), 'the call screen is ready');
-  document.getElementById('start-call').click();
   await sleep(1200);
-  ok(played.length >= 1, 'the browser played OpenAI speech audio (not chat text)');
+  ok(played.length >= 1, 'the browser played OpenAI speech audio as soon as the disclaimer was agreed');
+  ok(!document.querySelector('#start-call'), 'the call began on agreement, with no separate start button');
   ok(/ChatGPT voice/.test(document.body.textContent), 'the screen shows ChatGPT as the voice provider');
 
   for (let i = 0; i < 80 && !document.querySelector('#structure-btn'); i++) await sleep(250);

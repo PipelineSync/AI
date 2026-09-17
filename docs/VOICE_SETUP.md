@@ -16,16 +16,19 @@ The call is turn-based voice, not text chat and not a realtime stream:
                  (browser or /transcribe)   (/voice/turn, guardrail set)   (/voice/speech)
 ```
 
-1. **The AI speaks first, immediately.** The opening line is fetched while the client is still
-   reading the call screen (the button reads "Ready. The AI speaks the first question out loud the
-   instant you press start"), so pressing start plays it straight away - measured at around 100 ms,
-   with no wait for a round trip. There is no text box on screen: the call starts as voice.
+1. **The AI speaks first, the moment the disclaimer is agreed.** Agreeing to the AI disclaimer and
+   privacy notice is the click that starts the call: the screen switches to the live call, the AI
+   speaks, and then it listens. There is no second start button and no text box - the call is voice
+   from the first second. The opening line is fetched while the client is reading the notice, so it
+   plays inside that click rather than after a round trip (measured at roughly 50 to 150 ms).
    Two browser rules shape this, both already handled:
-   - sound needs a user gesture, so the first line is played inside the click that starts the call
-     rather than after an async gap (if a later line is ever held back, any tap or the
+   - sound needs a user gesture, so the first line is played inside the click that agrees to the
+     disclaimer rather than after an async gap (if a line is ever held back, any tap or the
      "Play the line" button releases it);
    - Chrome drops the very first browser utterance while its voice list loads, so the client waits
      for the voices (up to 700 ms) and retries once if the utterance was swallowed.
+   If the notice is agreed faster than the voice layer warms up, the call still starts and the
+   client is told the voice is being prepared; the same fallbacks cover it.
 2. **The client answers out loud.** The browser transcribes free of charge when it can
    (`SpeechRecognition`); otherwise the recording is uploaded to OpenAI transcription
    (`/api/voice/transcribe`). The mic stops itself once it hears a pause.

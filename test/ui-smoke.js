@@ -89,16 +89,29 @@ function boot(withMic) {
 }
 
 async function reachCall(page) {
-  const { document } = page;
+  const { document, spoken, speechTimes } = page;
   await sleep(200);
   ok(!!document.querySelector('#lg-email'), 'login screen rendered');
   document.getElementById('demo-btn').click();
-  await sleep(400);
+  await sleep(700);   // the notice is read while the voice layer warms up
   ok(!!document.querySelector('#consent-go'), 'consent screen after login');
   ok(/OpenAI for the voice call/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
+  ok(/starts speaking/i.test(document.getElementById('consent-note').textContent), 'the consent screen says the AI starts speaking on agreement');
+  ok(/Agree and start the voice call/.test(document.getElementById('consent-go').textContent), 'the button that agrees to the disclaimer is the one that starts the call');
+
+  // Agreeing to the disclaimer is the gesture that starts the call: the AI speaks from here, with
+  // no separate start button and no text box.
+  const agreedAt = Date.now();
   document.getElementById('consent-cb').click();
   document.getElementById('consent-go').click();
-  await sleep(150);
+  await sleep(300);
+  ok(spoken.length >= 1, 'the AI started speaking as soon as the disclaimer was agreed');
+  ok(!document.querySelector('#start-call'), 'no second start button: the call began on agreement');
+  const micAvailable = !!(page.window.SpeechRecognition || page.window.MediaRecorder);
+  ok(micAvailable ? !document.querySelector('#intake-input') : !!document.querySelector('#intake-input'),
+    micAvailable ? 'no text box: the call is voice from the start' : 'with no microphone at all the typed fallback appears by itself');
+  page.speakDelay = (speechTimes[0] || Infinity) - agreedAt;
+  ok(page.speakDelay < 400, 'the AI voice begins on agreement, without waiting for the network (' + page.speakDelay + ' ms)');
 }
 
 /* ------------------------------------------------------------------ */
@@ -108,18 +121,8 @@ async function reachCall(page) {
   await reachCall(p1);
   const d1 = p1.document;
 
-  ok(!!d1.querySelector('#start-call'), 'the call starts from a Start the discovery call button');
-  ok(!d1.querySelector('#intake-input'), 'no text box on screen: the discovery call starts as voice, not chat');
-  await sleep(600);   // the opening line is prefetched while the client reads the screen
-  ok(/Preparing|Ready/.test(d1.getElementById('call-controls').textContent), 'the screen shows the AI voice being prepared');
-  ok(/Ready\. The AI speaks/.test(d1.getElementById('call-controls').textContent), 'the call screen says the AI will speak the moment you press start');
-
-  const clickedAt = Date.now();
-  d1.getElementById('start-call').click();
-  await sleep(350);
+  ok(!!d1.querySelector('#mic-btn') || !!d1.querySelector('#type-btn'), 'the in-call controls are on screen straight after agreement');
   ok(p1.spoken.length >= 1, 'the AI spoke its first line out loud (' + JSON.stringify((p1.spoken[0] || '').slice(0, 60)) + '...)');
-  const delay = (p1.speechTimes[0] || Infinity) - clickedAt;
-  ok(delay < 250, 'the AI starts speaking immediately on start, with no wait for the network (' + delay + ' ms)');
   ok(/what do you do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
   ok(/PipelineSync/.test(p1.spoken[0] || ''), 'the AI introduces itself on the first line (AI disclosure on the call)');
   ok(/ChatGPT voice|Simulated voice/.test(d1.body ? d1.body.textContent : d1.body.textContent), 'the screen states which voice provider is live');
@@ -183,9 +186,9 @@ async function reachCall(page) {
   const p2 = boot(false);
   await reachCall(p2);
   const d2 = p2.document;
-  d2.getElementById('start-call').click();
   await sleep(600);
-  ok(/Type instead/.test(d2.body.textContent), 'the blocked microphone is explained with the Type instead route');
+  ok(p2.spoken.length >= 1, 'the AI speaks even when the microphone is blocked');
+  ok(/blocked|Type instead/i.test(d2.body.textContent), 'the blocked microphone is explained with the Type instead route');
   ok(!!d2.querySelector('#intake-input'), 'typing is offered when the microphone cannot be used');
   ok(p2.spoken.length >= 1, 'the AI still speaks the questions (browser voice)');
   ok(!d2.querySelector('#transcript-wrap').open, 'the transcript is still collapsed');

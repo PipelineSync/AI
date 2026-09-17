@@ -218,6 +218,19 @@ function ensureSessionSilent() {
   return v.sessionPromise;
 }
 
+/* True once the voice layer is warm, so the screen can promise the AI speaks on agree. */
+function voiceReady() {
+  const v = voiceSync();
+  return !!(v.opening || v.cfg);
+}
+/* Agreeing to the disclaimer is the gesture that starts the call: the screen changes and the AI
+   speaks straight away, picking up the opening line that was prefetched while the notice was read. */
+function beginCall() {
+  state.stage = 'intake';
+  render();
+  startCall();
+}
+
 async function ensureSession() {
   const v = voiceSync();
   if (v.cfg) return v.cfg;
@@ -735,7 +748,8 @@ function consentView() {
     '<div class="notice"><h4>AI disclaimer</h4><p>This product uses AI. Your spoken and written answers are processed by AI models: OpenAI for the voice call (it words each question, speaks it, and transcribes your answers), and Claude for extraction and drafting in production. AI output can contain errors. A human reviews every blueprint before it is used in a build. Nothing in your blueprint is legal, financial, or professional advice.</p></div>' +
     '<div class="notice"><h4>Privacy notice</h4><p>Your answers are stored in our database (Supabase) so we can build your blueprint, and a summary is sent to our CRM (HubSpot) so the right person can follow up. We do not sell your data. Voice audio is transcribed and not retained beyond the transcript. You can request deletion at any time by emailing privacy@pipelinesync.ai.</p></div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I understand how my data is used, and I agree to continue.</label>' +
-    '<div class="btn-row"><button class="btn btn-primary" id="consent-go" disabled>Start the discovery call</button></div>' +
+    '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
+    '<p class="small muted mt8" id="consent-note">The AI interviewer starts speaking as soon as you agree, then it listens while you answer out loud.</p>' +
     '</div>';
 }
 
@@ -1524,7 +1538,14 @@ function routeBindings() {
     case 'consent': {
       const cb = $('#consent-cb'), go = $('#consent-go');
       cb.onchange = () => { go.disabled = !cb.checked; };
-      go.onclick = () => { state.stage = 'intake'; render(); };
+      const note = $('#consent-note');
+      if (note) note.textContent = voiceReady()
+        ? 'Agree and the AI starts speaking straight away, then it listens while you answer out loud.'
+        : 'Agree and the AI starts speaking, then it listens while you answer out loud. Preparing the voice now...';
+      // The call plan and the opening line are fetched while the client reads the notice, so the AI
+      // can speak inside the click that agrees to it.
+      prefetchOpening();
+      go.onclick = () => beginCall();
       break;
     }
     case 'intake': bindCall(); break;

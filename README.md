@@ -85,9 +85,10 @@ Open your `https://<site>.netlify.app` URL:
 
 1. **Log in** - required before use (signed prototype token; Supabase Auth in production).
 2. **Disclaimer + privacy notice** - shown and accepted before any data is collected (Section 9).
-3. **Discovery call (voice, not chat)** - press *Start the discovery call* and the AI speaks the
-   first question immediately (the opening line is prefetched while the screen is being read, so the
-   voice starts inside the click, not after a round trip).
+3. **Discovery call (voice, not chat)** - agreeing to the disclaimer is what starts the call: the AI
+   speaks the first question immediately (the opening line is prefetched while the notice is being
+   read, so the voice starts inside that click, not after a round trip). There is no second start
+   button and no text box, and with a blocked microphone the typed fallback appears by itself.
    It asks the 12-question intake set out loud, one question per turn, waits while the client talks,
    and probes once when an answer arrives without its figures. The transcript stays collapsed behind
    a link: the call is spoken. Typing lives behind *Type instead* (and turns on automatically if the
@@ -167,7 +168,8 @@ Run each demo persona from the intake sidebar, then check the blueprint:
 - [ ] UK English, no em dashes
 - [ ] Function A: unstated numbers come back as null and are flagged on the review screen
 - [ ] Full journey works: login, voice, review, submit, PDF, lead, booking
-- [ ] The discovery call starts as voice: the AI speaks first and there is no text box on screen
+- [ ] Agreeing to the disclaimer starts the call: the AI speaks first, there is no second start
+      button and no text box
 - [ ] Every one of the 12 questions is asked out loud exactly once, in order, with a probe only when
       an answer arrived without its figures
 - [ ] The three required fields (deal size, monthly lead volume, close rate) are captured on the call;
