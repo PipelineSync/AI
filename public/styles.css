@@ -509,6 +509,10 @@ img, svg { display: block; max-width: 100%; }
 .bubble.ai { background: var(--steel-soft); border: 1px solid #D8E6F0; color: var(--navy); border-bottom-left-radius: 4px; align-self: flex-start; }
 .bubble.user { background: var(--navy); color: #fff; border-bottom-right-radius: 4px; align-self: flex-end; }
 .bubble .hint { display: block; margin-top: 6px; font-size: var(--fs-xs); color: var(--muted); }
+/* A turn the guardrail set judged to have nothing to do with the question: kept in the record, but
+   marked, because nothing was captured from it. */
+.bubble.user.ignored { background: #4A5A6A; opacity: .72; text-decoration: line-through; }
+.bubble .bubble-note { display: block; margin-top: 5px; font-size: var(--fs-xs); text-decoration: none; opacity: .85; font-style: italic; }
 .chat-body { display: flex; flex-direction: column; gap: var(--sp-3); }
 
 @media (min-width: 900px) {

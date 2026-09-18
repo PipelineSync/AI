@@ -46,12 +46,14 @@ Site configuration → **Environment variables** → **Add a variable**:
 | Variable | Value | Why |
 |---|---|---|
 | `PS_TOKEN_SECRET` | any long random string, e.g. the output of `openssl rand -hex 16` | Signs the entry-gate session tokens and the voice call tickets. Without it a built-in dev secret is used (fine for a throwaway test deploy, not for anything shared). |
-| `OPENAI_API_KEY` | your OpenAI key (`sk-...`) | **Switches the discovery call on to ChatGPT voice**: wording, speech out, and transcription in. Read inside the functions only, never sent to the browser. Without it the call runs on the built-in interviewer and the browser voice, so the demo still works. |
+| `OPENAI_API_KEY` | your OpenAI key (`sk-...`) | **Switches the discovery call on to live AI voice**: one continuous WebRTC session (OpenAI Realtime) carries the whole call, and the same key drives the step-by-step fallback (wording, speech out, transcription in). Read inside the functions only, never sent to the browser. Without it the call runs on the built-in interviewer and the browser voice, so the demo still works. |
 
-Optional voice settings (`VOICE_PROVIDER`, `OPENAI_CHAT_MODEL`, `OPENAI_TTS_MODEL`,
-`OPENAI_TTS_VOICE`, `OPENAI_STT_MODEL`, `VOICE_STT`, `VOICE_LANGUAGE`, `VOICE_LOCALE`,
-`VOICE_MAX_TURNS`, `OPENAI_BASE_URL`) and everything else about the voice layer is documented in
-`docs/VOICE_SETUP.md`.
+Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
+`OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`, `VOICE_PROVIDER`,
+`OPENAI_CHAT_MODEL`, `OPENAI_TTS_MODEL`, `OPENAI_TTS_VOICE`, `OPENAI_STT_MODEL`, `VOICE_STT`,
+`VOICE_LANGUAGE`, `VOICE_LOCALE`, `VOICE_MAX_TURNS`, `OPENAI_BASE_URL`) and everything else about the
+voice layer is documented in `docs/VOICE_SETUP.md` (all of them are commented out in `.env.example`
+with their defaults).
 
 Later, when the remaining keys arrive, add them here too (they only reach the functions, never the
 browser): `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HUBSPOT_ACCESS_TOKEN`,
@@ -90,15 +92,25 @@ Open your `https://<site>.netlify.app` URL:
    In production the same two fields go through Supabase Auth (magic link or OTP).
 2. **Disclaimer + privacy notice** - shown and accepted before any data is collected (Section 9).
 3. **Discovery call (voice, not chat)** - agreeing to the disclaimer is what starts the call: the AI
-   speaks the first question immediately (the opening line is prefetched while the notice is being
-   read, so the voice starts inside that click, not after a round trip). There is no second start
-   button and no text box, and with a blocked microphone the typed fallback appears by itself.
-   It asks the 12-question intake set out loud, one question per turn, waits while the client talks,
-   and probes once when an answer arrives without its figures. The transcript stays collapsed behind
-   a link: the call is spoken. Typing lives behind *Type instead* (and turns on automatically if the
-   browser blocks the microphone), and anything the client does not know can be skipped.
-   With `OPENAI_API_KEY` set, ChatGPT words and speaks every turn (`docs/VOICE_SETUP.md`); without
-   it the same guardrail set drives the call through the built-in interviewer and the browser voice.
+   speaks the first question immediately. There is no second start button and no text box, and with a
+   blocked microphone the typed fallback appears by itself.
+   With `OPENAI_API_KEY` set the call is **continuous**: one WebRTC session (OpenAI Realtime) is open
+   for the whole call, the microphone is opened once, and semantic turn detection decides when the
+   client has finished a thought, so nothing is cut between questions and the client can talk over
+   the AI. The model words the questions; the guardrail set in `lib/voice.js` still chooses them, and
+   the server re-checks every value the model claims against the words it quotes before it is
+   captured. Alex also answers the client's own questions ("what is PipelineSync?", "how much does it
+   cost?", "are you an AI?", "what happens next?") from a scripted FAQ that invents no number, then
+   returns to the intake set.
+   It asks the 12-question intake set out loud, and probes once when an answer arrives without its
+   figures. The transcript stays collapsed behind a link: the call is spoken. Typing lives behind
+   *Type instead* (and turns on automatically if the browser blocks the microphone), and anything the
+   client does not know can be skipped.
+   If the browser has no WebRTC, the microphone is blocked, or the live session cannot be opened, the
+   same call runs step by step instead (browser or OpenAI transcription, ChatGPT wording, OpenAI
+   speech) - and a session that dies mid-call keeps everything already captured. Without a key the
+   same guardrail set drives the call through the built-in interviewer and the browser voice
+   (`docs/VOICE_SETUP.md`).
    QA shortcut: load one of the four demo personas (solar, medical, home services, e-commerce) -
    these are the four verticals in the brain-quality checklist - which fills the same 12 answers
    without needing a microphone.
@@ -172,7 +184,7 @@ Design rules that `node test/ui-design.js` enforces:
 | Prototype (this repo) | Production (per the brief) |
 |---|---|
 | Signed tokens from a name + email gate (`/api/auth/start`) | Supabase Auth: magic link or OTP on the same name + email fields |
-| Voice discovery call (`lib/voice.js` + voice engine in `app.js`) | The same code, with `OPENAI_API_KEY` set: ChatGPT words the turns, OpenAI speaks them, OpenAI transcribes. Realtime (WebRTC) voice is the next step if wanted |
+| Voice discovery call (`lib/voice.js` + voice engine in `app.js`) | The same code, with `OPENAI_API_KEY` set: a continuous OpenAI Realtime (WebRTC) session carries the whole call, and the step-by-step pipeline (ChatGPT wording, OpenAI speech, OpenAI transcription) is the automatic fallback |
 | `extract` (deterministic parser in `lib/core.js`) | Function A: Claude + Prompt B |
 | `generate` (KB-driven logic) | Function B: Claude + Prompt A |
 | `deliver` (pure-JS PDF writer) | Function C: server-side PDF generator |
@@ -215,11 +227,18 @@ Run each demo persona from the intake sidebar, then check the blueprint:
 - [ ] Full journey works: name + email gate, voice, review, submit, PDF, lead, booking
 - [ ] Agreeing to the disclaimer starts the call: the AI speaks first, there is no second start
       button and no text box
+- [ ] The call is continuous: one WebRTC session and one microphone open for the whole call, no
+      record/stop/play cycle between questions, and the client can interrupt the AI
+- [ ] Alex answers the client's own questions (product, price, "are you an AI?", next step) briefly
+      and honestly, then returns to the intake set
 - [ ] Every one of the 12 questions is asked out loud exactly once, in order, with a probe only when
       an answer arrived without its figures
+- [ ] Nothing is captured that the client did not say: every value carries the exact quoted words,
+      figures lifted from on-screen examples are refused, and an off-topic turn captures nothing
 - [ ] The three required fields (deal size, monthly lead volume, close rate) are captured on the call;
       anything still unstated is flagged on the review screen and blocks generation
-- [ ] The lead payload records how the call ran (`voice_call`: provider, models, turns, probes,
+- [ ] The lead payload records how the call ran (`voice_call`: provider, models, `transport`,
+      realtime model/voice/turn detection, turns, probes, captures accepted and rejected,
       missing required figures at the end) and `audio_retained: false`
 - [ ] No keys in the browser; PDF generated server-side; disclaimer + privacy notice before data
 
@@ -227,8 +246,11 @@ Automated checks (nothing needs to be running first: `test/harness.js` starts a 
 for each test file):
 
 ```bash
-node test/voice.js       # voice policy, capture state, OpenAI adapters, the four routes
-node test/voice-openai.js# the whole ChatGPT path against a mock OpenAI endpoint (no key, no spend)
+node test/voice.js       # voice policy, capture state, the grounded-capture gate, OpenAI adapters,
+                         # and the routes
+node test/voice-openai.js# the whole step-by-step ChatGPT path against a mock OpenAI endpoint
+node test/voice-realtime.js # a whole continuous call in jsdom: fake WebRTC, fake model, mock
+                         # endpoint - one session, twelve questions, grounded captures, fallback
 node test/ui-smoke.js    # drives the real frontend through the voice-first journey (jsdom);
                          # proves the AI speaks before any text input appears, and that a blocked
                          # microphone falls back to typing without losing the journey
@@ -239,14 +261,15 @@ node test/ui-design.js   # design-system checks: the stylesheet parses, every cl
                          # has a rule, the tokens clear WCAG AA, touch targets stay 44px, and the
                          # logo is never rendered bare on a dark surface
 npm run test:all         # everything above
+```
 
 The harness starts each test's server with the per-IP voice rate limit relaxed
 (`VOICE_RATE_PER_MIN=1000`) because one suite run drives about 40 turns a minute from a single IP.
 The production default in `server.js` is unchanged, so the limiter still protects the deploy.
-```
 
-`test/mock-openai.js` is a stand-in OpenAI endpoint (turns, speech, transcription) so the ChatGPT
-path can be exercised without an account:
+`test/mock-openai.js` is a stand-in OpenAI endpoint (turns, speech, transcription, and
+`POST /v1/realtime/calls` for the continuous call) so the ChatGPT path can be exercised without an
+account:
 
 ```bash
 node test/mock-openai.js 8099
@@ -260,8 +283,10 @@ pipelinesync/
   server.js              local dev server (zero deps): static + routes + local outbox
   lib/core.js            shared stateless core: KB v1, extract, generate, PDF writer, tokens
   lib/voice.js           the voice discovery call: intake plan, interviewer policy, capture state,
-                         OpenAI adapters (turns, speech, transcription), turn runner
-  lib/voice-api.js       the four /api/voice routes, shared by the dev server and Netlify
+                         the grounded-capture gate, the FAQ, OpenAI adapters (turns, speech,
+                         transcription), the turn runner, and the continuous-call (Realtime) engine
+  lib/voice-api.js       the seven /api/voice routes (incl. realtime/connect, realtime/tool,
+                         realtime/end), their rate limits, shared by the dev server and Netlify
   netlify.toml           publish dir, functions dir, /api/* route mapping incl. /api/voice/*
   netlify/functions/     start (the name + email gate; login.js is its alias), logout, extract (A),
                          generate (B), deliver (C+D), voice, outbox, health
@@ -274,10 +299,11 @@ pipelinesync/
   public/apple-touch-icon.png  180x180 iOS home-screen icon
   public/manifest.webmanifest  PWA manifest (installable, theme colour, icons)
   public/styles.css      design system + responsive layout (mobile-first, see below)
-  public/app.js          SPA: entry gate, consent, the voice call, review, blueprint, unlock, booking, done
-  test/                  voice, voice-openai, mock-openai, e2e, netlify-sim, pdfcheck, ui-smoke,
-                         ui-design, personas, sample PDFs
-  docs/VOICE_SETUP.md    how to switch the ChatGPT voice layer on, verify it, cost it, fix it
+  public/app.js          SPA: entry gate, consent, both voice engines (continuous WebRTC call and
+                         step-by-step call), review, blueprint, unlock, booking, done
+  test/                  voice, voice-openai, voice-realtime, mock-openai, e2e, netlify-sim,
+                         pdfcheck, ui-smoke, ui-design, personas, sample PDFs
+  docs/VOICE_SETUP.md    how to switch the voice layer on, verify it, cost it, fix it
   .env.example           every setting the app understands (copy to .env, which is gitignored)
   README.md              this file
 ```

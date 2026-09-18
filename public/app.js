@@ -190,6 +190,19 @@ const TIMING = Object.assign({
   levelThreshold: 0.02   // mic level that counts as speech (MediaRecorder engine)
 }, window.__PS_VOICE_TIMING__ || {});
 
+/* The continuous call has its own status wording: there is no button to press and no turn to wait
+   for, so the screen must not imply one. */
+const RT_STATUS_TEXT = {
+  idle: 'Live call. Speak whenever you are ready.',
+  connecting: 'Connecting the live voice call...',
+  thinking: 'Saving what you just said...',
+  speaking: 'Alex is speaking. Interrupt at any time.',
+  listening: 'You are speaking. Take your time, there is nothing to press.',
+  ready: 'Live call. Speak whenever you are ready, or interrupt Alex.',
+  complete: 'That is the call. Review what we captured, then structure the answers.',
+  error: 'The live call hit a problem. It carries on step by step below.'
+};
+
 const VOICE_STATUS_TEXT = {
   idle: 'Ready when you are. Start the call and answer out loud, like a phone call.',
   connecting: 'Connecting the AI interviewer...',
@@ -212,7 +225,8 @@ function newVoiceState() {
     speaking: false, listening: false, capture: null, done: false, warnings: [],
     audioEl: null, stopListening: null, rec: null, skipped: [], stopSpeakHook: null,
     opening: null, prefetching: false, prefetchTried: false, prefetchPromise: null,
-    sessionPromise: null, sessionError: null, blockedAudio: null, retryArmed: false
+    sessionPromise: null, sessionError: null, blockedAudio: null, retryArmed: false,
+    rt: null, rtTried: false, rtFallback: false
   };
 }
 
@@ -543,6 +557,412 @@ async function listenForAnswer() {
   await voiceTurn(heard);
 }
 
+/* ---------------- the continuous call (OpenAI Realtime over WebRTC) ----------------
+ * One session carries the whole conversation. The microphone is opened once and stays open from the
+ * first question to the last: the model hears where each answer ends (semantic turn detection) and
+ * the lead can talk over it, so nothing is cut between questions and there is no button to press.
+ *
+ * The guardrail set still decides the content. After every answer the model calls record_answer;
+ * that lands on /api/voice/realtime/tool, where lib/voice.js checks each claimed value against what
+ * the lead actually said and hands back the next question the model is allowed to ask. Ungrounded
+ * values are refused there, so nothing reaches the contract that was not said on the call.
+ *
+ * The API key never reaches the browser: the SDP offer is exchanged by our own server, which also
+ * owns the session instructions, the tools and the voice.
+ *
+ * If WebRTC, the microphone or the realtime model is unavailable, the call falls back to the
+ * step-by-step path below and continues from the same answers, so nobody is locked out.
+ */
+function newRealtimeState() {
+  return {
+    pc: null, dc: null, audioEl: null, mic: null, live: false, connecting: false, failed: null,
+    startedAt: null, model: null, voice: null, vad: null, maxSessionMin: 15, watchdog: null,
+    callTicket: null, opening: null, toolCalls: 0, accepted: 0, rejected: 0, endAttempts: 0,
+    lastUserTurn: '', userLines: [], aiLines: [], handled: {}, aiPartial: '', pendingAttribution: null,
+    responseActive: false, userSpeaking: false, closing: false, dropped: false, micMuted: false, micCalls: 0
+  };
+}
+function rtSync() { const v = voiceSync(); return v.rt || (v.rt = newRealtimeState()); }
+/* Continuous voice is only attempted when the server has it on and the browser can do WebRTC. */
+function realtimePlanned() {
+  const v = voiceSync();
+  return !!(v.cfg && v.cfg.realtime && v.cfg.realtime.enabled && window.RTCPeerConnection &&
+    navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+function rtSend(obj) {
+  const rt = voiceSync().rt;
+  if (!rt || !rt.dc || rt.dc.readyState !== 'open') return false;
+  try { rt.dc.send(JSON.stringify(obj)); return true; } catch (e) { return false; }
+}
+/* Ask the session to speak. `instructions` is the line the guardrail set picked on the server. */
+function rtRespond(instructions) {
+  const ev = { type: 'response.create' };
+  if (instructions) ev.response = { instructions: String(instructions).slice(0, 1500) };
+  return rtSend(ev);
+}
+function waitForIce(pc, ms) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(); } };
+    const timer = setTimeout(finish, ms || 4000);
+    try { if (pc.iceGatheringState === 'complete') return finish(); } catch (e) {}
+    const onState = () => {
+      let complete = false;
+      try { complete = pc.iceGatheringState === 'complete'; } catch (e) {}
+      if (!complete) return;
+      try { pc.removeEventListener('icegatheringstatechange', onState); } catch (e) {}
+      finish();
+    };
+    try { pc.addEventListener('icegatheringstatechange', onState); }
+    catch (e) { try { pc.onicegatheringstatechange = onState; } catch (e2) {} }
+  });
+}
+async function startRealtimeCall() {
+  const v = voiceSync();
+  const rt = rtSync();
+  if (rt.live) return true;
+  try { await ensureSession(); } catch (e) { rt.failed = e.message; return false; }
+  if (!realtimePlanned()) { rt.failed = rt.failed || 'not-available'; return false; }
+  v.engine = 'realtime';
+  v.status = 'connecting'; v.error = null; render();
+  rt.connecting = true;
+  let mic = null;
+  try {
+    mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    rt.micCalls++;
+  } catch (e) {
+    rt.connecting = false; rt.failed = 'mic-blocked';
+    return false;   // the step-by-step path shows the blocked-microphone notice and turns typing on
+  }
+  rt.mic = mic;
+  let pc = null;
+  try { pc = new RTCPeerConnection(); } catch (e) { cleanupRealtime(); rt.failed = 'webrtc'; return false; }
+  rt.pc = pc;
+  const audioEl = document.createElement('audio');
+  audioEl.autoplay = true;
+  try { audioEl.setAttribute('playsinline', ''); audioEl.setAttribute('aria-hidden', 'true'); } catch (e) {}
+  audioEl.style.display = 'none';
+  try { (document.body || document.documentElement).appendChild(audioEl); } catch (e) {}
+  rt.audioEl = audioEl;
+  v.audioEl = audioEl;
+  pc.ontrack = e => {
+    try {
+      const stream = (e.streams && e.streams[0]) || (window.MediaStream ? new MediaStream([e.track]) : null);
+      if (stream) audioEl.srcObject = stream;
+      const p = audioEl.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch(() => { v.notice = 'Your browser held the sound back. Tap anywhere and the live call continues.'; armAudioRetry(); });
+      }
+    } catch (err) {}
+  };
+  try {
+    mic.getAudioTracks().forEach(track => {
+      try { pc.addTrack(track, mic); } catch (e) { try { pc.addTrack(track); } catch (e2) {} }
+    });
+  } catch (e) {}
+  let dc = null;
+  try { dc = pc.createDataChannel('oai-events'); } catch (e) { cleanupRealtime(); rt.failed = 'datachannel'; return false; }
+  rt.dc = dc;
+  dc.onopen = () => {
+    rt.live = true; rt.connecting = false; rt.dropped = false;
+    v.status = 'speaking'; v.speaking = true;
+    v.startedAt = v.startedAt || new Date().toISOString();
+    rt.startedAt = v.startedAt;
+    if (rt.opening && rt.opening.question_id) v.currentQuestionId = rt.opening.question_id;
+    render();
+    armSessionWatchdog();
+    // The opening question was picked by the guardrail set on the server: ask the session to say it.
+    rtRespond(rt.opening && rt.opening.instruction
+      ? rt.opening.instruction + (rt.opening.ask_now ? ' Start with: "' + rt.opening.ask_now + '"' : '')
+      : null);
+  };
+  dc.onmessage = e => handleRealtimeEvent(e && e.data);
+  dc.onclose = () => { if (rt.live && !v.done && !rt.closing) dropRealtime('The live voice session closed.'); };
+  dc.onerror = () => { if (!rt.live) { rt.connecting = false; cleanupRealtime(); rt.failed = rt.failed || 'datachannel'; } };
+  let offer = null;
+  try {
+    offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await waitForIce(pc, 4000);
+  } catch (e) { cleanupRealtime(); rt.failed = 'offer'; return false; }
+  const sdp = (pc.localDescription && pc.localDescription.sdp) || (offer && offer.sdp) || '';
+  let res = null;
+  try {
+    res = await api.post('/api/voice/realtime/connect', {
+      call_id: v.callId, sdp, client_name: (state.user && state.user.name) || '',
+      answers: answersForUpload(), asked: v.asked, skipped: v.skipped, voice_captures: v.captures
+    });
+  } catch (e) { cleanupRealtime(); rt.failed = e.message; return false; }
+  if (!res || !res.ok || !res.sdp) { cleanupRealtime(); rt.failed = (res && res.error) || 'connect-failed'; return false; }
+  rt.callTicket = res.call_ticket || null;
+  rt.opening = res.opening || null;
+  rt.model = res.model || null; rt.voice = res.voice || null; rt.vad = res.turn_detection || null;
+  rt.maxSessionMin = res.max_session_min || 15;
+  v.provider = res.provider || 'openai-realtime';
+  v.mode = 'realtime';
+  if (res.warnings && res.warnings.length) v.warnings = (v.warnings || []).concat(res.warnings);
+  try { await pc.setRemoteDescription({ type: 'answer', sdp: res.sdp }); }
+  catch (e) { cleanupRealtime(); rt.failed = 'answer'; return false; }
+  rt.connecting = false;
+  return true;
+}
+/* A call has a ceiling: the session is closed by the client before the provider closes it. */
+function armSessionWatchdog() {
+  const v = voiceSync(); const rt = v.rt;
+  if (!rt || rt.watchdog) return;
+  const maxMs = Math.max(2, rt.maxSessionMin || 15) * 60 * 1000;
+  rt.watchdog = setTimeout(() => {
+    if (!rt.live || v.done) return;
+    rt.closing = true;
+    v.notice = 'We are at the time limit for one call, so let us wrap up. Everything captured is on the next screen.';
+    rtRespond('We are out of time. Thank them, tell them the next step is to review and correct what we captured on screen, and that a human reviews the blueprint. Then call end_call.');
+    setTimeout(() => { if (!v.done) finishCall(); }, 30000);
+    render();
+  }, maxMs);
+}
+function cleanupRealtime() {
+  const v = voiceSync(); const rt = v.rt;
+  if (!rt) return;
+  if (rt.watchdog) { clearTimeout(rt.watchdog); rt.watchdog = null; }
+  try { if (rt.dc) rt.dc.close(); } catch (e) {}
+  try { if (rt.pc) rt.pc.close(); } catch (e) {}
+  try { if (rt.mic) rt.mic.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { if (rt.audioEl) { rt.audioEl.pause(); rt.audioEl.srcObject = null; if (rt.audioEl.parentNode) rt.audioEl.parentNode.removeChild(rt.audioEl); } } catch (e) {}
+  rt.dc = null; rt.pc = null; rt.mic = null; rt.audioEl = null;
+  rt.live = false; rt.userSpeaking = false; rt.responseActive = false;
+  v.speaking = false; v.listening = false;
+}
+/* The live session died mid-call: keep everything captured and carry on step by step. */
+function dropRealtime(reason) {
+  const v = voiceSync(); const rt = v.rt;
+  if (!rt || rt.dropped) return;
+  rt.dropped = true; rt.live = false;
+  const msg = String(reason || 'The live voice dropped.');
+  cleanupRealtime();
+  v.rtFallback = true;
+  v.provider = 'openai'; v.mode = 'openai'; v.engine = null;
+  v.notice = msg + ' The call carries on step by step from where you were, with everything you said kept.';
+  v.warnings = (v.warnings || []).concat([msg + ' Fell back to the step-by-step call.']);
+  v.status = 'ready';
+  render();
+  voiceTurn(null);
+}
+function handleRealtimeEvent(raw) {
+  const v = voiceSync(); const rt = v.rt;
+  if (!rt) return;
+  let ev = null;
+  try { ev = JSON.parse(raw); } catch (e) { return; }
+  if (!ev || !ev.type) return;
+  switch (ev.type) {
+    case 'session.created':
+    case 'session.updated': {
+      const sess = ev.session || {};
+      if (sess.model) rt.model = sess.model;
+      break;
+    }
+    case 'input_audio_buffer.speech_started':
+      rt.userSpeaking = true; v.status = 'listening'; v.speaking = false; v.interim = ''; rt.aiPartial = '';
+      updateLiveLine(); render();
+      break;
+    case 'input_audio_buffer.speech_stopped':
+      rt.userSpeaking = false; v.status = 'thinking'; render();
+      break;
+    case 'conversation.item.input_audio_transcription.delta':
+      if (ev.transcript) { v.interim = String(ev.transcript); updateLiveLine(); }
+      break;
+    case 'conversation.item.input_audio_transcription.completed':
+      onRealtimeUserTurn(ev.transcript || '');
+      break;
+    case 'response.created':
+      rt.responseActive = true; rt.aiPartial = ''; v.status = 'speaking'; v.speaking = true; render();
+      break;
+    case 'response.output_audio_transcript.delta':
+      if (ev.delta) { rt.aiPartial += String(ev.delta); v.lastLine = rt.aiPartial; updateAiLine(); }
+      break;
+    case 'response.output_audio_transcript.done':
+      onRealtimeAiLine(ev.transcript || rt.aiPartial || '');
+      break;
+    case 'response.function_call_arguments.done':
+      onRealtimeTool(ev.call_id || ev.item_id, ev.name, ev.arguments);
+      break;
+    case 'response.output_item.done':
+      if (ev.item && ev.item.type === 'function_call') onRealtimeTool(ev.item.call_id || ev.item.id, ev.item.name, ev.item.arguments);
+      break;
+    case 'response.done': {
+      rt.responseActive = false; v.speaking = false;
+      const r = ev.response || {};
+      const detail = (r.status_details && (r.status_details.reason || r.status_details.type)) || '';
+      if (r.status === 'failed' || (r.status === 'incomplete' && detail && detail !== 'interrupted')) {
+        v.warnings = (v.warnings || []).concat(['The live model cut a reply short (' + (detail || r.status) + ').']);
+      }
+      if (rt.closing && !v.done) { v.done = true; v.endedAt = new Date().toISOString(); v.status = 'complete'; }
+      else if (!v.done) v.status = rt.userSpeaking ? 'listening' : 'ready';
+      render();
+      break;
+    }
+    case 'rate_limits.updated':
+      break;
+    case 'error': {
+      const err = ev.error || {};
+      const msg = String(err.message || err.code || 'The live voice session reported an error.');
+      v.warnings = (v.warnings || []).concat([msg]);
+      if (/session|expired|closed|not found|invalid_api_key|timeout/i.test(msg)) dropRealtime(msg);
+      else render();
+      break;
+    }
+    default: break;
+  }
+}
+function onRealtimeUserTurn(text) {
+  const v = voiceSync(); const rt = v.rt;
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  rt.userSpeaking = false;
+  if (!t) return;
+  rt.lastUserTurn = t;
+  rt.userLines.push(t);
+  if (rt.userLines.length > 12) rt.userLines.shift();
+  v.lastHeard = t; v.interim = '';
+  /* Attribute the answer to the question Alex is on, so Function A still sees it even if the model
+     forgets to call the tool. The server has the last word: a turn it judges off topic or empty is
+     stripped back out below, so noise never reaches the contract. */
+  const qid = v.currentQuestionId;
+  rt.pendingAttribution = { qid: qid, text: t };
+  if (qid) recordAnswer(qid, t, false);
+  v.transcript.push({ role: 'user', text: t, questionId: qid });
+  v.turns = (v.turns || 0) + 1;
+  render();
+}
+function onRealtimeAiLine(text) {
+  const v = voiceSync(); const rt = v.rt;
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return;
+  v.lastLine = t;
+  rt.aiPartial = '';
+  rt.aiLines.push(t);
+  if (rt.aiLines.length > 8) rt.aiLines.shift();
+  v.transcript.push({ role: 'ai', text: t, questionId: v.currentQuestionId });
+  render();
+}
+/* The current turn's optimistic attribution is held back from the server, so the server decides
+   whether it belongs in the answers at all. */
+function answersForUpload() {
+  const rt = voiceSync().rt;
+  const attr = rt && rt.pendingAttribution;
+  if (!attr || !attr.qid) return state.answers;
+  return state.answers.map(a => {
+    if (a.id !== attr.qid) return a;
+    let t = String(a.text || '');
+    if (t.indexOf(attr.text) >= 0) t = t.replace(attr.text, '').replace(/\s+/g, ' ').trim();
+    return { id: a.id, text: t };
+  });
+}
+function unrecordAttribution(attr) {
+  if (!attr || !attr.qid) return;
+  const a = state.answers.find(x => x.id === attr.qid);
+  if (a && String(a.text || '').indexOf(attr.text) >= 0) {
+    a.text = String(a.text).replace(attr.text, '').replace(/\s+/g, ' ').trim();
+  }
+  const lines = voiceSync().transcript;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].role === 'user' && lines[i].text === attr.text) { lines[i].ignored = true; break; }
+  }
+}
+function applyRealtimeState(st) {
+  const v = voiceSync();
+  if (!st) return;
+  if (Array.isArray(st.answers)) state.answers = st.answers.slice(0, 20).map(a => ({ id: String(a.id), text: String(a.text || '') }));
+  if (Array.isArray(st.asked)) v.asked = st.asked.slice();
+  if (st.probes && typeof st.probes === 'object') v.probes = Object.assign({}, st.probes);
+  if (Array.isArray(st.skipped)) v.skipped = st.skipped.slice();
+  if (Array.isArray(st.voice_captures)) v.captures = st.voice_captures.slice(-60);
+  if (st.capture) v.capture = st.capture;
+}
+async function onRealtimeTool(callId, name, argsRaw) {
+  const v = voiceSync(); const rt = v.rt;
+  if (!name) return;
+  const key = String(callId || '') + ':' + name;
+  if (rt.handled[key]) return;   // the same call can arrive as arguments.done and as output_item.done
+  rt.handled[key] = true;
+  rt.toolCalls++;
+  v.status = 'thinking'; render();
+  let args = argsRaw;
+  if (typeof args === 'string') { try { args = JSON.parse(args); } catch (e) { args = {}; } }
+  if (!args || typeof args !== 'object') args = {};
+  let out = null;
+  try {
+    const j = await api.post('/api/voice/realtime/tool', {
+      call_id: v.callId, call_ticket: rt.callTicket, name, arguments: args,
+      user_turn: rt.lastUserTurn, user_lines: rt.userLines.slice(-4), ai_lines: rt.aiLines.slice(-3),
+      answers: answersForUpload(), asked: v.asked, probes: v.probes, skipped: v.skipped,
+      voice_captures: v.captures, end_attempts: rt.endAttempts,
+      client_name: (state.user && state.user.name) || ''
+    });
+    if (j && j.call_ticket) rt.callTicket = j.call_ticket;
+    out = (j && j.output) || { instruction: 'Carry on with the next question on the intake set.' };
+    if (out.saved === false && rt.pendingAttribution) unrecordAttribution(rt.pendingAttribution);
+    rt.pendingAttribution = null;
+    if (j && j.state) applyRealtimeState(j.state);
+    if (Array.isArray(out.rejected)) rt.rejected += out.rejected.length;
+    if (Array.isArray(out.accepted)) rt.accepted += out.accepted.length;
+    if (out.end_attempts) rt.endAttempts = out.end_attempts;
+    if (out.next && out.next.question_id) { v.currentQuestionId = out.next.question_id; v.pendingQuestionId = out.next.question_id; }
+    if (out.next && out.next.kind === 'probe' && out.question_id) v.probes[out.question_id] = (v.probes[out.question_id] || 0) + 1;
+    if (out.close === true) rt.closing = true;
+    if (name === 'end_call' && out.close !== false) rt.closing = true;
+    if (Array.isArray(j.warnings) && j.warnings.length) v.warnings = (v.warnings || []).concat(j.warnings);
+  } catch (e) {
+    rt.pendingAttribution = null;
+    out = { error: e.message, instruction: 'Carry on with the next question on the intake set.' };
+    v.notice = 'A save did not go through (' + e.message + '). The call carries on.';
+  }
+  v.interim = '';
+  // Hand the result back to the session, then let it speak the next question the policy picked.
+  rtSend({
+    type: 'conversation.item.create',
+    item: { type: 'function_call_output', call_id: String(callId || ''), output: JSON.stringify(out).slice(0, 3500) }
+  });
+  if (!rt.userSpeaking && !v.done) rtRespond(out.instruction || null);
+  render();
+  refreshFieldStatus();
+}
+/* Typing stays available on a live call: the text goes into the same session, so the model treats it
+   exactly like a spoken answer and the guardrail set still records it. */
+function sendRealtimeText(text) {
+  const v = voiceSync(); const rt = v.rt;
+  const t = String(text || '').trim();
+  if (!t) return;
+  const qid = v.currentQuestionId;
+  rtSend({
+    type: 'conversation.item.create',
+    item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: t.slice(0, 1200) }] }
+  });
+  rt.lastUserTurn = t;
+  rt.userLines.push(t);
+  recordAnswer(qid, t, false);
+  v.transcript.push({ role: 'user', text: t, questionId: qid, typed: true });
+  v.lastHeard = t;
+  rtRespond('They typed that answer instead of speaking it. Treat it exactly as if they had said it: call record_answer for ' +
+    (qid || 'the question you just asked') + ', then ask the next question.');
+  render();
+  refreshFieldStatus();
+}
+function realtimeRepeat() {
+  const v = voiceSync();
+  rtRespond('They did not catch that. Repeat your last question once, in the same words, a little more slowly, then wait for the answer.');
+  v.status = 'speaking'; render();
+}
+function setRealtimeMicMuted(muted) {
+  const rt = voiceSync().rt;
+  if (!rt || !rt.mic) return;
+  rt.micMuted = !!muted;
+  try { rt.mic.getAudioTracks().forEach(t => { t.enabled = !rt.micMuted; }); } catch (e) {}
+}
+function setRealtimeSpeakerMuted(muted) {
+  const v = voiceSync(); const rt = v.rt;
+  v.muted = !!muted;
+  try { if (rt && rt.audioEl) rt.audioEl.muted = !!muted; } catch (e) {}
+}
+
 /* ---------------- one turn of the call ---------------- */
 function answerIdFor() {
   const v = voiceSync();
@@ -626,6 +1046,9 @@ async function prefetchOpening() {
   v.prefetching = true; v.prefetchTried = true;
   try {
     await ensureSessionSilent();
+    // A continuous call opens its own session and picks its own opening on the server, so prefetching
+    // a step-by-step turn here would spend a turn (and a line of speech) for nothing.
+    if (realtimePlanned()) { v.prefetching = false; render(); return; }
     v.prefetchPromise = api.post('/api/voice/turn', buildTurnBody(null));
     v.opening = await v.prefetchPromise;
   } catch (e) {
@@ -638,6 +1061,24 @@ async function startCall() {
   const v = voiceSync();
   v.error = null;
   if (!v.startedAt) v.startedAt = new Date().toISOString();
+  /* Continuous voice first: one session for the whole call, nothing cut between questions. If the
+     browser, the microphone or the model cannot do it, the same call carries on step by step below. */
+  if (!v.rtTried) {
+    v.rtTried = true;
+    const live = await startRealtimeCall();
+    if (live) return;
+    const rt = v.rt;
+    if (rt && rt.failed === 'mic-blocked') {
+      v.micBlocked = true; v.typed = true; v.status = 'ready';
+      v.notice = 'The microphone is blocked here (browsers block it inside preview iframes), so the live call cannot start. Open the site in its own tab for the continuous call, or type your answers below.';
+      render();
+      return;
+    }
+    if (rt && rt.failed) {
+      v.notice = 'The continuous voice call could not start (' + String(rt.failed).slice(0, 140) + '). Running the same call step by step instead.';
+      v.rtFallback = true;
+    }
+  }
   const run = res => { applyTurn(res); afterTurn(res); };
   // Fast path: the opening turn is already in hand, so the AI starts speaking inside this click.
   if (v.opening) { const res = v.opening; v.opening = null; run(res); return; }
@@ -672,9 +1113,26 @@ function skipQuestion() {
   voiceTurn(null);
 }
 function finishCall() {
+  const v = voiceSync();
+  const rt = v.rt;
   stopSpeaking(); stopListening();
-  voiceSync().endedAt = new Date().toISOString();
-  startExtraction();
+  v.endedAt = new Date().toISOString();
+  const wasLive = !!(rt && (rt.live || rt.startedAt));
+  if (wasLive) { rt.closing = true; if (rt.audioEl) { try { rt.audioEl.pause(); } catch (e) {} } }
+  cleanupRealtime();
+  if (!wasLive) { startExtraction(); return; }
+  /* The server recomputes the contract state from everything the call captured, so the review screen
+     and Function A see exactly what the live call produced (and nothing that failed grounding). */
+  api.post('/api/voice/realtime/end', {
+    call_id: v.callId, answers: state.answers, asked: v.asked, probes: v.probes, skipped: v.skipped,
+    voice_captures: v.captures,
+    transcript: v.transcript.slice(-30).map(t => ({ role: t.role, text: t.text }))
+  }).then(j => {
+    if (j && j.capture) v.capture = j.capture;
+    if (j && Array.isArray(j.voice_captures)) v.captures = j.voice_captures;
+    if (j && j.provider) { v.provider = j.provider; v.mode = j.mode; }
+    startExtraction();
+  }).catch(() => startExtraction());
 }
 
 /* ---------------- rendering ---------------- */
@@ -770,7 +1228,7 @@ function steps() {
   return h + '<div class="steps-bar" aria-hidden="true"><span style="width:' + pct + '%"></span></div>';
 }
 function footer() {
-  return '<div class="footer"><span>Prototype build v0.2 (hardened + voice)</span><span>The discovery call runs on the real OpenAI voice layer (ChatGPT wording, OpenAI speech and transcription) when OPENAI_API_KEY is set; extraction, PDF, and CRM steps are still simulated locally, with Supabase for auth and data in production.</span><span>All keys live server-side, never in the browser.</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></div>';
+  return '<div class="footer"><span>Prototype build v0.2 (hardened + voice)</span><span>The discovery call runs on the real OpenAI voice layer (one continuous Realtime call, with ChatGPT wording and OpenAI speech as the fallback) when OPENAI_API_KEY is set; extraction, PDF, and CRM steps are still simulated locally, with Supabase for auth and data in production.</span><span>All keys live server-side, never in the browser.</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></div>';
 }
 
 /* ---------------- the entry gate: name + email, then the AI voice call ----------------
@@ -902,6 +1360,7 @@ function fmtCaptured(v) {
 }
 function providerBadge() {
   const v = voiceSync();
+  if (v.mode === 'realtime') return '<span class="badge-mode openai">Live AI voice</span>';
   const openai = v.mode === 'openai';
   return '<span class="badge-mode ' + (openai ? 'openai' : 'simulated') + '">' +
     (openai ? 'ChatGPT voice' : 'Simulated voice') + '</span>';
@@ -913,13 +1372,16 @@ function callView() {
   const answered = state.answers.filter(a => String(a.text || '').trim()).length;
   const pct = Math.round((Math.min(answered, total) / total) * 100);
   const started = !!v.startedAt || v.transcript.length > 0;
-  const statusText = VOICE_STATUS_TEXT[v.status] || VOICE_STATUS_TEXT.idle;
+  const statusText = (v.mode === 'realtime' ? RT_STATUS_TEXT[v.status] : VOICE_STATUS_TEXT[v.status]) ||
+    VOICE_STATUS_TEXT[v.status] || VOICE_STATUS_TEXT.idle;
   const aiLine = v.lastLine || 'Alex, the PipelineSync AI interviewer, will call you. Twelve short questions about your business, all answered out loud. The AI speaks first, waits while you talk, then moves on.';
   const youLine = v.interim || v.lastHeard || '';
 
   let h = '<div class="intake-wrap"><div class="call">' +
     '<div class="call-head"><div class="who"><div class="avatar">AI</div><div><b>AI discovery call</b><span class="small muted" id="call-mode">' +
-      (v.cfg ? (v.mode === 'openai' ? 'ChatGPT voice, ' + esc(v.cfg.models.tts) : 'simulated voice (no API key)') : 'connecting...') + '</span></div></div>' +
+      (v.cfg ? (v.mode === 'realtime'
+        ? 'Continuous voice call, ' + esc((v.rt && v.rt.model) || v.cfg.realtime.model)
+        : (v.mode === 'openai' ? 'ChatGPT voice, ' + esc(v.cfg.models.tts) : 'simulated voice (no API key)')) : 'connecting...') + '</span></div></div>' +
       '<div class="call-head-right"><div class="progress" id="call-progress">' + (started ? 'Question ' + Math.min(answered + 1, total) + ' of ' + total : 'Not started') + '</div>' +
       '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress<span class="side-toggle-count">' + answered + '/' + total + '</span></button></div></div>' +
     '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
@@ -938,6 +1400,32 @@ function callView() {
 }
 function callControls(started, total) {
   const v = voiceSync();
+  const rt = v.rt;
+  /* A live call has no "tap to answer": the microphone is open the whole way through, so the controls
+     are the ones a phone call has. */
+  if (rt && (rt.live || rt.connecting)) {
+    let h = '<div class="call-row">';
+    h += '<button class="btn ' + (rt.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" aria-pressed="' + (rt.micMuted ? 'false' : 'true') + '"' +
+      ' aria-label="' + (rt.micMuted ? 'Unmute my microphone' : 'Mute my microphone') + '">' +
+      (rt.micMuted ? '&#128263; Microphone muted' : '&#127908; Microphone live') + '</button>';
+    h += '<button class="btn btn-ghost" id="repeat-btn">Ask that again</button>';
+    h += '<button class="btn btn-ghost" id="mute-btn" aria-pressed="' + (v.muted ? 'true' : 'false') + '">' + (v.muted ? 'Unmute the AI voice' : 'Mute the AI voice') + '</button>';
+    h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
+    if (!v.done) h += '<button class="btn btn-ghost" id="finish-btn">End the call</button>';
+    h += '</div>';
+    if (rt.connecting) h += '<p class="small muted mt8">Opening one continuous voice session. Nothing will cut between questions.</p>';
+    else h += '<p class="small muted mt8">Live and continuous: speak whenever you are ready, and talk over Alex if you need to. Nothing is recorded and stored.</p>';
+    if (v.done) {
+      h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Structure my answers</button>' +
+        '<span class="small muted">' + v.asked.length + ' questions covered. You can correct anything on the next screen.</span></div>';
+    }
+    if (v.typed) {
+      h += '<div class="chat-input"><textarea id="intake-input" rows="1" placeholder="Type your answer..."></textarea>' +
+        '<button class="icon-btn" id="mic-back-btn" title="Answer out loud again">&#127908;</button>' +
+        '<button class="btn btn-primary" id="send-btn">Send</button></div>';
+    }
+    return h;
+  }
   if (!started) {
     const ready = !!v.opening;
     return '<div class="call-row"><button class="btn btn-primary btn-lg" id="start-call">&#9654; Start the discovery call (voice)</button>' +
@@ -986,9 +1474,16 @@ function callSidebar() {
       '<span class="val">' + esc((val || 'not yet') + assist) + '</span></div>';
   }).join('');
   const modeCard = '<div class="side-card"><h3>This call</h3>' +
-    '<div class="provider-card">' + providerBadge() + '<span class="small muted">' + (v.mode === 'openai' ? 'OpenAI, server-side' : 'built-in questions, browser voice') + '</span></div>' +
+    '<div class="provider-card">' + providerBadge() + '<span class="small muted">' + (v.mode === 'realtime' ? 'OpenAI Realtime, one continuous session' : (v.mode === 'openai' ? 'OpenAI, server-side' : 'built-in questions, browser voice')) + '</span></div>' +
     '<p class="small muted mt8">' + esc(v.why || 'Checking which voice provider is available...') + '</p>' +
-    (v.cfg ? '<p class="small muted">Speaking: ' + esc(v.cfg.models.tts) + ' voice ' + esc(v.cfg.tts_voice) + '<br>Listening: ' + (v.engine === 'openai' ? 'OpenAI transcription (' + esc(v.cfg.models.stt) + ')' : 'browser microphone') + '<br>Turns so far: ' + v.turns + '<br>Audio is transcribed, never stored.</p>' : '') +
+    (v.cfg ? (v.mode === 'realtime'
+      ? '<p class="small muted">Live session: ' + esc((v.rt && v.rt.model) || v.cfg.realtime.model) + ', voice ' + esc((v.rt && v.rt.voice) || v.cfg.realtime.voice) +
+        '<br>Turn detection: ' + esc((v.rt && v.rt.vad) || v.cfg.realtime.turn_detection) + ', so nothing is cut between questions' +
+        '<br>Listening: OpenAI transcription (' + esc(v.cfg.models.stt) + ')' +
+        '<br>Answers saved: ' + v.asked.length + '<br>Values kept: ' + ((v.rt && v.rt.accepted) || 0) +
+        ', refused as not said on the call: ' + ((v.rt && v.rt.rejected) || 0) +
+        '<br>Audio is transcribed, never stored.</p>'
+      : '<p class="small muted">Speaking: ' + esc(v.cfg.models.tts) + ' voice ' + esc(v.cfg.tts_voice) + '<br>Listening: ' + (v.engine === 'openai' ? 'OpenAI transcription (' + esc(v.cfg.models.stt) + ')' : 'browser microphone') + '<br>Turns so far: ' + v.turns + '<br>Audio is transcribed, never stored.</p>') : '') +
     (v.warnings && v.warnings.length ? '<p class="small txt-warn">' + esc(v.warnings[v.warnings.length - 1]) + '</p>' : '') +
     '</div>';
   const errNote = state.fieldError ? '<p class="small txt-err mt8" role="alert">' + esc(state.fieldError) + '</p>' : '';
@@ -1001,13 +1496,21 @@ function callSidebar() {
     '<select id="persona-sel"><option value="">Choose a vertical...</option>' + personaOpts + '</select>' +
     '<button class="btn btn-ghost btn-sm btn-block mt8" id="persona-go">Load demo answers</button>' +
     '<p class="small muted mt8">Typed demo answers for the four verticals (solar, medical, home services, e-commerce). Use these to check the blueprint quality checks.</p></div>';
-  const bubbles = v.transcript.map(t => '<div class="bubble ' + (t.role === 'ai' ? 'ai' : 'user') + '">' + esc(t.text) + '</div>').join('');
+  const bubbles = v.transcript.map(t => '<div class="bubble ' + (t.role === 'ai' ? 'ai' : 'user') + (t.ignored ? ' ignored' : '') + '">' +
+    esc(t.text) + (t.ignored ? '<span class="bubble-note">not part of the call, nothing captured from it</span>' : '') + '</div>').join('');
   const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
     '<p class="small muted">The call is spoken. This is the written record the AI will structure.</p>' +
     '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
     '<div class="chat-body" id="chat-body">' + (bubbles || '<p class="small muted">Nothing yet.</p>') + '</div></details></div>';
   return '<aside class="intake-side" id="intake-side" aria-label="Call progress and captured answers">' +
     modeCard + '<div class="side-card"><h3>What we have captured</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + personaCard + '</aside>';
+}
+/* The AI's line grows word by word on a live call, so it is patched in place rather than re-rendered
+   (a full render would rebuild the orb and lose the animation mid-sentence). */
+function updateAiLine() {
+  const v = voiceSync();
+  const el = $('#ai-line');
+  if (el && v.lastLine) el.textContent = v.lastLine;
 }
 function updateLiveLine() {
   const v = voiceSync();
@@ -1025,16 +1528,21 @@ function bindCall() {
   if (preType) preType.onclick = () => { v.typed = true; v.startedAt = v.startedAt || new Date().toISOString(); render(); };
   const mic = $('#mic-btn');
   if (mic) mic.onclick = () => {
+    // On a live call the microphone is already open: the button mutes it, it does not start a turn.
+    if (v.rt && v.rt.live) { setRealtimeMicMuted(!v.rt.micMuted); render(); return; }
     if (v.listening) { stopListening(); return; }
     if (v.status === 'speaking') stopSpeaking();
     listNow();
   };
   const micBack = $('#mic-back-btn');
-  if (micBack) micBack.onclick = () => { stopListening(); v.typed = false; render(); listNow(); };
+  if (micBack) micBack.onclick = () => {
+    if (v.rt && v.rt.live) { v.typed = false; render(); return; }
+    stopListening(); v.typed = false; render(); listNow();
+  };
   const stopSpeak = $('#stop-speak');
   if (stopSpeak) stopSpeak.onclick = () => { stopSpeaking(); v.status = v.done ? 'complete' : 'ready'; render(); };
   const rep = $('#repeat-btn');
-  if (rep) rep.onclick = () => repeatLine();
+  if (rep) rep.onclick = () => { if (v.rt && v.rt.live) { realtimeRepeat(); return; } repeatLine(); };
   const typ = $('#type-btn');
   if (typ) typ.onclick = () => {
     stopListening();
@@ -1042,7 +1550,10 @@ function bindCall() {
     const i = $('#intake-input'); if (i) i.focus();
   };
   const mute = $('#mute-btn');
-  if (mute) mute.onclick = () => { v.muted = !v.muted; if (v.muted) stopSpeaking(); render(); };
+  if (mute) mute.onclick = () => {
+    if (v.rt && v.rt.live) { setRealtimeSpeakerMuted(!v.muted); render(); return; }
+    v.muted = !v.muted; if (v.muted) stopSpeaking(); render();
+  };
   const skip = $('#skip-btn');
   if (skip) skip.onclick = () => skipQuestion();
   const fin = $('#finish-btn');
@@ -1056,6 +1567,8 @@ function bindCall() {
     const t = (inp ? inp.value : '').trim();
     if (!t) return;
     if (inp) inp.value = '';
+    // Typed words join the same live session, so the guardrail set records them the same way.
+    if (v.rt && v.rt.live) { sendRealtimeText(t); return; }
     voiceTurn(t);
   };
   const sb = $('#send-btn');
@@ -1157,6 +1670,8 @@ function voiceMeta() {
   if (!v || !v.startedAt) return null;
   const end = v.endedAt ? new Date(v.endedAt) : new Date();
   const dur = Math.max(0, Math.round((end - new Date(v.startedAt)) / 1000));
+  const rt = v.rt;
+  const realtime = v.mode === 'realtime' || (rt && rt.startedAt);
   return {
     provider: v.provider, mode: v.mode,
     models: v.cfg ? v.cfg.models : null, tts_voice: v.cfg ? v.cfg.tts_voice : null,
@@ -1166,6 +1681,14 @@ function voiceMeta() {
     questions_asked: v.asked, probes: Object.keys(v.probes).length,
     required_missing_at_call_end: (v.capture && v.capture.missingRequired) || [],
     transcript_turns: v.transcript.length,
+    transport: realtime ? 'webrtc-realtime' : 'turn-based',
+    realtime_model: realtime ? (rt.model || (v.cfg && v.cfg.realtime && v.cfg.realtime.model) || null) : null,
+    realtime_voice: realtime ? (rt.voice || (v.cfg && v.cfg.realtime && v.cfg.realtime.voice) || null) : null,
+    turn_detection: realtime ? (rt.vad || (v.cfg && v.cfg.realtime && v.cfg.realtime.turn_detection) || null) : null,
+    tool_calls: realtime ? (rt.toolCalls || 0) : null,
+    captures_accepted: realtime ? (rt.accepted || 0) : null,
+    captures_rejected: realtime ? (rt.rejected || 0) : null,
+    fallback_to_turns: !!v.rtFallback,
     audio_retained: false
   };
 }
@@ -1312,7 +1835,7 @@ function reviewView() {
   ];
   const v = state.voice;
   const callLine = v && v.startedAt
-    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice (no API key)') +
+    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + (v.mode === 'realtime' ? 'Live continuous AI voice' : (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice (no API key)')) +
       ' - ' + v.turns + ' turns - ' + v.asked.length + ' of ' + ((v.plan || []).length || 12) + ' questions asked - ' +
       (v.capture ? (v.capture.filledCount + ' of ' + v.capture.totalCount + ' fields captured') : 'captured live') +
       ' - audio not retained</span></div>'

@@ -4,7 +4,7 @@
  * One function serves the four voice routes; netlify.toml rewrites /api/voice/* here.
  * All OpenAI calls happen inside this function, so OPENAI_API_KEY stays server-side.
  */
-const { handleVoice } = require('../../lib/voice-api');
+const { handleVoice, rateLimitFor } = require('../../lib/voice-api');
 const helpers = require('../../lib/netlify-helpers');
 
 function bodyOf(event, limitBytes) {
@@ -31,12 +31,13 @@ function subRoute(event) {
   if (q) return q;
   const candidates = [event.path || '', event.rawUrl || '', (event.headers && event.headers['x-original-uri']) || ''];
   for (const c of candidates) {
-    const m = c.match(/\/api\/voice\/([a-z]+)/);
-    if (m) return m[1];
+    // Nested on purpose: /api/voice/realtime/connect, /api/voice/realtime/tool, /api/voice/realtime/end.
+    const m = c.match(/\/api\/voice\/([a-z0-9_\/-]+)/);
+    if (m) return m[1].replace(/\/+$/, '');
   }
   for (const c of candidates) {
-    const m = c.match(/functions\/voice\/?([a-z]*)/);
-    if (m && m[1]) return m[1];
+    const m = c.match(/functions\/voice\/?([a-z0-9_\/-]*)/);
+    if (m && m[1]) return m[1].replace(/\/+$/, '');
   }
   return '';
 }
@@ -52,7 +53,7 @@ exports.handler = async (event) => {
   const sub = subRoute(event);
   // Voice turns spend OpenAI credit, so rate limit per IP per minute (in-memory, per warm instance).
   const ip = helpers.getClientIp(event);
-  const rl = helpers.checkRateLimit('voice:' + sub + ':' + ip, sub === 'turn' ? 40 : 30, 60 * 1000);
+  const rl = helpers.checkRateLimit('voice:' + sub + ':' + ip, rateLimitFor(sub), 60 * 1000);
   if (!rl.allowed) {
     const headers = helpers.securityHeaders();
     headers['retry-after'] = String(rl.retryAfter);
