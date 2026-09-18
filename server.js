@@ -14,6 +14,7 @@ const path = require('path');
 const crypto = require('crypto');
 const core = require('./lib/core');
 const leads = require('./lib/supabase-leads');
+const hubspot = require('./lib/hubspot');
 const voice = require('./lib/voice');
 const { handleVoice, clampVoiceMeta, rateLimitFor } = require('./lib/voice-api');
 
@@ -61,7 +62,7 @@ function escHtml(s) {
 function securityHeaders() {
   // The voice layer plays OpenAI speech from a blob: or data: URL, so media-src must allow both
   // (default-src 'self' alone would have the browser refuse to play the AI voice).
-  const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com data:; object-src 'none'; base-uri 'self'; " +
+  const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.hubspot.com; media-src 'self' blob: data:; connect-src 'self' https://*.hubspot.com; font-src 'self' https://fonts.gstatic.com data:; frame-src 'self' https://meetings.hubspot.com https://app.hubspot.com https://*.hubspot.com; object-src 'none'; base-uri 'self'; " +
     // Production (Netlify) sends frame-ancestors 'none'. The local dev server is embedded in the
     // preview pane, so it must stay framable here; PS_ALLOW_FRAMING=0 restores the strict rule.
     (process.env.PS_ALLOW_FRAMING === '0' ? "frame-ancestors 'none'" : "frame-ancestors *");
@@ -163,12 +164,17 @@ function getStatic(req, res, urlPath) {
   });
 }
 function outboxPage(res) {
+  const hubEnabled = hubspot.isEnabled(process.env);
   const rows = hubSpotOutbox.map((e, i) => {
     const v = e.voice_call || {};
     const voice = v.provider ? escHtml(v.provider) + ' / ' + escHtml(v.mode || '') + (v.turns ? ' (' + v.turns + ' turns)' : '') : 'typed (no voice call)';
-    return '<tr><td>' + (i + 1) + '</td><td>' + escHtml(e.email) + '</td><td>' + escHtml(e.contact_id) + '</td><td>' + escHtml(e.industry || '') + '</td><td>' + voice + '</td><td>' + escHtml(e.created_at) + '</td></tr>';
+    const hub = e.hubspot ? (e.hubspot.dealId ? 'deal ' + escHtml(e.hubspot.dealId) : e.hubspot.mocked ? 'mock' : escHtml(e.hubspot.contactId || '')) : escHtml(e.contact_id);
+    return '<tr><td>' + (i + 1) + '</td><td>' + escHtml(e.email) + '</td><td>' + hub + '</td><td>' + escHtml(e.industry || '') + '</td><td>' + voice + '</td><td>' + escHtml(e.created_at) + '</td></tr>';
   }).join('');
-  const html = '<!doctype html><meta charset="utf-8"><title>HubSpot outbox (dev)</title><style>body{font:14px/1.5 system-ui;background:#f6f7f9;margin:0;padding:24px}h1{font-size:18px}table{border-collapse:collapse;background:#fff;width:100%;max-width:1100px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}pre{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;max-width:1100px}</style><h1>HubSpot lead outbox (mock Function D, local dev)</h1><p>Every deliver step pushes a lead here and to the console. On Netlify the same payload is logged to the function logs. The <b>voice_call</b> block records how the discovery call was run (provider, models, turns, and whether the three required fields were still missing when the call ended).</p><table><tr><th>#</th><th>Email</th><th>Contact ID</th><th>Industry</th><th>Discovery call</th><th>Pushed at</th></tr>' + rows + '</table><h2>Raw payloads</h2><pre>' + escHtml(JSON.stringify(hubSpotOutbox, null, 2)) + '</pre>';
+  const banner = hubEnabled
+    ? '<p style="background:#ecfdf5;border:1px solid #6ee7b7;padding:10px;border-radius:8px">✅ HubSpot live push is <b>enabled</b> (HUBSPOT_ACCESS_TOKEN is set). New delivers create a real Contact + Deal. Mock entries below are from before the token was set or from failed pushes.</p>'
+    : '<p style="background:#fffbeb;border:1px solid #fcd34d;padding:10px;border-radius:8px">⚠️ HubSpot live push is <b>disabled</b> (no HUBSPOT_ACCESS_TOKEN). Deliveries are logged as <code>[hubspot-mock]</code> and shown here only. Set HUBSPOT_ACCESS_TOKEN and restart to go live.</p>';
+  const html = '<!doctype html><meta charset="utf-8"><title>HubSpot outbox (dev)</title><style>body{font:14px/1.5 system-ui;background:#f6f7f9;margin:0;padding:24px}h1{font-size:18px}table{border-collapse:collapse;background:#fff;width:100%;max-width:1100px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}pre{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;max-width:1100px}</style><h1>HubSpot lead outbox (local dev)</h1>' + banner + '<p>Every deliver step pushes a lead here and to the console. On Netlify the same payload is logged to the function logs. The <b>voice_call</b> block records how the discovery call was run (provider, models, turns, and whether the three required fields were still missing when the call ended). When live, the HubSpot contact ID replaces the mock ID.</p><table><tr><th>#</th><th>Email</th><th>HubSpot ID</th><th>Industry</th><th>Discovery call</th><th>Pushed at</th></tr>' + rows + '</table><h2>Raw payloads</h2><pre>' + escHtml(JSON.stringify(hubSpotOutbox, null, 2)) + '</pre>';
   res.writeHead(200, Object.assign({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders()));
   res.end(html);
 }
@@ -179,7 +185,12 @@ async function handleApi(req, res, url) {
   const method = req.method;
   const ip = req.socket.remoteAddress || 'unknown';
 
-  if (method === 'GET' && route === '/api/health') return sendJson(res, 200, { ok: true, service: 'pipelinesync-ai-prototype', version: '0.2', mode: 'local' });
+  if (method === 'GET' && route === '/api/health') return sendJson(res, 200, { ok: true, service: 'pipelinesync-ai-prototype', version: '0.2', mode: 'local', hubspot: hubspot.isEnabled(process.env), scheduler: !!process.env.SCHEDULER_LINK });
+  if (method === 'GET' && route === '/api/config') {
+    // Public, safe config for the frontend (scheduler link is public, never the token)
+    const link = String(process.env.SCHEDULER_LINK || '').trim();
+    return sendJson(res, 200, { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env) });
+  }
   if (method === 'GET' && route === '/dev/outbox') return outboxPage(res);
 
   /* Entry gate: name + email, no password. /api/auth/login is kept as an alias so any
@@ -305,9 +316,31 @@ async function handleApi(req, res, url) {
     if (authBody.consent !== true) return sendJson(res, 400, { error: 'Please tick the consent box before we send the PDF.' });
     const buffer = core.buildPdf(bp);
     const leadName = core.cleanName(payload.name) || core.loginNameFor(payload.email || email);
-    const lead = core.makeLeadPayload(email, leadName, authBody.fields || null, bp, clampVoiceMeta(authBody.voice_meta));
-    hubSpotOutbox.push(lead);
-    console.log('[hubspot-mock] lead push: ' + JSON.stringify(lead));
+    const voiceMeta = clampVoiceMeta(authBody.voice_meta);
+    const mockLead = core.makeLeadPayload(email, leadName, authBody.fields || null, bp, voiceMeta);
+    let hubspotResult = null;
+    let contactId = mockLead.contact_id;
+    if (hubspot.isEnabled(process.env)) {
+      try {
+        hubspotResult = await hubspot.pushLead({
+          email, name: leadName, fields: authBody.fields || null, blueprint: bp, voiceCall: voiceMeta,
+          env: process.env, fetchImpl: fetch
+        });
+        if (hubspotResult && hubspotResult.contactId) contactId = hubspotResult.contactId;
+        if (hubspotResult && hubspotResult.error) {
+          console.warn('[hubspot] push returned error but PDF still delivered:', hubspotResult.error);
+        } else {
+          console.log('[hubspot] live push ok: contact=' + (hubspotResult && hubspotResult.contactId) + ' deal=' + (hubspotResult && hubspotResult.dealId));
+        }
+      } catch (e) {
+        console.error('[hubspot] live push failed (PDF still delivered):', e.message);
+      }
+    }
+    const outboxEntry = hubspotResult && hubspotResult.enabled
+      ? Object.assign({}, mockLead, { contact_id: contactId, hubspot: { contactId, dealId: hubspotResult.dealId, mocked: false }, created_at: new Date().toISOString() })
+      : Object.assign({}, mockLead, { hubspot: { mocked: true }, created_at: new Date().toISOString() });
+    if (!hubspot.isEnabled(process.env)) console.log('[hubspot-mock] lead push: ' + JSON.stringify(mockLead));
+    hubSpotOutbox.push(outboxEntry);
     const filename = core.pdfFilename(bp);
     if (payload.lead_id && leads.isEnabled(process.env)) {
       const now = new Date().toISOString();
@@ -316,10 +349,11 @@ async function handleApi(req, res, url) {
         email, status: 'blueprint_delivered', blueprint_delivered_at: now,
         consent_given: true, consent_given_at: now
       }, { env: process.env });
-      await leads.addEvent(payload.lead_id, 'blueprint_delivered', { filename }, { env: process.env });
+      await leads.addEvent(payload.lead_id, 'blueprint_delivered', { filename, hubspot: hubspotResult ? { contactId, dealId: hubspotResult.dealId } : null }, { env: process.env });
     }
     return sendJson(res, 200, {
-      ok: true, contact_id: lead.contact_id, lead_pushed: true,
+      ok: true, contact_id: contactId, lead_pushed: true,
+      hubspot: hubspotResult ? { contactId: hubspotResult.contactId, dealId: hubspotResult.dealId, mocked: !!hubspotResult.mocked } : { mocked: true },
       filename, pdf_base64: buffer.toString('base64')
     });
   }

@@ -1,14 +1,14 @@
 'use strict';
 /* Netlify functions C + D: /api/deliver
  * C: builds the PDF server-side (pure-JS writer) and returns it as base64.
- * D: pushes the lead to HubSpot. In the prototype the payload is logged to
- *    the Netlify function logs (Site dashboard > Functions > logs, or the
- *    deploy log viewer) instead of calling the HubSpot API.
- * When HUBSPOT_ACCESS_TOKEN is added later, replace logLead() with the
- * private app token POST to /crm/v3/objects/contacts.
+ * D: pushes the lead to HubSpot. When HUBSPOT_ACCESS_TOKEN is set (Private App
+ *    token pat-na1-...), the lead is pushed live to HubSpot Contacts + Deals
+ *    via lib/hubspot.js. Without it, the payload is logged to the Netlify
+ *    function logs as [hubspot-mock] (so demos never break).
  */
 const core = require('../../lib/core');
 const leads = require('../../lib/supabase-leads');
+const hubspot = require('../../lib/hubspot');
 const { bodyOf, json } = require('../../lib/netlify-helpers');
 const { clampVoiceMeta } = require('../../lib/voice-api');
 
@@ -33,8 +33,32 @@ exports.handler = async (event) => {
   if (body.consent !== true) return json(400, { error: 'Please tick the consent box before we send the PDF.' });
 
   const buffer = core.buildPdf(bp);
-  const lead = core.makeLeadPayload(email, payload.name, body.fields || null, bp, clampVoiceMeta(body.voice_meta));
-  logLead(lead);
+  const leadName = core.cleanName(payload.name) || core.loginNameFor(payload.email || email);
+  const voiceMeta = clampVoiceMeta(body.voice_meta);
+  const mockLead = core.makeLeadPayload(email, leadName, body.fields || null, bp, voiceMeta);
+
+  // Push to HubSpot if configured, otherwise keep mock log so function logs still show the payload.
+  let hubspotResult = null;
+  let contactId = mockLead.contact_id;
+  if (hubspot.isEnabled(process.env)) {
+    try {
+      hubspotResult = await hubspot.pushLead({
+        email, name: leadName, fields: body.fields || null, blueprint: bp, voiceCall: voiceMeta,
+        env: process.env, fetchImpl: globalThis.fetch
+      });
+      if (hubspotResult && hubspotResult.contactId) contactId = hubspotResult.contactId;
+      if (hubspotResult && hubspotResult.error) {
+        console.warn('[hubspot] push returned error but PDF still delivered:', hubspotResult.error);
+      } else {
+        console.log('[hubspot] live push ok: contact=' + (hubspotResult && hubspotResult.contactId) + ' deal=' + (hubspotResult && hubspotResult.dealId));
+      }
+    } catch (e) {
+      console.error('[hubspot] live push failed (PDF still delivered):', e.message);
+      // Do not block PDF delivery — fall back to mock id
+    }
+  } else {
+    logLead(mockLead);
+  }
 
   if (payload.lead_id && leads.isEnabled(process.env)) {
     try {
@@ -56,7 +80,8 @@ exports.handler = async (event) => {
     statusCode: 200,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY' },
     body: JSON.stringify({
-      ok: true, contact_id: lead.contact_id, lead_pushed: true,
+      ok: true, contact_id: contactId, lead_pushed: true,
+      hubspot: hubspotResult ? { contactId: hubspotResult.contactId, dealId: hubspotResult.dealId, mocked: !!hubspotResult.mocked } : { mocked: true },
       filename: core.pdfFilename(bp), pdf_base64: buffer.toString('base64')
     })
   };
