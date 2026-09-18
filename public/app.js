@@ -1148,6 +1148,9 @@ function finishCall() {
 /* ---------------- rendering ---------------- */
 function render() {
   const app = $('#app');
+  // The public entry is a true one-screen experience. The class lets CSS lock only the
+  // landing screen to the dynamic viewport without trapping the longer blueprint/review views.
+  document.body.classList.toggle('entry-screen', !state.token);
   if (!state.token) { app.innerHTML = startView(); return; }
   let h = topbar() + '<main class=\"main\" id=\"main-content\" tabindex=\"-1\">' + steps();
   switch (state.stage) {
