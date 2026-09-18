@@ -744,51 +744,60 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
    Stage 1: Entry / Value Prop (Cinematic Dark Hero & HUD Gate)
    ========================================================================== */
 .main {
+  width: 100%;
   max-width: 1140px;
   margin: 0 auto;
-  padding: 1.25rem 1.25rem 3rem;
+  padding: clamp(1.25rem, 3vw, 2.5rem) clamp(1rem, 3vw, 2rem) clamp(2.5rem, 5vw, 4rem);
+  box-sizing: border-box;
 }
 .gate {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1.25rem, 3.5vw, 2.5rem);
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-  align-items: stretch;
+  justify-content: center;
+  gap: 2.5rem;
+  box-sizing: border-box;
 }
 .gate-brand {
   position: relative;
-  padding: 1rem 0;
+  padding: 0.5rem 0;
 }
 .gate-brand-inner {
-  max-width: 680px;
+  max-width: 640px;
 }
 .gate-brand h1 {
   font-size: var(--fs-2xl);
-  line-height: 1.05;
-  margin-bottom: 1rem;
+  line-height: 1.1;
+  margin: 0 0 1.25rem;
+  letter-spacing: -0.03em;
 }
 .gate-brand .lede {
   font-size: var(--fs-lg);
   color: var(--ink-2);
-  max-width: 58ch;
-  line-height: 1.55;
-  margin-bottom: 1.5rem;
+  max-width: 54ch;
+  line-height: 1.6;
+  margin: 0 0 2rem;
 }
 .mini-steps {
   list-style: none;
   padding: 0;
-  margin: 0 0 1.5rem;
+  margin: 0 0 2rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.85rem;
 }
 .mini-step {
   display: flex;
   align-items: flex-start;
-  gap: 0.85rem;
+  gap: 1rem;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--line);
   border-radius: var(--r);
-  padding: 0.85rem 1rem;
+  padding: 0.95rem 1.15rem;
 }
 .mini-step .n {
   width: 26px;
@@ -803,23 +812,25 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
   font-weight: 700;
   font-size: 0.8125rem;
   flex-shrink: 0;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 .mini-step b {
   display: block;
   font-size: 0.9375rem;
   color: var(--ink);
-  margin-bottom: 2px;
+  margin-bottom: 0.25rem;
 }
 .mini-step span {
   font-size: 0.8125rem;
   color: var(--ink-2);
+  line-height: 1.45;
 }
 .gate-trust {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.25rem;
+  gap: 1.5rem;
   align-items: center;
+  margin-top: 0.5rem;
 }
 .trust-item {
   display: flex;
@@ -830,24 +841,60 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
   color: var(--ink-2);
 }
 
+#app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Gate Side Card */
 .gate-side {
   width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+@media (min-width: 900px) {
+  .gate-side {
+    margin: 0 0 0 auto;
+  }
 }
 .gate-card {
-  padding: 1.75rem;
+  padding: clamp(1.75rem, 3.5vw, 2.75rem);
+  border-radius: var(--r-xl);
 }
 .gate-card h2 {
-  font-size: var(--fs-xl);
-  margin-bottom: 0.35rem;
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.02em;
+}
+.gate-card .sub {
+  margin: 0 0 1.75rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.gate-card form {
+  margin: 0;
+}
+.gate-card .field {
+  margin-bottom: 1.25rem;
+}
+.gate-card .field label {
+  margin-bottom: 0.4rem;
+}
+.gate-card .field .hint {
+  margin-top: 0.4rem;
+}
+.gate-card #st-btn {
+  margin-top: 0.5rem;
 }
 .gate-alt {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.85rem;
   color: var(--ink-3);
   font-size: 0.8125rem;
-  margin: 1.25rem 0;
+  margin: 1.5rem 0;
 }
 .gate-alt span {
   flex: 1;
@@ -857,8 +904,8 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
 .gate-note {
   font-size: 0.75rem;
   color: var(--ink-2);
-  margin-top: 1.25rem;
-  line-height: 1.5;
+  margin: 1.5rem 0 0;
+  line-height: 1.6;
 }
 
 /* =============================================================================
@@ -866,8 +913,8 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
    ========================================================================== */
 .consent-card {
   max-width: 680px;
-  margin: 1.5rem auto;
-  padding: 2rem;
+  margin: clamp(1.5rem, 4vw, 3rem) auto;
+  padding: clamp(1.75rem, 3.5vw, 2.75rem);
 }
 .notice {
   background: rgba(34, 211, 238, 0.05);
@@ -2118,9 +2165,10 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
   .gate {
     display: grid;
     grid-template-columns: 1.15fr 0.85fr;
-    gap: 3rem;
+    gap: clamp(2.5rem, 5vw, 4.5rem);
     align-items: center;
-    min-height: calc(100dvh - 100px);
+    min-height: 100dvh;
+    padding: clamp(2rem, 5vw, 4rem) clamp(1.5rem, 4vw, 3rem);
   }
   .intake-wrap {
     display: grid;
