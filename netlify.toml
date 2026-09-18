@@ -17,7 +17,7 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "microphone=(self), camera=(), geolocation=()"
     # media-src is required by the voice layer: the AI speech is played from blob:/data: URLs.
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://lottie.host https://*.lottie.host https://unpkg.com data: blob:; font-src 'self' https://fonts.gstatic.com data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 
 # API routes -> Netlify functions (same paths the frontend already calls)
 # The entry gate is name + email (no password): /api/auth/start.

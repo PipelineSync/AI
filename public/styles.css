@@ -1578,15 +1578,6 @@ input:-webkit-autofill:focus {
   inset: -26px;
   pointer-events: none;
 }
-.lottie-orb {
-  position: absolute;
-  inset: -14px;
-  width: calc(100% + 28px);
-  height: calc(100% + 28px);
-  pointer-events: none;
-  z-index: 2;
-  filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.45));
-}
 .reticle span {
   position: absolute;
   width: 2px;
