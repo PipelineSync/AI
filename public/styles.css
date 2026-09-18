@@ -1531,44 +1531,61 @@ input:-webkit-autofill:focus {
 @keyframes orbitParticle3 { 0% { transform: rotate(90deg) translate(72px) rotate(-90deg); } 100% { transform: rotate(-270deg) translate(72px) rotate(270deg); } }
 @keyframes orbitParticle4 { 0% { transform: rotate(270deg) translate(58px) rotate(-270deg); } 100% { transform: rotate(-90deg) translate(58px) rotate(90deg); } }
 
-/* The Core .orb Element (UI Kit) */
+/* The Core .orb Element - 3D Gyroscopic AI Voice Orb */
 .orb {
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: 104px;
+  height: 104px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 38% 32%, rgba(129, 140, 248, .95), rgba(34, 211, 238, .6) 46%, rgba(10, 14, 23, .15) 74%);
-  box-shadow: 0 0 42px rgba(34, 211, 238, .42), inset 0 0 30px rgba(99, 102, 241, .5);
+  background: radial-gradient(circle at 50% 50%, rgba(17, 24, 39, 0.72) 0%, rgba(10, 14, 23, 0.9) 68%, transparent 100%);
+  box-shadow: 0 0 36px rgba(34, 211, 238, .25), inset 0 0 24px rgba(99, 102, 241, .25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   animation: breathe 3.4s ease-in-out infinite;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   z-index: 2;
+  perspective: 800px;
 }
-.orb svg { position: relative; z-index: 2; }
+.orb svg {
+  position: relative;
+  z-index: 3;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.4));
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
 .orb::before {
   content: "";
   position: absolute;
   inset: -14px;
   border-radius: 50%;
-  border: 1px dashed rgba(34, 211, 238, .4);
-  animation: spin 15s linear infinite;
+  border: 1px dashed rgba(34, 211, 238, .28);
+  animation: spin 20s linear infinite;
   pointer-events: none;
 }
 .orb::after {
   content: "";
   position: absolute;
-  inset: -26px;
+  inset: -24px;
   border-radius: 50%;
-  border: 1px solid rgba(34, 211, 238, .14);
-  animation: spin 30s linear infinite reverse;
+  border: 1px solid rgba(34, 211, 238, .12);
+  animation: spin 32s linear infinite reverse;
   pointer-events: none;
 }
 .reticle {
   position: absolute;
   inset: -26px;
   pointer-events: none;
+}
+.lottie-orb {
+  position: absolute;
+  inset: -14px;
+  width: calc(100% + 28px);
+  height: calc(100% + 28px);
+  pointer-events: none;
+  z-index: 2;
+  filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.45));
 }
 .reticle span {
   position: absolute;
@@ -1582,6 +1599,105 @@ input:-webkit-autofill:focus {
 .reticle span:nth-child(2) { bottom: -2px; left: 50%; transform: translateX(-50%); }
 .reticle span:nth-child(3) { left: -2px; top: 50%; width: 8px; height: 2px; transform: translateY(-50%); }
 .reticle span:nth-child(4) { right: -2px; top: 50%; width: 8px; height: 2px; transform: translateY(-50%); }
+
+/* 3D Gyroscope Animation Elements (Matching Voice Animation GIF) */
+.gyro-sphere {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-style: preserve-3d;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.gyro-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  box-sizing: border-box;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+.ring-cyan {
+  border: 1.5px solid #22D3EE;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.5), inset 0 0 6px rgba(34, 211, 238, 0.25);
+  animation: gyroSpin1 7s linear infinite;
+}
+
+.ring-rose {
+  border: 1.5px solid #F43F5E;
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.5), inset 0 0 6px rgba(244, 63, 94, 0.25);
+  animation: gyroSpin2 9.5s linear infinite reverse;
+}
+
+.ring-amber {
+  border: 1.5px solid #FB923C;
+  box-shadow: 0 0 10px rgba(251, 146, 60, 0.5), inset 0 0 6px rgba(251, 146, 60, 0.25);
+  animation: gyroSpin3 8s linear infinite;
+}
+
+.ring-dashed {
+  border: 1.5px dashed #38BDF8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+  animation: gyroSpin4 12s linear infinite reverse;
+}
+
+.ring-violet {
+  border: 1.5px dashed #C084FC;
+  box-shadow: 0 0 8px rgba(192, 132, 252, 0.4);
+  animation: gyroSpin5 10.5s linear infinite;
+}
+
+.gyro-core {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.4) 0%, rgba(129, 140, 248, 0.2) 48%, transparent 70%);
+  filter: blur(6px);
+  animation: gyroPulse 3s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes gyroSpin1 {
+  0% { transform: rotateX(65deg) rotateY(25deg) rotateZ(0deg); }
+  50% { transform: rotateX(75deg) rotateY(45deg) rotateZ(180deg); }
+  100% { transform: rotateX(65deg) rotateY(25deg) rotateZ(360deg); }
+}
+
+@keyframes gyroSpin2 {
+  0% { transform: rotateX(40deg) rotateY(-55deg) rotateZ(0deg); }
+  50% { transform: rotateX(55deg) rotateY(-35deg) rotateZ(-180deg); }
+  100% { transform: rotateX(40deg) rotateY(-55deg) rotateZ(-360deg); }
+}
+
+@keyframes gyroSpin3 {
+  0% { transform: rotateX(-35deg) rotateY(45deg) rotateZ(0deg); }
+  50% { transform: rotateX(-20deg) rotateY(65deg) rotateZ(180deg); }
+  100% { transform: rotateX(-35deg) rotateY(45deg) rotateZ(360deg); }
+}
+
+@keyframes gyroSpin4 {
+  0% { transform: rotateX(-60deg) rotateY(-30deg) rotateZ(0deg); }
+  50% { transform: rotateX(-45deg) rotateY(-50deg) rotateZ(-180deg); }
+  100% { transform: rotateX(-60deg) rotateY(-30deg) rotateZ(-360deg); }
+}
+
+@keyframes gyroSpin5 {
+  0% { transform: rotateX(25deg) rotateY(70deg) rotateZ(0deg); }
+  50% { transform: rotateX(45deg) rotateY(50deg) rotateZ(180deg); }
+  100% { transform: rotateX(25deg) rotateY(70deg) rotateZ(360deg); }
+}
+
+@keyframes gyroPulse {
+  0%, 100% { transform: scale(0.9); opacity: 0.6; }
+  50% { transform: scale(1.18); opacity: 0.95; }
+}
 
 .wave {
   display: flex;
@@ -1623,33 +1739,50 @@ input:-webkit-autofill:focus {
 .node { width: 100%; height: 100px; }
 
 .orb.ready {
-  background: radial-gradient(circle at 38% 32%, rgba(129, 140, 248, 0.9), rgba(34, 211, 238, 0.5) 46%, rgba(10, 14, 23, 0.15) 74%);
-  box-shadow: 0 0 28px rgba(34, 211, 238, 0.3);
+  box-shadow: 0 0 32px rgba(34, 211, 238, 0.35);
 }
 .orb.speaking, .orb.live {
   transform: scale(1.08);
-  box-shadow: 0 0 52px rgba(34, 211, 238, 0.7), inset 0 0 32px rgba(99, 102, 241, 0.7);
-  animation: breathe 1.4s ease-in-out infinite;
+  box-shadow: 0 0 54px rgba(34, 211, 238, 0.55), inset 0 0 30px rgba(99, 102, 241, 0.4);
 }
+.orb.speaking .ring-cyan, .orb.live .ring-cyan { animation-duration: 3.5s; }
+.orb.speaking .ring-rose, .orb.live .ring-rose { animation-duration: 4.8s; }
+.orb.speaking .ring-amber, .orb.live .ring-amber { animation-duration: 4s; }
+.orb.speaking .ring-dashed, .orb.live .ring-dashed { animation-duration: 5.5s; }
+.orb.speaking .ring-violet, .orb.live .ring-violet { animation-duration: 5s; }
+.orb.speaking .gyro-core, .orb.live .gyro-core {
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.65) 0%, rgba(129, 140, 248, 0.35) 50%, transparent 70%);
+  animation: gyroPulse 1.2s ease-in-out infinite;
+}
+
 .orb.listening {
-  background: radial-gradient(circle at 38% 32%, rgba(52, 211, 153, 0.95), rgba(34, 211, 238, 0.6) 46%, rgba(10, 14, 23, 0.15) 74%);
-  box-shadow: 0 0 52px rgba(52, 211, 153, 0.65), inset 0 0 30px rgba(52, 211, 153, 0.5);
+  box-shadow: 0 0 54px rgba(52, 211, 153, 0.5), inset 0 0 30px rgba(52, 211, 153, 0.35);
 }
-.orb.listening::before {
-  border-color: var(--emerald);
-  animation-duration: 8s;
+.orb.listening .ring-cyan { border-color: var(--emerald); box-shadow: 0 0 12px rgba(52, 211, 153, 0.6); }
+.orb.listening .gyro-core {
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.6) 0%, rgba(34, 211, 238, 0.3) 50%, transparent 70%);
+  animation: gyroPulse 1.5s ease-in-out infinite;
 }
+
 .orb.thinking {
-  background: radial-gradient(circle at 38% 32%, rgba(251, 146, 60, 0.9), rgba(129, 140, 248, 0.5) 46%, rgba(10, 14, 23, 0.15) 74%);
-  box-shadow: 0 0 52px rgba(251, 146, 60, 0.55), inset 0 0 30px rgba(251, 146, 60, 0.4);
+  box-shadow: 0 0 54px rgba(251, 146, 60, 0.5), inset 0 0 30px rgba(251, 146, 60, 0.35);
 }
+.orb.thinking .ring-amber { box-shadow: 0 0 14px rgba(251, 146, 60, 0.7); }
+.orb.thinking .gyro-core {
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.6) 0%, rgba(129, 140, 248, 0.3) 50%, transparent 70%);
+  animation: gyroPulse 2s ease-in-out infinite;
+}
+
 .orb.error {
-  background: radial-gradient(circle at 35% 28%, #FECACA, var(--red) 35%, #7F1D1D 82%);
-  box-shadow: 0 0 32px rgba(248, 113, 113, 0.4);
+  box-shadow: 0 0 36px rgba(248, 113, 113, 0.5);
 }
+.orb.error .ring-cyan, .orb.error .ring-rose, .orb.error .ring-amber { border-color: var(--red); }
+.orb.error .gyro-core { background: radial-gradient(circle, rgba(248, 113, 113, 0.6) 0%, transparent 70%); }
+
 .orb.complete {
-  background: radial-gradient(circle at 35% 28%, #A7F3D0, var(--emerald) 35%, #065F46 82%);
+  box-shadow: 0 0 40px rgba(52, 211, 153, 0.5);
 }
+.orb.complete .ring-cyan, .orb.complete .ring-amber { border-color: var(--emerald); }
 
 .call-status {
   font-family: var(--mono);
@@ -2787,7 +2920,7 @@ input:-webkit-autofill:focus {
   }
   body::before, body::after { opacity: 0.1; }
   .orb { transition: none; }
-  .orb .rings { animation: none; opacity: 0.5; }
+  .orb .rings, .gyro-ring, .gyro-core { animation: none !important; opacity: 0.6; }
 }
 
 /* Accessibility: Forced Colors (High Contrast) */

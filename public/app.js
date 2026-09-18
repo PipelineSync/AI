@@ -1400,8 +1400,17 @@ function voiceOrbHtml(status, listening) {
     '</div>';
   return '<div class="voice-orb-container">' +
     '<div class="orb ' + st + (listening ? ' live' : '') + '" id="orb" role="img" aria-label="Call state: ' + st + '">' +
+      '<dotlottie-player src="https://lottie.host/ad011d61-7be0-4596-ad13-aaf656b4338a/eWtfhwxtXS.lottie" background="transparent" speed="' + (st === 'speaking' ? '1.4' : '1') + '" loop autoplay class="lottie-orb"></dotlottie-player>' +
+      '<div class="gyro-sphere" aria-hidden="true">' +
+        '<div class="gyro-ring ring-cyan"></div>' +
+        '<div class="gyro-ring ring-rose"></div>' +
+        '<div class="gyro-ring ring-amber"></div>' +
+        '<div class="gyro-ring ring-dashed"></div>' +
+        '<div class="gyro-ring ring-violet"></div>' +
+        '<div class="gyro-core"></div>' +
+      '</div>' +
       '<div class="reticle" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
-      logoMark(44, '#FFFFFF') +
+      logoMark(28, '#FFFFFF') +
     '</div>' +
     (isSpeakingOrListening ? waveHtml : '') +
   '</div>';

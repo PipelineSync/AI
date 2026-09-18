@@ -60,7 +60,7 @@ function escHtml(s) {
 function securityHeaders() {
   // The voice layer plays OpenAI speech from a blob: or data: URL, so media-src must allow both
   // (default-src 'self' alone would have the browser refuse to play the AI voice).
-  const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com data:; object-src 'none'; base-uri 'self'; " +
+  const csp = "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://lottie.host https://*.lottie.host https://unpkg.com data: blob:; font-src 'self' https://fonts.gstatic.com data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; " +
     // Production (Netlify) sends frame-ancestors 'none'. The local dev server is embedded in the
     // preview pane, so it must stay framable here; PS_ALLOW_FRAMING=0 restores the strict rule.
     (process.env.PS_ALLOW_FRAMING === '0' ? "frame-ancestors 'none'" : "frame-ancestors *");
