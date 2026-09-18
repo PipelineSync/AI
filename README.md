@@ -1,10 +1,12 @@
 # PipelineSync AI - Prototype Build
 
 Runnable prototype of the app described in `PipelineSync_AI_Developer_Brief.pdf`. Built to be
-tested end to end in the browser. External services are simulated and clearly marked, so nothing
-blocks on credentials - with one exception that matters: **the discovery call voice layer is real.**
-ChatGPT words each turn, OpenAI speaks it, and the answers are captured against the Section 7 data
-contract. See `docs/VOICE_SETUP.md` for the one environment variable that switches it on.
+tested end to end in the browser. The app is safe to run without paid credentials: deterministic
+extraction and blueprint generation remain the default, while the optional Claude provider can be
+enabled server-side for Functions A and B. The discovery call voice layer can likewise use real
+OpenAI voice when configured. ChatGPT/OpenAI words, speaks and captures the call against the
+Section 7 data contract. See `docs/VOICE_SETUP.md` for voice setup and `.env.example` for the
+blueprint provider settings.
 
 Two ways to run it:
 
@@ -47,6 +49,9 @@ Site configuration → **Environment variables** → **Add a variable**:
 |---|---|---|
 | `PS_TOKEN_SECRET` | any long random string, e.g. the output of `openssl rand -hex 16` | Signs the entry-gate session tokens and the voice call tickets. Without it a built-in dev secret is used (fine for a throwaway test deploy, not for anything shared). |
 | `OPENAI_API_KEY` | your OpenAI key (`sk-...`) | **Switches the discovery call on to live AI voice**: one continuous WebRTC session (OpenAI Realtime) carries the whole call, and the same key drives the step-by-step fallback (wording, speech out, transcription in). Read inside the functions only, never sent to the browser. Without it the call runs on the built-in interviewer and the browser voice, so the demo still works. |
+| `BLUEPRINT_AI_PROVIDER` | `deterministic` or `anthropic` | Keeps the current deterministic Function A/B logic by default. Set to `anthropic` only when both `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` are configured. Claude output is structured and checked against the existing contract and KB baseline. |
+| `ANTHROPIC_API_KEY` | Claude Console API key | Optional. Read only inside Functions A and B; never sent to the browser. |
+| `ANTHROPIC_MODEL` | exact model id available to the key | Optional. Query the Anthropic Models API rather than copying an old model name from a tutorial. |
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
 `OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`, `VOICE_PROVIDER`,
@@ -55,9 +60,10 @@ Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REAL
 voice layer is documented in `docs/VOICE_SETUP.md` (all of them are commented out in `.env.example`
 with their defaults).
 
-Later, when the remaining keys arrive, add them here too (they only reach the functions, never the
-browser): `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HUBSPOT_ACCESS_TOKEN`,
-`SCHEDULER_LINK`.
+The remaining production integration keys are not required for the deterministic demo. When needed,
+add them to the Functions environment only (never the browser): `SUPABASE_URL`,
+`SUPABASE_SERVICE_KEY`, `HUBSPOT_ACCESS_TOKEN`, and `SCHEDULER_LINK`. Anthropic is optional now;
+keep `BLUEPRINT_AI_PROVIDER=deterministic` until an Anthropic Console API key and model are available.
 
 ### 4. Test the deployment
 
@@ -114,15 +120,17 @@ Open your `https://<site>.netlify.app` URL:
    QA shortcut: load one of the four demo personas (solar, medical, home services, e-commerce) -
    these are the four verticals in the brain-quality checklist - which fills the same 12 answers
    without needing a microphone.
-4. **Structure the answers** (Function A, mock of Claude + Prompt B) - transcript answers are mapped
-   to the Section 7 data contract. Unstated values come back as `null`; prices and tool names are
-   preserved exactly, not corrected.
+4. **Structure the answers** (Function A, deterministic by default or optional Claude + Prompt B) -
+transcript answers are mapped to the Section 7 data contract. Unstated values come back as `null`;
+prices and tool names are preserved exactly, not corrected. Claude output is server-only, structured,
+and validated; failed or unavailable Claude calls fall back to the deterministic parser.
 5. **Review and correct** - every field is editable on screen. `Not stated` items are flagged amber;
-   typical deal size, monthly lead volume, and close rate are required so the blueprint can be
-   grounded in the client's own numbers.
-6. **Generate the blueprint** (Function B, mock of Claude + Prompt A) - built strictly from the
-   knowledge base v1 (server-side). Every KB item used is tagged with an id (see the chips at the
-   bottom of the blueprint) so the "no invented items" QA check is auditable.
+typical deal size, monthly lead volume, and close rate are required so the blueprint can be
+grounded in the client's own numbers.
+6. **Generate the blueprint** (Function B, deterministic by default or optional Claude + Prompt A) -
+built strictly from the knowledge base v1 (server-side). The server keeps the canonical tier, pipeline,
+calculations, tools, compliance and KB references even when Claude is enabled, so the "no invented
+items" QA check remains auditable.
 7. **Unlock the PDF** (Function C, real server-side PDF) - gated behind email. A genuine PDF file is
    generated by a pure-JS PDF writer in `lib/core.js` (no npm packages), inside the function.
 8. **Lead captured** (Function D, mock of the HubSpot private-app-token push) - a lead with all
@@ -185,8 +193,8 @@ Design rules that `node test/ui-design.js` enforces:
 |---|---|
 | Signed tokens from a name + email gate (`/api/auth/start`) | Supabase Auth: magic link or OTP on the same name + email fields |
 | Voice discovery call (`lib/voice.js` + voice engine in `app.js`) | The same code, with `OPENAI_API_KEY` set: a continuous OpenAI Realtime (WebRTC) session carries the whole call, and the step-by-step pipeline (ChatGPT wording, OpenAI speech, OpenAI transcription) is the automatic fallback |
-| `extract` (deterministic parser in `lib/core.js`) | Function A: Claude + Prompt B |
-| `generate` (KB-driven logic) | Function B: Claude + Prompt A |
+| `extract` (deterministic parser, optional Claude provider in `lib/blueprint-ai.js`) | Function A: Claude + Prompt B |
+| `generate` (KB-driven logic, optional Claude provider in `lib/blueprint-ai.js`) | Function B: Claude + Prompt A |
 | `deliver` (pure-JS PDF writer) | Function C: server-side PDF generator |
 | `[hubspot-mock]` log line in `deliver` | Function D: HubSpot private app token push |
 | `KB` object in `lib/core.js` | Supabase tables: rules, tools, prices, vertical recipes, intake set |
@@ -248,6 +256,7 @@ for each test file):
 ```bash
 node test/voice.js       # voice policy, capture state, the grounded-capture gate, OpenAI adapters,
                          # and the routes
+node test/blueprint-ai.js # optional Claude adapter, structured contract checks and deterministic fallback
 node test/voice-openai.js# the whole step-by-step ChatGPT path against a mock OpenAI endpoint
 node test/voice-realtime.js # a whole continuous call in jsdom: fake WebRTC, fake model, mock
                          # endpoint - one session, twelve questions, grounded captures, fallback
@@ -281,7 +290,8 @@ OPENAI_API_KEY=sk-mock OPENAI_BASE_URL=http://127.0.0.1:8099/v1 PORT=8081 node s
 ```
 pipelinesync/
   server.js              local dev server (zero deps): static + routes + local outbox
-  lib/core.js            shared stateless core: KB v1, extract, generate, PDF writer, tokens
+  lib/core.js            shared stateless core: KB v1, deterministic extract/generate, PDF writer, tokens
+  lib/blueprint-ai.js    optional Anthropic provider for Functions A and B, schemas and safe fallback
   lib/voice.js           the voice discovery call: intake plan, interviewer policy, capture state,
                          the grounded-capture gate, the FAQ, OpenAI adapters (turns, speech,
                          transcription), the turn runner, and the continuous-call (Realtime) engine
@@ -301,8 +311,8 @@ pipelinesync/
   public/styles.css      design system + responsive layout (mobile-first, see below)
   public/app.js          SPA: entry gate, consent, both voice engines (continuous WebRTC call and
                          step-by-step call), review, blueprint, unlock, booking, done
-  test/                  voice, voice-openai, voice-realtime, mock-openai, e2e, netlify-sim,
-                         pdfcheck, ui-smoke, ui-design, personas, sample PDFs
+  test/                  voice, blueprint-ai, voice-openai, voice-realtime, mock-openai, e2e,
+                         netlify-sim, pdfcheck, ui-smoke, ui-design, personas, sample PDFs
   docs/VOICE_SETUP.md    how to switch the voice layer on, verify it, cost it, fix it
   .env.example           every setting the app understands (copy to .env, which is gitignored)
   README.md              this file

@@ -1228,7 +1228,7 @@ function steps() {
   return h + '<div class="steps-bar" aria-hidden="true"><span style="width:' + pct + '%"></span></div>';
 }
 function footer() {
-  return '<div class="footer"><span>Prototype build v0.2 (hardened + voice)</span><span>The discovery call runs on the real OpenAI voice layer (one continuous Realtime call, with ChatGPT wording and OpenAI speech as the fallback) when OPENAI_API_KEY is set; extraction, PDF, and CRM steps are still simulated locally, with Supabase for auth and data in production.</span><span>All keys live server-side, never in the browser.</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></div>';
+  return '<div class="footer"><span>Prototype build v0.2 (hardened + voice)</span><span>The discovery call uses the configured OpenAI voice layer when enabled; Function A and B use deterministic logic by default, with an optional server-side Claude provider. PDF generation is real, while auth, persistence, CRM and booking remain prototype integrations.</span><span>All keys live server-side, never in the browser.</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></div>';
 }
 
 /* ---------------- the entry gate: name + email, then the AI voice call ----------------

@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const core = require('./lib/core');
+const blueprintAI = require('./lib/blueprint-ai');
 const voice = require('./lib/voice');
 const { handleVoice, clampVoiceMeta, rateLimitFor } = require('./lib/voice-api');
 
@@ -238,17 +239,30 @@ async function handleApi(req, res, url) {
       if (!a || typeof a.id !== 'string' || typeof a.text !== 'string') return sendJson(res, 400, { error: 'Invalid answer format.' });
       if (a.id.length > 100 || a.text.length > 5000) return sendJson(res, 400, { error: 'Answer too long (max 5000 chars).' });
     }
-    const fields = core.extract(answers);
+    let result;
+    try {
+      result = await blueprintAI.extract(answers, { env: process.env, fetchImpl: fetch });
+    } catch (e) {
+      console.error('[blueprint-ai] extraction failed:', e.message);
+      return sendJson(res, 502, { error: 'Blueprint extraction service is unavailable.' });
+    }
+    const fields = result.fields;
     const all = Object.keys(fields);
     const filled = all.filter(k => JSON.stringify(fields[k]) !== 'null' && JSON.stringify(fields[k]) !== '[]' && JSON.stringify(fields[k]) !== '""');
-    return sendJson(res, 200, { ok: true, fields, filledCount: filled.length, totalCount: all.length });
+    return sendJson(res, 200, { ok: true, fields, filledCount: filled.length, totalCount: all.length, ai_provider: result.provider, ai_fallback: !!result.fallback, ai_reason: result.reason || null });
   }
 
   if (method === 'POST' && route === '/api/generate') {
     const fields = authBody.fields || {};
     try { if (JSON.stringify(fields).length > 100000) return sendJson(res, 400, { error: 'Fields payload too large.' }); } catch (e) {}
-    const bp = core.generate(fields);
-    return sendJson(res, 200, { ok: true, blueprint: bp });
+    let result;
+    try {
+      result = await blueprintAI.generate(fields, { env: process.env, fetchImpl: fetch });
+    } catch (e) {
+      console.error('[blueprint-ai] generation failed:', e.message);
+      return sendJson(res, 502, { error: 'Blueprint generation service is unavailable.' });
+    }
+    return sendJson(res, 200, { ok: true, blueprint: result.blueprint, ai_provider: result.provider, ai_fallback: !!result.fallback, ai_reason: result.reason || null });
   }
 
   if (method === 'POST' && route === '/api/deliver') {
@@ -289,6 +303,8 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log('PipelineSync AI prototype (local) listening on http://' + HOST + ':' + PORT);
   console.log('Dev outbox: http://' + HOST + ':' + PORT + '/dev/outbox');
+  const bm = blueprintAI.providerInfo(process.env);
+  console.log('Blueprint AI: ' + bm.provider + (bm.provider === 'anthropic' ? ' (' + process.env.ANTHROPIC_MODEL + ')' : ' - ' + bm.reason));
   const vm = voice.mode(process.env);
   console.log('Discovery call voice: ' + vm.mode +
     (vm.mode === 'openai'
