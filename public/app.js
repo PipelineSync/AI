@@ -1252,7 +1252,7 @@ function startView() {
   return '<div class="gate">' +
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
-        '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>AI ADVISOR READY &bull; STRATEGY DISCOVERY &bull; 12 SIGNALS</div>' +
+        '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>AI ADVISOR READY &bull; STRATEGY DISCOVERY &bull; 12 SIGNALS</div>' +
         '<div class="brand brand-lg"><div class="logo">' + logoTile(38) + '</div><div class="brand-text">PipelineSync AI<small>Revenue Operations Strategy</small></div></div>' +
         '<h1>Turn your sales process into a <span class="accent">predictable pipeline.</span></h1>' +
         '<p class="lede">A 5-minute AI voice call to identify pipeline gaps, map sales velocity, and get your HubSpot blueprint.</p>' +
@@ -1263,24 +1263,24 @@ function startView() {
           '<li class="mini-step"><span class="n">4</span><div><b>Blueprint</b><span>HubSpot setup &amp; ROI roadmap</span></div></li>' +
         '</ul>' +
         '<div class="gate-trust">' +
-          '<span class="trust-item"><span class="dot" aria-hidden="true"></span>5 mins</span>' +
-          '<span class="trust-item"><span class="dot" aria-hidden="true"></span>12 questions</span>' +
-          '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Audio never stored</span>' +
+          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>5 mins</span>' +
+          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>12 questions</span>' +
+          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>Audio never stored</span>' +
         '</div>' +
       '</div>' +
     '</div>' +
-    '<div class="gate-side"><div class="gate-card hud-frame">' +
+    '<div class="gate-side"><div class="gate-card hud-frame specular">' +
       '<h2>Meet your AI advisor</h2>' +
       '<p class="sub">Enter your details to start the AI voice call.</p>' +
       '<form id="start-form" novalidate>' +
-        '<div class="field"><label for="st-name">Your name <span class="req">Required</span></label>' +
-          '<input type="text" id="st-name" name="name" value="' + esc(lastName) + '" placeholder="Maria Santos" maxlength="80" autocomplete="name" autocapitalize="words" spellcheck="false">' +
+        '<div class="field-wrap"><label for="st-name">Your name <span class="req">Required</span></label>' +
+          '<input type="text" id="st-name" name="name" class="field" value="' + esc(lastName) + '" placeholder="Maria Santos" maxlength="80" autocomplete="name" autocapitalize="words" spellcheck="false">' +
         '</div>' +
-        '<div class="field"><label for="st-email">Work email <span class="req">Required</span></label>' +
-          '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
+        '<div class="field-wrap mt16"><label for="st-email">Work email <span class="req">Required</span></label>' +
+          '<input type="email" id="st-email" name="email" class="field" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
         '</div>' +
         '<p class="form-error" id="start-error" role="alert" hidden></p>' +
-        '<button class="btn btn-primary btn-lg btn-block" id="st-btn" type="submit">Start strategy session</button>' +
+        '<button class="btn btn-primary btn-lg btn-block mt16" id="st-btn" type="submit">Start strategy session</button>' +
       '</form>' +
       '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
       '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use demo account</button>' +
@@ -1341,11 +1341,14 @@ function bindStart() {
 
 /* ---------------- consent ---------------- */
 function consentView() {
-  return '<div class="card consent-card hud-frame">' +
-    '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>SESSION TRANSPARENCY</div>' +
+  return '<div class="card consent-card hud-frame specular">' +
+    '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>SESSION TRANSPARENCY</div>' +
     '<h2>AI strategy session</h2>' +
     '<p class="sub">You are in control throughout the conversation.</p>' +
-    '<div class="notice"><h4>AI &amp; Privacy</h4><p>We use OpenAI for the voice call to ask questions and transcribe your answers. Audio is never stored. Your answers are used solely to build your HubSpot blueprint.</p></div>' +
+    '<div class="notice info">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
+      '<div><b>AI &amp; Privacy</b><br><span>We use OpenAI for the voice call to ask questions and transcribe your answers. Audio is never stored. Your answers are used solely to build your HubSpot blueprint.</span></div>' +
+    '</div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I understand how my data is used, and I agree to continue.</label>' +
     '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
     '<p class="small muted mt8" id="consent-note">Alex starts speaking automatically on agreement. You can skip questions or type anytime.</p>' +
@@ -1391,28 +1394,16 @@ const TRACK_LABELS = [
 
 function voiceOrbHtml(status, listening) {
   const st = esc(status || 'idle');
+  const isSpeakingOrListening = status === 'speaking' || listening;
+  const waveHtml = '<div class="wave" aria-hidden="true">' +
+    '<span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>' +
+    '</div>';
   return '<div class="voice-orb-container">' +
-    '<div class="reticle-frame" aria-hidden="true">' +
-      '<svg class="reticle-svg" viewBox="0 0 240 240">' +
-        '<circle cx="120" cy="120" r="110" class="reticle-ring-outer"/>' +
-        '<circle cx="120" cy="120" r="98" class="reticle-ring-mid"/>' +
-        '<circle cx="120" cy="120" r="86" class="reticle-ring-inner"/>' +
-        '<line x1="120" y1="6" x2="120" y2="18" stroke="var(--cyan)" stroke-width="1.5" opacity="0.6"/>' +
-        '<line x1="120" y1="222" x2="120" y2="234" stroke="var(--cyan)" stroke-width="1.5" opacity="0.6"/>' +
-        '<line x1="6" y1="120" x2="18" y2="120" stroke="var(--cyan)" stroke-width="1.5" opacity="0.6"/>' +
-        '<line x1="222" y1="120" x2="234" y2="120" stroke="var(--cyan)" stroke-width="1.5" opacity="0.6"/>' +
-        '<ellipse cx="120" cy="120" rx="84" ry="52" class="orbit-cyan" transform="rotate(-30 120 120)"/>' +
-        '<ellipse cx="120" cy="120" rx="72" ry="44" class="orbit-orange" transform="rotate(45 120 120)"/>' +
-        '<circle cx="60" cy="100" r="2.5" class="particle-cyan"/>' +
-        '<circle cx="170" cy="130" r="2" class="particle-orange"/>' +
-        '<circle cx="130" cy="65" r="2" class="particle-cyan2"/>' +
-        '<circle cx="110" cy="175" r="1.5" class="particle-orange2"/>' +
-      '</svg>' +
-    '</div>' +
     '<div class="orb ' + st + (listening ? ' live' : '') + '" id="orb" role="img" aria-label="Call state: ' + st + '">' +
-      '<div class="rings"></div>' +
+      '<div class="reticle" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
       logoMark(44, '#FFFFFF') +
     '</div>' +
+    (isSpeakingOrListening ? waveHtml : '') +
   '</div>';
 }
 
@@ -2109,12 +2100,12 @@ function blueprintView() {
 
   const heroStats = [
     { v: '-35%', l: 'Sales cycle velocity acceleration' },
-    { v: '+18%', l: 'Projected qualified close rate lift' },
-    { v: fmtMoney(bp.coa.totalMonthly), l: 'Monthly pipeline revenue reclaimed' }
+    { v: '+18%', l: 'Projected close rate lift' },
+    { v: fmtMoney(bp.coa.totalMonthly), l: 'Monthly revenue reclaimed' }
   ];
-  const impactHtml = heroStats.map(s =>
-    '<div class="stat hero-impact-stat">' +
-      '<div class="v hero-mono-num count-up" data-val="' + esc(s.v) + '">' + esc(s.v) + '</div>' +
+  const impactHtml = heroStats.map((s, i) =>
+    '<div class="stat">' +
+      '<div class="k' + (i === 2 ? ' am' : '') + ' count-up" data-val="' + esc(s.v) + '">' + esc(s.v) + '</div>' +
       '<div class="l">' + esc(s.l) + '</div>' +
     '</div>'
   ).join('');
@@ -2149,7 +2140,7 @@ function blueprintView() {
   const delivered = state.delivered;
 
   let h = '<div class=\"doc hud-frame\">' +
-    '<div class=\"doc-head\"><div class=\"telemetry-chip mb12\"><span class=\"dot\" aria-hidden=\"true\"></span>HUBSPOT BLUEPRINT VERIFIED &bull; TIER FLOOR: PRO</div>' +
+    '<div class=\"doc-head\"><div class=\"telem cy mb12\"><span class=\"d\" aria-hidden=\"true\"></span>HUBSPOT BLUEPRINT VERIFIED &bull; TIER FLOOR: PRO</div>' +
     '<div class=\"kicker\">PIPELINESYNC AI  |  ' + esc(bp.meta.verticalLabel).toUpperCase() + '</div>' +
     '<h2>Your growth system</h2>' +
     '<div class=\"meta\">' + esc(bp.meta.businessLine) + '  |  Prepared ' + esc(bp.meta.date) + '  |  ' + esc(bp.meta.generatedBy) + '</div></div>' +
@@ -2184,10 +2175,10 @@ function blueprintView() {
 
   h += '<div class=\"btn-row\">' +
     (delivered
-      ? '<button class=\"btn btn-dark\" id=\"redownload-btn\" aria-label=\"Download PDF again\">&#11015; Download ' + esc(delivered.filename) + '</button>' +
-        '<button class=\"btn btn-primary\" id=\"book-btn\">Talk to a consultant</button>'
+      ? '<button class=\"btn btn-ghost\" id=\"redownload-btn\" aria-label=\"Download PDF again\">&#11015; Download ' + esc(delivered.filename) + '</button>' +
+        '<button class=\"btn btn-amber\" id=\"book-btn\">Talk to a consultant</button>'
       : '<button class=\"btn btn-primary btn-lg\" id=\"unlock-btn\">Download the blueprint</button>' +
-        '<button class=\"btn btn-dark\" id=\"book-btn\">Talk to a consultant</button>') +
+        '<button class=\"btn btn-amber\" id=\"book-btn\">Talk to a consultant</button>') +
     '</div>';
 
   if (delivered) {
