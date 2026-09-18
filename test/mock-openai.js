@@ -90,6 +90,27 @@ function createMock(port) {
       res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': fake.length });
       return res.end(fake);
     }
+    /* The continuous call: the browser's SDP offer arrives as a multipart form (sdp + session),
+       exactly as the real /v1/realtime/calls endpoint receives it, and an SDP answer goes back. */
+    if (url === '/v1/realtime/calls') {
+      const raw = buf.toString('latin1');
+      let sessionPart = null;
+      const m = raw.match(/name="session"\r?\n(?:[^\r]*\r?\n)*\r?\n([\s\S]*?)(?:\r?\n--|$)/);
+      if (m) { try { sessionPart = JSON.parse(m[1]); } catch (e) { sessionPart = m[1].slice(0, 400); } }
+      requests.push({
+        kind: 'realtime', auth: req.headers.authorization, contentType: req.headers['content-type'],
+        hasSdp: /name="sdp"/.test(raw), sdpIsOffer: /v=0/.test(raw), size: buf.length, session: sessionPart
+      });
+      if ((req.headers.authorization || '') === 'Bearer sk-bad') {
+        return json(res, 401, { error: { message: 'Incorrect API key provided' } });
+      }
+      if (sessionPart && sessionPart.model === 'gpt-realtime-2.1' && process.env.MOCK_RT_REJECT_MODEL === '1') {
+        return json(res, 404, { error: { message: "The model 'gpt-realtime-2.1' does not exist or you do not have access to it." } });
+      }
+      const answer = ['v=0', 'o=- 1 1 IN IP4 127.0.0.1', 's=-', 't=0 0', 'm=audio 9 UDP/TLS/RTP/SAVPF 0', 'a=mid:0', 'a=sendrecv'].join('\r\n');
+      res.writeHead(200, { 'Content-Type': 'application/sdp' });
+      return res.end(answer);
+    }
     if (url === '/v1/audio/transcriptions') {
       const raw = buf.toString('latin1');
       requests.push({ kind: 'transcription', contentType: req.headers['content-type'], size: buf.length, hasFile: /name="file"/.test(raw) });

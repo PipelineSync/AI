@@ -14,7 +14,7 @@ const path = require('path');
 const crypto = require('crypto');
 const core = require('./lib/core');
 const voice = require('./lib/voice');
-const { handleVoice, clampVoiceMeta } = require('./lib/voice-api');
+const { handleVoice, clampVoiceMeta, rateLimitFor } = require('./lib/voice-api');
 
 /* Zero-dependency .env loader: reads KEY=VALUE lines from a .env in the repo root, skipping
    blanks and comment lines, stripping inline " # comments" and surrounding quotes. Real
@@ -213,7 +213,7 @@ async function handleApi(req, res, url) {
      Voice turns cost money per call, so they are rate limited per user and per IP, like login. */
   if (method === 'POST' && route.startsWith('/api/voice/')) {
     const sub = route.slice('/api/voice/'.length);
-    const perMinute = parseInt(process.env.VOICE_RATE_PER_MIN, 10) || (sub === 'turn' ? 40 : 30);
+    const perMinute = parseInt(process.env.VOICE_RATE_PER_MIN, 10) || rateLimitFor(sub);
     const rl = checkRateLimit('voice:' + sub + ':' + ip, perMinute, 60 * 1000);
     if (!rl.allowed) {
       res.writeHead(429, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(rl.retryAfter) }, securityHeaders()));
@@ -294,5 +294,11 @@ server.listen(PORT, HOST, () => {
     (vm.mode === 'openai'
       ? ' (chat ' + vm.models.chat + ', speech ' + vm.models.tts + ' voice ' + vm.voice + ', transcription ' + vm.models.stt + ')'
       : ' - ' + vm.why));
+  const rt = vm.realtime || {};
+  console.log(rt.enabled
+    ? 'Continuous call: OpenAI Realtime ' + rt.model + ' voice ' + rt.voice + ' (' + rt.vad +
+        (rt.vad === 'semantic_vad' ? ', eagerness ' + rt.eagerness : ', silence ' + rt.silenceMs + 'ms') +
+      ') - one WebRTC session carries the whole call'
+    : 'Continuous call: step by step instead - ' + (rt.why || 'unavailable'));
   if (!process.env.PS_TOKEN_SECRET) console.log('Note: PS_TOKEN_SECRET not set; using the built-in dev secret (fine for local + test deploys). Set PS_TOKEN_SECRET in production.');
 });
