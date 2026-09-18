@@ -1395,7 +1395,7 @@ const TRACK_LABELS = [
 function voiceOrbHtml(status, listening) {
   const st = esc(status || 'idle');
   const isSpeakingOrListening = status === 'speaking' || listening;
-  const waveHtml = '<div class="wave" aria-hidden="true">' +
+  const waveHtml = '<div class="wave' + (isSpeakingOrListening ? ' active' : '') + '" aria-hidden="true">' +
     '<span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>' +
     '</div>';
   return '<div class="voice-orb-container">' +
@@ -1409,9 +1409,11 @@ function voiceOrbHtml(status, listening) {
         '<div class="gyro-core"></div>' +
       '</div>' +
       '<div class="reticle" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
-      logoMark(28, '#FFFFFF') +
+      '<div class="orb-center">' +
+        logoMark(24, '#FFFFFF') +
+        waveHtml +
+      '</div>' +
     '</div>' +
-    (isSpeakingOrListening ? waveHtml : '') +
   '</div>';
 }
 
