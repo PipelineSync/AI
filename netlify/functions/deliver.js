@@ -8,6 +8,7 @@
  * private app token POST to /crm/v3/objects/contacts.
  */
 const core = require('../../lib/core');
+const leads = require('../../lib/supabase-leads');
 const { bodyOf, json } = require('../../lib/netlify-helpers');
 const { clampVoiceMeta } = require('../../lib/voice-api');
 
@@ -34,6 +35,22 @@ exports.handler = async (event) => {
   const buffer = core.buildPdf(bp);
   const lead = core.makeLeadPayload(email, payload.name, body.fields || null, bp, clampVoiceMeta(body.voice_meta));
   logLead(lead);
+
+  if (payload.lead_id && leads.isEnabled(process.env)) {
+    try {
+      const now = new Date().toISOString();
+      const filename = core.pdfFilename(bp);
+      await leads.saveBlueprint(payload.lead_id, bp, { generated_at: now, delivered_at: now, pdf_filename: filename }, { env: process.env });
+      await leads.updateLead(payload.lead_id, {
+        email, status: 'blueprint_delivered', blueprint_delivered_at: now,
+        consent_given: true, consent_given_at: now
+      }, { env: process.env });
+      await leads.addEvent(payload.lead_id, 'blueprint_delivered', { filename }, { env: process.env });
+    } catch (e) {
+      console.error('[deliver] Supabase persistence failed:', e.message);
+      return json(503, { error: 'The PDF was created, but delivery could not be recorded. Please try again.' });
+    }
+  }
 
   return {
     statusCode: 200,

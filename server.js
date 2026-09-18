@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const core = require('./lib/core');
+const leads = require('./lib/supabase-leads');
 const voice = require('./lib/voice');
 const { handleVoice, clampVoiceMeta, rateLimitFor } = require('./lib/voice-api');
 
@@ -193,14 +194,24 @@ async function handleApi(req, res, url) {
     const entry = core.validateEntry(body);
     if (!entry.ok) return sendJson(res, 400, { error: entry.error });
     try {
-      const token = core.signToken({ email: entry.email, name: entry.name, exp: Date.now() + core.TOKEN_TTL_MS });
+      const lead = await leads.createLead(entry.name, entry.email, { env: process.env });
+      if (lead) await leads.addEvent(lead.id, 'lead_signed_up', { source: 'pipelinesync_ai' }, { env: process.env });
+      const token = core.signToken({
+        email: entry.email, name: entry.name,
+        lead_id: lead && lead.id ? lead.id : null,
+        exp: Date.now() + core.TOKEN_TTL_MS
+      });
       return sendJson(res, 200, {
         ok: true, token,
-        user: { name: entry.name, email: entry.email, first_name: core.firstNameOf(entry.name), initials: core.initialsOf(entry.name) }
+        user: {
+          name: entry.name, email: entry.email,
+          first_name: core.firstNameOf(entry.name), initials: core.initialsOf(entry.name),
+          lead_id: lead && lead.id ? lead.id : null
+        }
       });
     } catch (e) {
-      console.error('[security] entry gate failed:', e.message);
-      return sendJson(res, 500, { error: 'Server misconfigured: missing token secret.' });
+      console.error('[entry] could not create lead:', e.message);
+      return sendJson(res, 503, { error: 'We could not save your details right now. Please try again in a moment.' });
     }
   }
   if (method === 'POST' && route === '/api/auth/logout') {
@@ -231,6 +242,30 @@ async function handleApi(req, res, url) {
   const payload = core.verifyToken(authBody.token);
   if (!payload) return sendJson(res, 401, { error: 'Your session has ended. Enter your name and email to start again.' });
 
+  if (method === 'POST' && route === '/api/lead/progress') {
+    if (!payload.lead_id || !leads.isEnabled(process.env)) return sendJson(res, 200, { ok: true, stored: false });
+    const allowed = new Set(['discovery_started', 'discovery_completed', 'consultation_requested']);
+    const status = String(authBody.status || '');
+    if (!allowed.has(status)) return sendJson(res, 400, { error: 'Invalid lead progress status.' });
+    const now = new Date().toISOString();
+    const patch = { status };
+    if (status === 'discovery_started') patch.discovery_started_at = now;
+    if (status === 'discovery_completed') patch.discovery_completed_at = now;
+    if (status === 'consultation_requested') patch.consultation_requested_at = now;
+    await leads.updateLead(payload.lead_id, patch, { env: process.env });
+    if (status === 'discovery_started' || status === 'discovery_completed') {
+      await leads.saveSession(payload.lead_id, {
+        status: status === 'discovery_completed' ? 'completed' : 'in_progress',
+        answers: Array.isArray(authBody.answers) ? authBody.answers : undefined,
+        voice_metadata: authBody.voice_meta || undefined,
+        started_at: status === 'discovery_started' ? now : undefined,
+        completed_at: status === 'discovery_completed' ? now : undefined
+      }, { env: process.env });
+    }
+    await leads.addEvent(payload.lead_id, status, {}, { env: process.env });
+    return sendJson(res, 200, { ok: true, stored: true });
+  }
+
   if (method === 'POST' && route === '/api/extract') {
     const answers = Array.isArray(authBody.answers) ? authBody.answers : [];
     if (answers.length > 20) return sendJson(res, 400, { error: 'Too many answers.' });
@@ -248,6 +283,16 @@ async function handleApi(req, res, url) {
     const fields = authBody.fields || {};
     try { if (JSON.stringify(fields).length > 100000) return sendJson(res, 400, { error: 'Fields payload too large.' }); } catch (e) {}
     const bp = core.generate(fields);
+    if (payload.lead_id && leads.isEnabled(process.env)) {
+      const now = new Date().toISOString();
+      await leads.saveSession(payload.lead_id, { status: 'completed', extracted_fields: fields, completed_at: now }, { env: process.env });
+      await leads.saveBlueprint(payload.lead_id, bp, { generated_at: now }, { env: process.env });
+      await leads.updateLead(payload.lead_id, {
+        status: 'blueprint_generated', blueprint_generated_at: now,
+        industry: fields.industry || null, company: fields.business_description || null
+      }, { env: process.env });
+      await leads.addEvent(payload.lead_id, 'blueprint_generated', {}, { env: process.env });
+    }
     return sendJson(res, 200, { ok: true, blueprint: bp });
   }
 
@@ -263,9 +308,19 @@ async function handleApi(req, res, url) {
     const lead = core.makeLeadPayload(email, leadName, authBody.fields || null, bp, clampVoiceMeta(authBody.voice_meta));
     hubSpotOutbox.push(lead);
     console.log('[hubspot-mock] lead push: ' + JSON.stringify(lead));
+    const filename = core.pdfFilename(bp);
+    if (payload.lead_id && leads.isEnabled(process.env)) {
+      const now = new Date().toISOString();
+      await leads.saveBlueprint(payload.lead_id, bp, { generated_at: now, delivered_at: now, pdf_filename: filename }, { env: process.env });
+      await leads.updateLead(payload.lead_id, {
+        email, status: 'blueprint_delivered', blueprint_delivered_at: now,
+        consent_given: true, consent_given_at: now
+      }, { env: process.env });
+      await leads.addEvent(payload.lead_id, 'blueprint_delivered', { filename }, { env: process.env });
+    }
     return sendJson(res, 200, {
       ok: true, contact_id: lead.contact_id, lead_pushed: true,
-      filename: core.pdfFilename(bp), pdf_base64: buffer.toString('base64')
+      filename, pdf_base64: buffer.toString('base64')
     });
   }
 
