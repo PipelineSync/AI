@@ -1712,7 +1712,7 @@ input:-webkit-autofill:focus {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  height: 18px;
+  height: 22px;
   margin: 0;
   pointer-events: none;
 }
@@ -1721,26 +1721,65 @@ input:-webkit-autofill:focus {
   width: 3px;
   border-radius: 100px;
   background: linear-gradient(180deg, var(--cyan), var(--violet));
-  height: 4px;
-  opacity: 0.4;
+  opacity: 0.45;
   transition: opacity 0.3s ease, height 0.3s ease;
 }
+.wave span:nth-child(1) { height: 4px; }
+.wave span:nth-child(2) { height: 7px; }
+.wave span:nth-child(3) { height: 11px; }
+.wave span:nth-child(4) { height: 5px; }
+.wave span:nth-child(5) { height: 8px; }
+.wave span:nth-child(6) { height: 12px; }
+.wave span:nth-child(7) { height: 7px; }
+.wave span:nth-child(8) { height: 5px; }
+.wave span:nth-child(9) { height: 9px; }
+
 .wave.active span,
 .orb.speaking .wave span,
 .orb.live .wave span,
 .orb.listening .wave span {
-  animation: wv 1.1s ease-in-out infinite;
   opacity: 1;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
 }
-.wave span:nth-child(1) { animation-delay: -0.9s; }
-.wave span:nth-child(2) { animation-delay: -0.2s; }
-.wave span:nth-child(3) { animation-delay: -0.6s; }
-.wave span:nth-child(4) { animation-delay: -0.1s; }
-.wave span:nth-child(5) { animation-delay: -0.8s; }
-.wave span:nth-child(6) { animation-delay: -0.35s; }
-.wave span:nth-child(7) { animation-delay: -0.55s; }
-.wave span:nth-child(8) { animation-delay: -0.15s; }
-.wave span:nth-child(9) { animation-delay: -0.45s; }
+
+.wave.active span:nth-child(1), .orb.speaking .wave span:nth-child(1), .orb.live .wave span:nth-child(1), .orb.listening .wave span:nth-child(1) {
+  animation-name: wv-1; animation-duration: 0.95s; animation-delay: -0.7s;
+}
+.wave.active span:nth-child(2), .orb.speaking .wave span:nth-child(2), .orb.live .wave span:nth-child(2), .orb.listening .wave span:nth-child(2) {
+  animation-name: wv-2; animation-duration: 1.1s; animation-delay: -0.2s;
+}
+.wave.active span:nth-child(3), .orb.speaking .wave span:nth-child(3), .orb.live .wave span:nth-child(3), .orb.listening .wave span:nth-child(3) {
+  animation-name: wv-3; animation-duration: 0.85s; animation-delay: -0.5s;
+}
+.wave.active span:nth-child(4), .orb.speaking .wave span:nth-child(4), .orb.live .wave span:nth-child(4), .orb.listening .wave span:nth-child(4) {
+  animation-name: wv-4; animation-duration: 1.05s; animation-delay: -0.15s;
+}
+.wave.active span:nth-child(5), .orb.speaking .wave span:nth-child(5), .orb.live .wave span:nth-child(5), .orb.listening .wave span:nth-child(5) {
+  animation-name: wv-5; animation-duration: 0.9s; animation-delay: -0.8s;
+}
+.wave.active span:nth-child(6), .orb.speaking .wave span:nth-child(6), .orb.live .wave span:nth-child(6), .orb.listening .wave span:nth-child(6) {
+  animation-name: wv-6; animation-duration: 1.15s; animation-delay: -0.35s;
+}
+.wave.active span:nth-child(7), .orb.speaking .wave span:nth-child(7), .orb.live .wave span:nth-child(7), .orb.listening .wave span:nth-child(7) {
+  animation-name: wv-7; animation-duration: 0.8s; animation-delay: -0.6s;
+}
+.wave.active span:nth-child(8), .orb.speaking .wave span:nth-child(8), .orb.live .wave span:nth-child(8), .orb.listening .wave span:nth-child(8) {
+  animation-name: wv-8; animation-duration: 1.0s; animation-delay: -0.25s;
+}
+.wave.active span:nth-child(9), .orb.speaking .wave span:nth-child(9), .orb.live .wave span:nth-child(9), .orb.listening .wave span:nth-child(9) {
+  animation-name: wv-9; animation-duration: 1.2s; animation-delay: -0.45s;
+}
+
+@keyframes wv-1 { 0%, 100% { height: 4px; opacity: 0.45; } 50% { height: 11px; opacity: 0.95; } }
+@keyframes wv-2 { 0%, 100% { height: 7px; opacity: 0.5; } 50% { height: 15px; opacity: 1; } }
+@keyframes wv-3 { 0%, 100% { height: 11px; opacity: 0.6; } 50% { height: 19px; opacity: 1; } }
+@keyframes wv-4 { 0%, 100% { height: 5px; opacity: 0.45; } 50% { height: 12px; opacity: 0.95; } }
+@keyframes wv-5 { 0%, 100% { height: 8px; opacity: 0.55; } 50% { height: 16px; opacity: 1; } }
+@keyframes wv-6 { 0%, 100% { height: 12px; opacity: 0.65; } 50% { height: 20px; opacity: 1; } }
+@keyframes wv-7 { 0%, 100% { height: 7px; opacity: 0.5; } 50% { height: 14px; opacity: 1; } }
+@keyframes wv-8 { 0%, 100% { height: 5px; opacity: 0.45; } 50% { height: 11px; opacity: 0.95; } }
+@keyframes wv-9 { 0%, 100% { height: 9px; opacity: 0.55; } 50% { height: 17px; opacity: 1; } }
 
 .orbital {
   position: relative;
