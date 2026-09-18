@@ -2969,6 +2969,310 @@ input:-webkit-autofill:focus {
   }
 }
 
+/* --------------------------------------------------------------------------
+   Overflow safety
+   --------------------------------------------------------------------------
+   Grid and flex children default to min-width:auto, which means a long email,
+   transcript line, table cell, or telemetry label can make the whole page wider
+   than the viewport. Keep scrolling local to the components that need it and let
+   all other content reflow inside its panel.
+*/
+.main,
+.gate,
+.topbar,
+.topbar > *,
+.topbar-right,
+.card,
+.call,
+.call-head,
+.call-head > *,
+.call-head-right,
+.call-body,
+.call-controls,
+.call-row,
+.chat-input,
+.intake-wrap,
+.intake-wrap > *,
+.intake-side,
+.side-card,
+.review-grid,
+.review-group,
+.doc,
+.stat,
+.priority-action,
+.unlock-panel,
+.booking,
+.footer {
+  min-width: 0;
+}
+
+p, li, h1, h2, h3, h4,
+.line, .notice, .side-chip, .kv, .meta, .compliance-flag {
+  overflow-wrap: anywhere;
+}
+
+img, video, canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+.btn {
+  max-width: 100%;
+}
+
+/* The topic track is an overview, not a carousel. Wrapping it prevents its
+   twelve intrinsic-width labels from forcing the call panel off screen. */
+.business-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+  overflow: visible;
+  padding: 0;
+}
+.track-step {
+  min-width: 0;
+  white-space: normal;
+}
+.track-name {
+  overflow-wrap: anywhere;
+}
+
+.chat-input textarea {
+  min-width: 0;
+  width: auto;
+}
+
+.tbl-wrap,
+.business-track {
+  max-width: 100%;
+}
+.tbl-wrap {
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.stat .k,
+.hero-mono-num,
+.coa-item .v {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 679px) {
+  .main {
+    padding-inline: clamp(0.75rem, 4vw, 1.25rem);
+  }
+
+  /* The review screen's outer card intentionally has no stage-specific class. */
+  .main > .card:not(.consent-card):not(.loader):not(.done-card) {
+    padding: clamp(1rem, 4vw, 1.5rem);
+  }
+
+  .steps {
+    padding-inline: clamp(0.75rem, 4vw, 1.25rem);
+  }
+  .steps-rail {
+    gap: 0.35rem;
+  }
+  .step {
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 0.35rem;
+  }
+  .step.active {
+    flex: 1.65;
+  }
+  .step.active .label {
+    display: block;
+    min-width: 0;
+  }
+
+  .call-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.85rem 1rem;
+  }
+  .who {
+    min-width: 0;
+  }
+  .who > div:last-child {
+    min-width: 0;
+  }
+  .who b,
+  #call-mode {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .call-head-right {
+    justify-content: flex-end;
+  }
+  .call-head-right .progress {
+    display: none;
+  }
+  .side-toggle {
+    padding-inline: 0.75rem;
+  }
+  .call-body {
+    padding: 1.5rem 1rem;
+  }
+  .call-controls {
+    padding-inline: 1rem;
+  }
+  .call-row > .btn {
+    flex: 1 1 140px;
+    white-space: normal;
+  }
+
+  .chat-input {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+  .chat-input textarea {
+    grid-column: 1 / -1;
+  }
+  .chat-input .icon-btn {
+    justify-self: start;
+  }
+
+  .review-group {
+    padding: 1rem;
+  }
+  .field label,
+  .field-wrap label {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .heard,
+  .kv,
+  .compliance-flag {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .heard .btn {
+    width: 100%;
+  }
+
+  .doc {
+    padding: 1.5rem 1rem;
+  }
+  .doc h2 {
+    font-size: clamp(1.75rem, 10vw, 2.4rem);
+  }
+  .sec {
+    align-items: flex-start;
+    font-size: clamp(1.1rem, 6vw, 1.35rem);
+  }
+  .stat-row,
+  .priority-actions-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .stat .k {
+    font-size: clamp(1.65rem, 10vw, 2.375rem);
+  }
+  .stage-flow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .stage {
+    width: 100%;
+    text-align: center;
+    white-space: normal;
+  }
+  .pipeline-flow-connector {
+    width: 18px;
+    margin: -0.2rem auto;
+    transform: rotate(90deg);
+  }
+
+  .btn-row > .btn {
+    flex: 1 1 100%;
+    white-space: normal;
+  }
+  .toast {
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: calc(0.75rem + var(--safe-b));
+    max-width: none;
+  }
+}
+
+@media (max-width: 479px) {
+  .topbar {
+    gap: 0.5rem;
+    padding: 0.65rem 0.75rem;
+  }
+  .brand {
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .brand-text {
+    font-size: 0.95rem;
+  }
+  .brand-text small,
+  .userchip-name {
+    display: none;
+  }
+  .topbar-right {
+    gap: 0.4rem;
+  }
+  .userchip {
+    flex: 0 0 auto;
+    padding: 4px;
+  }
+  .topbar-right .btn {
+    padding-inline: 0.65rem;
+  }
+
+  .gate {
+    padding-inline: 1rem;
+  }
+  .gate-card,
+  .consent-card,
+  .booking .card,
+  .done-card,
+  .unlock-panel {
+    padding: 1.25rem 1rem;
+  }
+  .telem,
+  .telemetry-chip {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .gate-trust {
+    gap: 0.65rem;
+  }
+  .gate-trust .telem {
+    flex: 1 1 130px;
+  }
+
+  .business-track {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .track-step {
+    padding-inline: 0.5rem;
+  }
+  .voice-orb-container {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 359px) {
+  .brand-text {
+    display: none;
+  }
+  .side-toggle-count {
+    display: none;
+  }
+  .business-track {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Accessibility: Reduced Motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
