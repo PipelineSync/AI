@@ -126,6 +126,7 @@ const state = {
   blueprint: null,
   delivered: null,       // {contact_id, filename, pdf_url}
   booking: null,         // {day, slot}
+  schedulerLink: null, // from /api/config (SCHEDULER_LINK env)
   fieldStatus: {},       // live sidebar state
   voice: null,           // live call state (see newVoiceState in the voice engine)
   showTranscript: false, // transcript panel is collapsed; the call is spoken
@@ -163,6 +164,13 @@ function trackLeadProgress(status, extra) {
   if (!state.token) return Promise.resolve(null);
   return api.post('/api/lead/progress', Object.assign({ status }, extra || {}))
     .catch(e => { console.warn('[lead-progress]', e.message); return null; });
+}
+/* Scheduler link (HubSpot Meetings) — public, fetched once on boot so bookingView can embed it */
+function fetchSchedulerLink() {
+  fetch('/api/config', { method: 'GET', headers: { 'Accept': 'application/json' } })
+    .then(r => r.json()).then(j => {
+      if (j && j.schedulerLink) { state.schedulerLink = String(j.schedulerLink).trim(); if (state.stage === 'booking') render(); }
+    }).catch(() => {});
 }
 
 /* ---------------- toast ---------------- */
@@ -2431,6 +2439,7 @@ function routeBindings() {
   }
 }
 function boot() {
+  fetchSchedulerLink();
   render();
   routeBindings();
 }
