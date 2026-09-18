@@ -1,0 +1,275 @@
+{
+  "version": "v1",
+  "description": "PipelineSync AI Knowledge Base v1 — single source of truth, extracted from KB_AND_MASTER_PROMPT.md",
+  "tiers": {
+    "floor": {
+      "id": "KB-TIER-01",
+      "name": "Sales Hub Professional",
+      "rule": "Sales Hub Professional is the floor: the build requires workflows, and Starter cannot run them."
+    },
+    "enterprise": {
+      "id": "KB-TIER-02",
+      "rule": "Recommend Enterprise when team size, cycle length, or lead volume reaches the top of the Professional band.",
+      "triggers": {
+        "minReps": 4,
+        "minCycleWeeks": 12,
+        "minLeadsPerMonth": 500
+      }
+    },
+    "marketing": {
+      "id": "KB-TIER-03",
+      "rule": "Add Marketing Hub Professional when spend is at or above 50,000 a month, or volume at or above 300 leads a month.",
+      "triggers": {
+        "minSpendPerMonth": 50000,
+        "minLeadsPerMonth": 300
+      }
+    },
+    "service": {
+      "id": "KB-TIER-04",
+      "rule": "Add Service Hub where the vertical recipe calls for front-desk ticketing or post-service follow-up."
+    },
+    "pricing": {
+      "id": "KB-PRISE-01",
+      "perSeatUSD": 90,
+      "note": "List price, USD per seat per month, from knowledge base v1. Regional and committed pricing varies. Confirm at the build call."
+    }
+  },
+  "pipelines": {
+    "one-call": {
+      "id": "KB-PIPE-O1",
+      "label": "Single-call pipeline",
+      "stages": ["New", "Contacted", "Qualified", "Proposal", "Closed Won", "Closed Lost"],
+      "note": "Every stage can advance on one conversation. Speed and first-response time are the differentiators."
+    },
+    "two-call": {
+      "id": "KB-PIPE-T2",
+      "label": "Two-call pipeline",
+      "stages": ["New", "Contacted", "Qualified", "Consult scheduled", "Consult done", "Proposal", "Closed Won", "Closed Lost"],
+      "note": "First call qualifies, second call closes. The gap between calls is exactly where deals slip without workflows."
+    }
+  },
+  "sourceMechanisms": [
+    {
+      "id": "KB-SRC-WEB",
+      "matches": ["website", "web"],
+      "mechanism": "Marketing Hub form on landing pages, with UTM tracking on all traffic"
+    },
+    {
+      "id": "KB-SRC-PAY",
+      "matches": ["google ads", "ads"],
+      "mechanism": "Connected ad account with automated campaign, ad group, and contact reporting"
+    },
+    {
+      "id": "KB-SRC-SOC",
+      "matches": ["facebook", "meta", "instagram", "social"],
+      "mechanism": "Social landing forms with UTM tracking. Point the best posts at a dedicated landing page"
+    },
+    {
+      "id": "KB-SRC-REF",
+      "matches": ["referral", "word of mouth"],
+      "mechanism": "Referral landing form plus a shareable tracking link for every customer"
+    },
+    {
+      "id": "KB-SRC-PHN",
+      "matches": ["walk", "phone", "call", "counter"],
+      "mechanism": "Mobile quick-capture form, plus a 30-day manual entry discipline while the habit forms"
+    },
+    {
+      "id": "KB-SRC-EM",
+      "matches": ["email"],
+      "mechanism": "Import with a source property, then a re-engagement sequence"
+    },
+    {
+      "id": "KB-SRC-DEF",
+      "matches": ["default"],
+      "mechanism": "HubSpot form with a source field and monthly volume tracking"
+    }
+  ],
+  "toolCatalogue": [
+    {
+      "tool": "HubSpot",
+      "action": "Upgrade",
+      "reason": "You are on the entry tier. This build needs workflows, so Professional is the floor. Move up rather than restart."
+    },
+    {
+      "tool": "Salesforce",
+      "action": "Replace",
+      "reason": "Consolidate into HubSpot so the whole build sits in one system. Import objects, map fields, decommission after 30 days."
+    },
+    {
+      "tool": "Zoho CRM",
+      "action": "Replace",
+      "reason": "One system of record. Import, map, decommission after 30 days."
+    },
+    {
+      "tool": "Pipedrive",
+      "action": "Replace",
+      "reason": "Consolidate into HubSpot. Keep Pipedrive read-only for a month during the switch."
+    },
+    {
+      "tool": "Freshsales",
+      "action": "Replace",
+      "reason": "Consolidate into HubSpot so workflows and reporting live in one place."
+    },
+    {
+      "tool": "GoHighLevel",
+      "action": "Replace",
+      "reason": "Move contacts and conversations into HubSpot. Retire the sub-account after import."
+    },
+    {
+      "tool": "Microsoft Excel",
+      "action": "Consolidate",
+      "reason": "Move tracking into HubSpot objects and properties. Keep Excel for one-way reports while the habit forms."
+    },
+    {
+      "tool": "Google Sheets",
+      "action": "Consolidate",
+      "reason": "Move tracking into HubSpot. Share the new dashboards instead of the sheet."
+    },
+    {
+      "tool": "Calendly",
+      "action": "Replace",
+      "reason": "Use HubSpot Meetings so every booking creates a task and can trigger a workflow."
+    },
+    {
+      "tool": "WhatsApp",
+      "action": "Keep",
+      "reason": "Connect it to HubSpot so conversations attach to the right contact and deal."
+    },
+    {
+      "tool": "Mailchimp",
+      "action": "Consolidate",
+      "reason": "Move lists and email into Marketing Hub to end the double entry."
+    },
+    {
+      "tool": "Klaviyo",
+      "action": "Keep or consolidate",
+      "reason": "If e-commerce flows matter, keep and connect orders. Otherwise move to Marketing Hub."
+    },
+    {
+      "tool": "Shopify",
+      "action": "Keep",
+      "reason": "Connect orders to HubSpot so revenue sits beside the sales data."
+    },
+    {
+      "tool": "Google Ads",
+      "action": "Keep",
+      "reason": "Connect to HubSpot Ads for automated tracking and contact-level reporting."
+    },
+    {
+      "tool": "Meta Ads",
+      "action": "Keep",
+      "reason": "Connect to HubSpot Ads. Route the best-landing ads to a dedicated landing form."
+    },
+    {
+      "tool": "Google Business Profile",
+      "action": "Keep",
+      "reason": "Keep. Add the new tracking number and the booking link from the build."
+    },
+    {
+      "tool": "Zoom",
+      "action": "Keep",
+      "reason": "Keep. Link it into meetings and the pipeline for consult calls."
+    }
+  ],
+  "toolVariants": [
+    ["hubspot", "HubSpot"],
+    ["salesforce", "Salesforce"],
+    ["zoho", "Zoho CRM"],
+    ["pipedrive", "Pipedrive"],
+    ["freshsales", "Freshsales"],
+    ["gohighlevel", "GoHighLevel"],
+    ["excel", "Microsoft Excel"],
+    ["google sheets", "Google Sheets"],
+    ["calendly", "Calendly"],
+    ["whatsapp", "WhatsApp"],
+    ["mailchimp", "Mailchimp"],
+    ["klaviyo", "Klaviyo"],
+    ["shopify", "Shopify"],
+    ["google ads", "Google Ads"],
+    ["google business profile", "Google Business Profile"],
+    ["zoom", "Zoom"],
+    ["meta ads", "Meta Ads"],
+    ["facebook ads", "Meta Ads"],
+    ["facebook", "Meta Ads"],
+    ["google", "Google Ads"]
+  ],
+  "buildDefaults": [
+    "Contact, company, and deal objects",
+    "Email sync for every sales seat",
+    "Pipelines, deal stages, and basic dashboards",
+    "Task management and reminders",
+    "Sequences (included with Professional)"
+  ],
+  "verticals": {
+    "solar": {
+      "label": "Solar",
+      "serviceHub": false,
+      "workflows": [
+        "Missed-call text-back within 5 minutes",
+        "3-touch proposal follow-up over 14 days",
+        "Review-and-sign reminder 48 hours before the appointment"
+      ],
+      "compliance": [
+        {
+          "code": "TCPA",
+          "id": "KB-COMP-TCPA",
+          "note": "Outbound follow-up to solar leads requires documented consent. Use opt-in forms, keep the consent timestamp, and honour do-not-contact requests immediately."
+        }
+      ]
+    },
+    "medical": {
+      "label": "Medical",
+      "serviceHub": true,
+      "serviceHubReason": "A Service Hub seat for the front desk gives you ticketing, no-show tracking, and post-visit follow-up in one place.",
+      "workflows": [
+        "Same-day reminder for the first visit",
+        "No-show win-back after 48 hours",
+        "6-month recall for routine patients"
+      ],
+      "compliance": [
+        {
+          "code": "HIPAA",
+          "id": "KB-COMP-HIPAA",
+          "note": "Patient data needs restricted access, field-level permissions, and a data processing addendum before any sync. In the Philippines, the Data Privacy Act of 2012 applies in parallel, so apply the stricter rule."
+        }
+      ]
+    },
+    "home_services": {
+      "label": "Home services",
+      "serviceHub": false,
+      "workflows": [
+        "Missed-call text-back within 5 minutes",
+        "Quote-sent nudge after 3 days",
+        "Review request after job completion"
+      ],
+      "compliance": []
+    },
+    "ecommerce": {
+      "label": "E-commerce",
+      "serviceHub": false,
+      "workflows": [
+        "Abandoned-cart sequence (2 touches)",
+        "Win-back for customers inactive 60 days",
+        "Post-purchase review request"
+      ],
+      "compliance": []
+    },
+    "generic": {
+      "label": "General business",
+      "serviceHub": false,
+      "workflows": [
+        "Missed-call text-back within 5 minutes",
+        "3-touch follow-up on open deals",
+        "Review request after closed-won"
+      ],
+      "compliance": []
+    }
+  },
+  "verticalDetectionKeywords": {
+    "solar": ["solar"],
+    "medical": ["dental", "dentist", "clinic", "medical", "doctor", "hospital", "physio", "health", "wellness", "therapy", "vet", "pharmacy"],
+    "home_services": ["plumbing", "hvac", "aircon", "roofing", "handyman", "construction", "remodel", "pest control", "cleaning", "garden", "landscaping"],
+    "ecommerce": ["online", "shop", "store", "retail", "ecommerce", "subscription", "coffee", "clothing", "fashion", "dropship", "marketplace"]
+  }
+}

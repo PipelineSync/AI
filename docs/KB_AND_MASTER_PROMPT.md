@@ -4,12 +4,16 @@
 AI may know and every instruction it operates under. Edit this file, then the changes get ported
 back into the code.
 
-| What | Lives in code |
-|---|---|
-| Knowledge base v1 (KB) | `lib/core.js` → `const KB` (top of file) |
-| **Prompt A** — blueprint generation (Function B) | mocked by `generate()` in `lib/core.js` |
-| **Prompt B** — extraction / structuring (Function A) | mocked by `extract()` in `lib/core.js` |
-| **Master interview prompt** — "Alex" voice discovery call | `lib/voice.js` → `realtimeInstructions()`, `buildMessages()`, `INTAKE_PLAN`, `REALTIME_FAQ` |
+**Version:** v1  
+**Last synced:** 2026-09-18  
+**Sync status:** ✅ Code matches MD — verified by `npm run test:all` (e2e, voice, ui-smoke, pdfcheck, ui-design, netlify-sim)
+
+| What | Lives in code | Machine-readable copy |
+|---|---|---|
+| Knowledge base v1 (KB) | `lib/core.js` → `const KB` (top of file) | `docs/KB.json` (Supabase seed) |
+| **Prompt A** — blueprint generation (Function B) | mocked by `generate()` in `lib/core.js` + `lib/prompts.js` → `PROMPT_A` | `lib/prompts.js` |
+| **Prompt B** — extraction / structuring (Function A) | mocked by `extract()` in `lib/core.js` + `lib/prompts.js` → `PROMPT_B` | `lib/prompts.js` |
+| **Master interview prompt** — "Alex" voice discovery call | `lib/voice.js` → `realtimeInstructions()`, `buildMessages()`, `INTAKE_PLAN`, `REALTIME_FAQ` | `lib/prompts.js` → `MASTER_INTERVIEW_IDENTITY`, `REALTIME_FAQ`, `INTAKE_PLAN`, `REALTIME_INSTRUCTIONS_TEMPLATE`, `STEP_BY_STEP_TEMPLATE`, `TRANSCRIPTION_PROMPT` |
 
 Hard rules that never change: the KB and all prompts stay **server-side** (`lib/`), the AI may
 **only pick from the KB** (no invented properties, tools, features, or prices), every KB item used
@@ -346,9 +350,27 @@ turns, missing required fields, captured-so-far, and the full data-contract fiel
 
 Edit this document (the sections above are the contract), then the changes get ported into:
 
-- `lib/core.js` → `KB` object (sections 1, 2, 3)
-- `lib/voice.js` → `INTAKE_PLAN`, `REALTIME_FAQ`, `realtimeInstructions()`, `buildMessages()` (section 4)
+- `lib/core.js` → `KB` object (sections 1, 2, 3) — now includes `PROMPTS` reference and sync header
+- `lib/voice.js` → `INTAKE_PLAN`, `REALTIME_FAQ`, `realtimeInstructions()`, `buildMessages()` (section 4) — now includes sync header and `PROMPTS_REF`
+- `lib/prompts.js` → production-ready master prompts (PROMPT_A, PROMPT_B, MASTER_INTERVIEW_IDENTITY, REALTIME_FAQ, INTAKE_PLAN, templates, TRANSCRIPTION_PROMPT) — extracted verbatim from this MD
+- `docs/KB.json` → machine-readable KB v1 for Supabase seeding and audits
 
 After porting, run `npm test` — `test/e2e.js` asserts the brief's QA checklist (grounded-in-KB,
 tagged references, required fields, PDF, lead push) and the four demo personas cover the four
 vertical recipes.
+
+### 5.1 Sync verification (2026-09-18)
+
+- ✅ `lib/core.js` KB object matches Section 1 tables (tiers, pipelines, source mechanisms, tool catalogue, verticals, compliance)
+- ✅ `lib/voice.js` INTAKE_PLAN matches Section 4.2 (12 questions verbatim), REALTIME_FAQ matches 4.3, realtimeInstructions matches 4.4 template, buildMessages matches 4.5
+- ✅ `lib/prompts.js` created — contains exact prompts for Claude/OpenAI production use
+- ✅ `docs/KB.json` created — JSON seed for future Supabase tables (rules, tools, prices, vertical recipes)
+- ✅ All test suites pass: `npm run test:all` (voice, voice-openai, voice-realtime, e2e, netlify-sim, pdfcheck, ui-design, ui-smoke)
+
+### 5.2 Files changed in this sync
+
+- `lib/prompts.js` — NEW — master prompts extracted from MD
+- `docs/KB.json` — NEW — machine-readable KB
+- `lib/core.js` — added sync header, PROMPTS import, PROMPT_A/B exports
+- `lib/voice.js` — added sync header, PROMPTS_REF import
+- `docs/KB_AND_MASTER_PROMPT.md` — updated header with last sync date and new file table
