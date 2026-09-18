@@ -1273,11 +1273,11 @@ function startView() {
       '<h2>Meet your AI advisor</h2>' +
       '<p class="sub">Enter your details to start the AI voice call.</p>' +
       '<form id="start-form" novalidate>' +
-        '<div class="field-wrap"><label for="st-name">Your name <span class="req">Required</span></label>' +
-          '<input type="text" id="st-name" name="name" class="field" value="' + esc(lastName) + '" placeholder="Maria Santos" maxlength="80" autocomplete="name" autocapitalize="words" spellcheck="false">' +
+        '<div class="field"><label for="st-name">Your name <span class="req">Required</span></label>' +
+          '<input type="text" id="st-name" name="name" value="' + esc(lastName) + '" placeholder="Maria Santos" maxlength="80" autocomplete="name" autocapitalize="words" spellcheck="false">' +
         '</div>' +
-        '<div class="field-wrap mt16"><label for="st-email">Work email <span class="req">Required</span></label>' +
-          '<input type="email" id="st-email" name="email" class="field" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
+        '<div class="field"><label for="st-email">Work email <span class="req">Required</span></label>' +
+          '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
         '</div>' +
         '<p class="form-error" id="start-error" role="alert" hidden></p>' +
         '<button class="btn btn-primary btn-lg btn-block mt16" id="st-btn" type="submit">Start strategy session</button>' +
