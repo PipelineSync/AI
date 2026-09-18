@@ -1211,7 +1211,7 @@ function topbar() {
 function steps() {
   const order = ['intake', 'review', 'blueprint', 'done', 'booking'];
   const idx = state.stage === 'consent' ? 0 : state.stage === 'extracting' ? 1 : order.indexOf(state.stage);
-  const labels = ['Tell us about your business', 'Find the gaps in your pipeline', 'Review your growth system', 'Get your blueprint', 'Plan the next step'];
+  const labels = ['Discovery', 'Gap Analysis', 'Review', 'Blueprint', 'Next Steps'];
   const at = Math.max(0, Math.min(labels.length - 1, idx));
   const pct = Math.max(0, Math.min(100, Math.round(((at + 1) / labels.length) * 100)));
   let h = '<nav class="steps" aria-label="Progress">' +
@@ -1229,7 +1229,7 @@ function steps() {
   return h + '<div class="steps-bar" aria-hidden="true"><span style="width:' + pct + '%"></span></div>';
 }
 function footer() {
-  return '<div class="footer"><span>Prototype build v0.2 (hardened + voice)</span><span>The discovery call runs on the real OpenAI voice layer (one continuous Realtime call, with ChatGPT wording and OpenAI speech as the fallback) when OPENAI_API_KEY is set; extraction, PDF, and CRM steps are still simulated locally, with Supabase for auth and data in production.</span><span>All keys live server-side, never in the browser.</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></div>';
+  return '<footer class="footer"><span>PipelineSync AI &bull; Revenue Operations</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></footer>';
 }
 
 /* ---------------- the entry gate: name + email, then the AI voice call ----------------
@@ -1253,37 +1253,38 @@ function startView() {
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
         '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>AI ADVISOR READY &bull; STRATEGY DISCOVERY &bull; 12 SIGNALS</div>' +
-        '<div class="brand brand-lg"><div class="logo">' + logoTile(38) + '</div><div class="brand-text">PipelineSync AI<small>Private AI Revenue Operations Strategy Session</small></div></div>' +
+        '<div class="brand brand-lg"><div class="logo">' + logoTile(38) + '</div><div class="brand-text">PipelineSync AI<small>Revenue Operations Strategy</small></div></div>' +
         '<h1>Turn your sales process into a <span class="accent">predictable pipeline.</span></h1>' +
-        '<p class="lede">Stop losing leads to slow follow-ups, untracked channels, and CRM blind spots. Have a guided conversation about your business with Alex, your private AI advisor. Your next step is a short AI voice call: talk through your business, find the gaps in your pipeline, and leave with a clear growth system tailored to your numbers.</p>' +
+        '<p class="lede">A 5-minute AI voice call to identify pipeline gaps, map sales velocity, and get your HubSpot blueprint.</p>' +
         '<ul class="mini-steps">' +
-          '<li class="mini-step"><span class="n">1</span><div><b>Tell us about your business</b><span>About 5 to 8 minutes of voice, like a private consultation, not an intake form.</span></div></li>' +
-          '<li class="mini-step"><span class="n">2</span><div><b>Find the gaps in your pipeline</b><span>Alex listens for response SLAs, deal velocity, and manual operational friction.</span></div></li>' +
-          '<li class="mini-step"><span class="n">3</span><div><b>Review your growth system</b><span>Confirm what was understood with zero invented numbers or CRM jargon.</span></div></li>' +
-          '<li class="mini-step"><span class="n">4</span><div><b>Get your blueprint</b><span>Receive your tailored HubSpot architecture with exact cost-of-inaction estimates.</span></div></li>' +
+          '<li class="mini-step"><span class="n">1</span><div><b>Voice discovery</b><span>5-minute conversation with Alex</span></div></li>' +
+          '<li class="mini-step"><span class="n">2</span><div><b>Gap analysis</b><span>Identify lost deals and friction</span></div></li>' +
+          '<li class="mini-step"><span class="n">3</span><div><b>Review</b><span>Confirm your captured numbers</span></div></li>' +
+          '<li class="mini-step"><span class="n">4</span><div><b>Blueprint</b><span>HubSpot setup &amp; ROI roadmap</span></div></li>' +
         '</ul>' +
-        '<div class="gate-trust"><span class="trust-item"><span class="dot" aria-hidden="true"></span>Approx 5-8 minutes</span>' +
-        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>12 strategic questions</span>' +
-        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Audio never stored</span>' +
-        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Typed fallback included</span></div>' +
+        '<div class="gate-trust">' +
+          '<span class="trust-item"><span class="dot" aria-hidden="true"></span>5 mins</span>' +
+          '<span class="trust-item"><span class="dot" aria-hidden="true"></span>12 questions</span>' +
+          '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Audio never stored</span>' +
+        '</div>' +
       '</div>' +
     '</div>' +
     '<div class="gate-side"><div class="gate-card hud-frame">' +
-      '<h2>Meet your AI strategy advisor</h2>' +
-      '<p class="sub">Enter your name and email to proceed. We connect you straight to the AI interviewer for your strategy voice call, who speaks first and listens while you answer.</p>' +
+      '<h2>Meet your AI advisor</h2>' +
+      '<p class="sub">Enter your details to start the AI voice call.</p>' +
       '<form id="start-form" novalidate>' +
         '<div class="field"><label for="st-name">Your name <span class="req">Required</span></label>' +
-          '<input type="text" id="st-name" name="name" value="' + esc(lastName) + '" placeholder="Maria Santos" maxlength="80" autocomplete="name" autocapitalize="words" spellcheck="false" aria-describedby="st-name-hint">' +
-          '<p class="hint" id="st-name-hint">This is what Alex calls you on the call.</p></div>' +
+          '<input type="text" id="st-name" name="name" value="' + esc(lastName) + '" placeholder="Maria Santos" maxlength="80" autocomplete="name" autocapitalize="words" spellcheck="false">' +
+        '</div>' +
         '<div class="field"><label for="st-email">Work email <span class="req">Required</span></label>' +
-          '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false" aria-describedby="st-email-hint">' +
-          '<p class="hint" id="st-email-hint">The finished blueprint PDF is delivered here.</p></div>' +
+          '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
+        '</div>' +
         '<p class="form-error" id="start-error" role="alert" hidden></p>' +
-        '<button class="btn btn-primary btn-lg btn-block" id="st-btn" type="submit">Start my strategy session</button>' +
+        '<button class="btn btn-primary btn-lg btn-block" id="st-btn" type="submit">Start strategy session</button>' +
       '</form>' +
       '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
-      '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use the demo account</button>' +
-      '<p class="gate-note">By continuing you agree to the AI disclaimer and privacy notice shown next. Your microphone is used only during the call; audio is transcribed and never stored.</p>' +
+      '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use demo account</button>' +
+      '<p class="gate-note">Audio is transcribed live and never stored.</p>' +
     '</div></div>' +
   '</div>';
 }
@@ -1296,9 +1297,9 @@ function bindStart() {
   const fail = (msg, focusEl) => {
     if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
     if (focusEl) { focusEl.setAttribute('aria-invalid', 'true'); focusEl.focus(); }
-    if (btn) { btn.disabled = false; btn.textContent = 'Start my strategy session'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Start strategy session'; }
     const demoBtn = $('#demo-btn');
-    if (demoBtn) { demoBtn.disabled = false; demoBtn.textContent = 'Use the demo account'; }
+    if (demoBtn) { demoBtn.disabled = false; demoBtn.textContent = 'Use demo account'; }
     toast(msg, true);
   };
   const clearErrors = () => {
@@ -1329,7 +1330,7 @@ function bindStart() {
   if (demo) demo.onclick = () => {
     clearErrors();
     demo.disabled = true;
-    demo.textContent = 'Loading the demo account...';
+    demo.textContent = 'Loading demo account...';
     go('Demo Owner', 'demo@pipelinesync.ai');
   };
   [nameEl, emailEl].forEach(el => { if (el) el.addEventListener('input', clearErrors); });
@@ -1341,14 +1342,13 @@ function bindStart() {
 /* ---------------- consent ---------------- */
 function consentView() {
   return '<div class="card consent-card hud-frame">' +
-    '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>SESSION TRANSPARENCY &bull; VERIFIED</div>' +
-    '<h2>A private strategy session, with AI</h2>' +
-    '<p class="sub">Before we begin, here is how Alex works and how your data is protected. You stay in control throughout the session.</p>' +
-    '<div class="notice"><h4>AI disclaimer</h4><p>This product uses AI. Your spoken and written answers are processed by AI models: OpenAI for the voice call (it words each question, speaks it, and transcribes your answers), and Claude for extraction and drafting in production. AI output can contain errors. A human reviews every blueprint before it is used in a build. Nothing in your blueprint is legal, financial, or professional advice.</p></div>' +
-    '<div class="notice"><h4>Privacy notice</h4><p>Your answers are stored in our database (Supabase) so we can build your blueprint, and a summary is sent to our CRM (HubSpot) so the right person can follow up. We do not sell your data. Voice audio is transcribed and not retained beyond the transcript. You can request deletion at any time by emailing privacy@pipelinesync.ai.</p></div>' +
+    '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>SESSION TRANSPARENCY</div>' +
+    '<h2>AI strategy session</h2>' +
+    '<p class="sub">You are in control throughout the conversation.</p>' +
+    '<div class="notice"><h4>AI &amp; Privacy</h4><p>We use OpenAI for the voice call to ask questions and transcribe your answers. Audio is never stored. Your answers are used solely to build your HubSpot blueprint.</p></div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I understand how my data is used, and I agree to continue.</label>' +
     '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
-    '<p class="small muted mt8" id="consent-note">Your advisor speaks first, asks 12 short questions, and listens while you answer. Skip or correct anything.</p>' +
+    '<p class="small muted mt8" id="consent-note">Alex starts speaking automatically on agreement. You can skip questions or type anytime.</p>' +
     '</div>';
 }
 
@@ -1443,19 +1443,9 @@ function callView() {
   }
   trackHtml += '</div>';
 
-  const personaBar = '<div class="quick-personas" role="group" aria-label="Explore demo personas">' +
-    '<span class="small muted">Explore demo persona:</span>' +
-    '<button class="btn btn-ghost btn-sm persona-pill" type="button" data-persona="solar">☀️ Solar Installer</button>' +
-    '<button class="btn btn-ghost btn-sm persona-pill" type="button" data-persona="medical">🩺 Dental Clinic</button>' +
-    '<button class="btn btn-ghost btn-sm persona-pill" type="button" data-persona="home">🔧 HVAC & Plumbing</button>' +
-    '<button class="btn btn-ghost btn-sm persona-pill" type="button" data-persona="ecommerce">☕ Coffee E-Commerce</button>' +
-  '</div>';
-
   let h = '<div class="intake-wrap"><div class="call hud-frame">' +
-    '<div class="call-head"><div class="who"><div class="avatar">AI</div><div><b>AI discovery call</b><span class="small muted" id="call-mode">' +
-      (v.cfg ? (v.mode === 'realtime'
-        ? 'Continuous voice call, ' + esc((v.rt && v.rt.model) || v.cfg.realtime.model)
-        : (v.mode === 'openai' ? 'ChatGPT voice, ' + esc(v.cfg.models.tts) : 'simulated voice (no API key)')) : 'connecting...') + '</span></div></div>' +
+    '<div class="call-head"><div class="who"><div class="avatar">AI</div><div><b>AI Discovery</b><span class="small muted" id="call-mode">' +
+      (v.cfg ? (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice') : 'Connecting...') + '</span></div></div>' +
       '<div class="call-head-right"><div class="progress" id="call-progress">' + (started ? 'Question ' + Math.min(answered + 1, total) + ' of ' + total : 'Not started') + '</div>' +
       '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress<span class="side-toggle-count">' + answered + '/' + total + '</span></button></div></div>' +
     '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
@@ -1468,7 +1458,6 @@ function callView() {
       (youLine ? '<div class="line you" id="you-line">' + esc(youLine) + '</div>' : '<div class="line you empty" id="you-line">Your answer appears here as you speak.</div>') +
       (v.notice ? '<div class="call-note">' + esc(v.notice) + '</div>' : '') +
       (v.error ? '<div class="call-note err">' + esc(v.error) + ' <button class="btn btn-ghost btn-sm" id="retry-turn">Retry</button></div>' : '') +
-      personaBar +
     '</div>' +
     '<div class="call-controls" id="call-controls">' + callControls(started, total) + '</div>' +
     '</div>' + callSidebar() + '</div>';
@@ -1477,23 +1466,15 @@ function callView() {
 function callControls(started, total) {
   const v = voiceSync();
   const rt = v.rt;
-  /* A live call has no "tap to answer": the microphone is open the whole way through, so the controls
-     are the ones a phone call has. */
   if (rt && (rt.live || rt.connecting)) {
     let h = '<div class="call-row">';
-    h += '<button class="btn ' + (rt.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" aria-pressed="' + (rt.micMuted ? 'false' : 'true') + '"' +
-      ' aria-label="' + (rt.micMuted ? 'Unmute my microphone' : 'Mute my microphone') + '">' +
-      (rt.micMuted ? '&#128263; Microphone muted' : '&#127908; Microphone live') + '</button>';
-    h += '<button class="btn btn-ghost" id="repeat-btn">Ask that again</button>';
-    h += '<button class="btn btn-ghost" id="mute-btn" aria-pressed="' + (v.muted ? 'true' : 'false') + '">' + (v.muted ? 'Unmute the AI voice' : 'Mute the AI voice') + '</button>';
+    h += '<button class="btn ' + (rt.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" aria-pressed="' + (rt.micMuted ? 'false' : 'true') + '">' +
+      (rt.micMuted ? 'Microphone muted' : 'Microphone live') + '</button>';
+    h += '<button class="btn btn-ghost" id="repeat-btn">Repeat</button>';
     h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
-    if (!v.done) h += '<button class="btn btn-ghost" id="finish-btn">End the call</button>';
     h += '</div>';
-    if (rt.connecting) h += '<p class="small muted mt8">Opening one continuous voice session. Nothing will cut between questions.</p>';
-    else h += '<p class="small muted mt8">Live and continuous: speak whenever you are ready, and talk over Alex if you need to. Nothing is recorded and stored.</p>';
     if (v.done) {
-      h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Structure my answers</button>' +
-        '<span class="small muted">' + v.asked.length + ' questions covered. You can correct anything on the next screen.</span></div>';
+      h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Review what we heard</button></div>';
     }
     if (v.typed) {
       h += '<div class="chat-input"><textarea id="intake-input" rows="1" placeholder="Type your answer..."></textarea>' +
@@ -1503,30 +1484,19 @@ function callControls(started, total) {
     return h;
   }
   if (!started) {
-    const ready = !!v.opening;
-    return '<div class="call-row"><button class="btn btn-primary btn-lg" id="start-call">&#9654; Start the discovery call (voice)</button>' +
-      '<button class="btn btn-ghost" id="type-btn-pre">Type my answers instead</button></div>' +
-      '<p class="small mt8 ' + (ready ? 'txt-ok' : 'muted') + '">' +
-      (ready
-        ? 'Ready. The AI speaks the first question out loud the instant you press start.'
-        : (v.prefetching || v.sessionPromise ? 'Preparing the AI voice...' : 'The AI speaks every question out loud and listens for your answer. Your microphone is used only during the call; audio is transcribed and not stored.')) + '</p>';
+    return '<div class="call-row"><button class="btn btn-primary btn-lg" id="start-call">&#9654; Start discovery call</button>' +
+      '<button class="btn btn-ghost" id="type-btn-pre">Type answers instead</button></div>';
   }
   let h = '<div class="call-row">';
   h += '<button class="btn ' + (v.listening ? 'btn-dark' : 'btn-primary') + '" id="mic-btn" aria-pressed="' + (v.listening ? 'true' : 'false') + '"' +
-    ' aria-label="' + (v.listening ? 'Stop listening and send the answer' : 'Start listening to your answer') + '"' +
     (v.status === 'thinking' || v.done ? ' disabled' : '') + '>' +
     (v.listening ? '&#9632; Stop and send' : '&#127908; Tap to answer') + '</button>';
-  if (v.speaking) h += '<button class="btn btn-ghost" id="stop-speak">Skip the speech</button>';
-  h += '<button class="btn ' + (v.blockedAudio ? 'btn-primary' : 'btn-ghost') + '" id="repeat-btn">' + (v.blockedAudio ? '&#9654; Play the line' : 'Hear that again') + '</button>';
+  h += '<button class="btn ' + (v.blockedAudio ? 'btn-primary' : 'btn-ghost') + '" id="repeat-btn">' + (v.blockedAudio ? '&#9654; Play' : 'Repeat') + '</button>';
   h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
-  h += '<button class="btn btn-ghost" id="mute-btn" aria-pressed="' + (v.muted ? 'true' : 'false') + '">' + (v.muted ? 'Unmute the AI voice' : 'Mute the AI voice') + '</button>';
-  if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip this question</button>';
+  if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip</button>';
   h += '</div>';
   if (v.done) {
-    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Review what we heard</button>' +
-      '<span class="small muted">' + total + ' questions covered. You can correct anything on the next screen.</span></div>';
-  } else if (v.asked.length >= 4) {
-    h += '<div class="call-row"><button class="btn btn-ghost" id="finish-btn">Finish the call and review what we have</button></div>';
+    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Review what we heard</button></div>';
   }
   if (v.typed) {
     h += '<div class="chat-input"><textarea id="intake-input" rows="1" placeholder="Type your answer..."></textarea>' +
@@ -1549,37 +1519,20 @@ function callSidebar() {
     return '<div class="side-chip ' + (st === 'captured' ? 'filled' : 'null') + '"><span>' + esc(labels[k] || FIELD_LABELS[k]) + '</span>' +
       '<span class="val">' + esc((val || 'not yet') + assist) + '</span></div>';
   }).join('');
-  const modeCard = '<div class="side-card"><h3>This call</h3>' +
-    '<div class="provider-card">' + providerBadge() + '<span class="small muted">' + (v.mode === 'realtime' ? 'OpenAI Realtime, one continuous session' : (v.mode === 'openai' ? 'OpenAI, server-side' : 'built-in questions, browser voice')) + '</span></div>' +
-    '<p class="small muted mt8">' + esc(v.why || 'Checking which voice provider is available...') + '</p>' +
-    (v.cfg ? (v.mode === 'realtime'
-      ? '<p class="small muted">Live session: ' + esc((v.rt && v.rt.model) || v.cfg.realtime.model) + ', voice ' + esc((v.rt && v.rt.voice) || v.cfg.realtime.voice) +
-        '<br>Turn detection: ' + esc((v.rt && v.rt.vad) || v.cfg.realtime.turn_detection) + ', so nothing is cut between questions' +
-        '<br>Listening: OpenAI transcription (' + esc(v.cfg.models.stt) + ')' +
-        '<br>Answers saved: ' + v.asked.length + '<br>Values kept: ' + ((v.rt && v.rt.accepted) || 0) +
-        ', refused as not said on the call: ' + ((v.rt && v.rt.rejected) || 0) +
-        '<br>Audio is transcribed, never stored.</p>'
-      : '<p class="small muted">Speaking: ' + esc(v.cfg.models.tts) + ' voice ' + esc(v.cfg.tts_voice) + '<br>Listening: ' + (v.engine === 'openai' ? 'OpenAI transcription (' + esc(v.cfg.models.stt) + ')' : 'browser microphone') + '<br>Turns so far: ' + v.turns + '<br>Audio is transcribed, never stored.</p>') : '') +
-    (v.warnings && v.warnings.length ? '<p class="small txt-warn">' + esc(v.warnings[v.warnings.length - 1]) + '</p>' : '') +
+  const modeCard = '<div class="side-card"><h3>Session</h3>' +
+    '<div class="provider-card">' + providerBadge() + '</div>' +
     '</div>';
   const errNote = state.fieldError ? '<p class="small txt-err mt8" role="alert">' + esc(state.fieldError) + '</p>' : '';
   const reqCard = missingReq.length
-    ? '<div class="side-card warn"><h3>Needed before the blueprint</h3><p class="small">Still unstated: <b>' + missingReq.map(k => esc(labels[k] || FIELD_LABELS[k])).join(', ') + '</b>. The AI will ask again on the call, and you can add them on the review screen. Nothing is ever invented.</p></div>'
-    : '<div class="side-card ok"><h3>Required numbers captured</h3><p class="small">Deal size, monthly lead volume and close rate are all captured, so the blueprint can be grounded in your own figures.</p></div>';
-  const personaOpts = Object.keys(PERSONAS).map(k => '<option value="' + k + '">' + PERSONAS[k].label + '</option>').join('');
-  const personaCard = '<div class="side-card"><h3>QA shortcut</h3>' +
-    '<label class="small muted" for="persona-sel">Load a demo business without a call (Section 9 checklist)</label>' +
-    '<select id="persona-sel"><option value="">Choose a vertical...</option>' + personaOpts + '</select>' +
-    '<button class="btn btn-ghost btn-sm btn-block mt8" id="persona-go">Load demo answers</button>' +
-    '<p class="small muted mt8">Typed demo answers for the four verticals (solar, medical, home services, e-commerce). Use these to check the blueprint quality checks.</p></div>';
+    ? '<div class="side-card warn"><h3>Needed for blueprint</h3><p class="small">Pending: <b>' + missingReq.map(k => esc(labels[k] || FIELD_LABELS[k])).join(', ') + '</b>.</p></div>'
+    : '<div class="side-card ok"><h3>Required numbers captured</h3><p class="small">Deal size, lead volume, and close rate are captured.</p></div>';
   const bubbles = v.transcript.map(t => '<div class="bubble ' + (t.role === 'ai' ? 'ai' : 'user') + (t.ignored ? ' ignored' : '') + '">' +
-    esc(t.text) + (t.ignored ? '<span class="bubble-note">not part of the call, nothing captured from it</span>' : '') + '</div>').join('');
+    esc(t.text) + '</div>').join('');
   const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
-    '<p class="small muted">The call is spoken. This is the written record the AI will structure.</p>' +
     '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
     '<div class="chat-body" id="chat-body">' + (bubbles || '<p class="small muted">Nothing yet.</p>') + '</div></details></div>';
   return '<aside class="intake-side" id="intake-side" aria-label="Call progress and captured answers">' +
-    modeCard + '<div class="side-card"><h3>What we have captured</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + personaCard + '</aside>';
+    modeCard + '<div class="side-card"><h3>Captured signals</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + '</aside>';
 }
 /* The AI's line grows word by word on a live call, so it is patched in place rather than re-rendered
    (a full render would rebuild the orb and lose the animation mid-sentence). */
@@ -1926,17 +1879,15 @@ function reviewView() {
   ];
   const v = state.voice;
   const callLine = v && v.startedAt
-    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + (v.mode === 'realtime' ? 'Live continuous AI voice' : (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice (no API key)')) +
-      ' - ' + v.turns + ' turns - ' + v.asked.length + ' of ' + ((v.plan || []).length || 12) + ' questions asked - ' +
-      (v.capture ? (v.capture.filledCount + ' of ' + v.capture.totalCount + ' fields captured') : 'captured live') +
-      ' - audio not retained</span></div>'
+    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice') +
+      ' &bull; ' + v.turns + ' turns &bull; audio not retained</span></div>'
     : '';
   let h = '<div class="card hud-frame"><div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>SESSION INTELLIGENCE &bull; VERIFIED</div>' +
     '<h2>Review what we heard</h2>' + callLine +
-    '<p class="sub">This is the clear picture of your business Alex captured from your discovery conversation. Verify the three core commercial numbers below and adjust any operational details before we generate your tailored growth blueprint. Anything marked <span class="nullbadge">We didn&#39;t capture this yet</span> was not captured on the call.</p>';
+    '<p class="sub">Verify your core commercial numbers and operational details before generating your blueprint.</p>';
   groups.forEach(g => { h += groupHtml(g[0], g[1]); });
   h += '<div class=\"btn-row\"><button class=\"btn btn-primary\" id=\"confirm-fields\">Review my plan</button>' +
-    '<button class=\"btn btn-ghost\" id=\"back-intake\">Back to the call</button></div>' +
+    '<button class=\"btn btn-ghost\" id=\"back-intake\">Back to call</button></div>' +
     '<p class=\"small muted mt8\" id=\"confirm-hint\" role=\"status\"></p></div>';
   return h;
 }
@@ -2233,17 +2184,14 @@ function blueprintView() {
 
   h += '<div class=\"btn-row\">' +
     (delivered
-      ? '<button class=\"btn btn-dark\" id=\"redownload-btn\" aria-label=\"Download PDF again\">&#11015; Download ' + esc(delivered.filename) + ' again</button>' +
-        '<button class=\"btn btn-primary\" id=\"book-btn\">Talk to a consultant</button>' +
-        '<button class=\"btn btn-ghost\" id=\"new-biz\">Run another business</button>'
-      : '<button class=\"btn btn-dark\" id=\"unlock-btn\">Download the blueprint</button>' +
-        '<button class=\"btn btn-primary\" id=\"book-btn\">Talk to a consultant</button>' +
-        '<button class=\"btn btn-ghost\" id=\"new-biz\">Run another business</button>') +
+      ? '<button class=\"btn btn-dark\" id=\"redownload-btn\" aria-label=\"Download PDF again\">&#11015; Download ' + esc(delivered.filename) + '</button>' +
+        '<button class=\"btn btn-primary\" id=\"book-btn\">Talk to a consultant</button>'
+      : '<button class=\"btn btn-primary btn-lg\" id=\"unlock-btn\">Download the blueprint</button>' +
+        '<button class=\"btn btn-dark\" id=\"book-btn\">Talk to a consultant</button>') +
     '</div>';
 
   if (delivered) {
     h += '<div class=\"success-card\" role=\"status\"><h3>&#10003; PDF delivered and lead captured</h3>' +
-      '<p>The PDF was generated server-side (Function C) and the lead was pushed to HubSpot (Function D).</p>' +
       '<div class=\"kv\"><span class=\"k\">HubSpot contact ID</span><span class=\"v mono\">' + esc(delivered.contact_id) + '</span></div>' +
       '<div class=\"kv\"><span class=\"k\">Delivered to</span><span class=\"v\">' + esc(delivered.email) + '</span></div>' +
       '<div class=\"kv\"><span class=\"k\">File</span><span class=\"v\">' + esc(delivered.filename) + '</span></div></div>';
@@ -2253,7 +2201,8 @@ function blueprintView() {
   return h;
 }
 function bindBlueprint() {
-  $('#new-biz').onclick = () => { resetJourney(); render(); };
+  const newBiz = $('#new-biz');
+  if (newBiz) newBiz.onclick = () => { resetJourney(); render(); };
   const bb = $('#book-btn');
   if (bb) bb.onclick = () => { state.stage = 'booking'; render(); };
   const rd = $('#redownload-btn');
@@ -2262,7 +2211,6 @@ function bindBlueprint() {
   if (ub) ub.onclick = () => {
     const holder = $('#unlock-holder');
     holder.innerHTML = '<div class=\"unlock-panel\"><h3 class="unlock-title">Download your blueprint</h3>' +
-      '<p class=\"small muted\">Your summary is ready now. Download the convenient PDF, then choose whether you want a human to help build it.</p>' +
       '<div class=\"grid-2\"><div class=\"field\"><label for=\"un-email\">Email for delivery</label><input type=\"email\" id=\"un-email\" value=\"' + esc(state.user.email) + '\" maxlength=\"254\"></div>' +
       '<div class="field field-check"><label class="checkline"><input type=\"checkbox\" id=\"un-consent\"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
       '<button class=\"btn btn-primary\" id=\"un-go\" disabled>Generate and send my PDF</button></div>';
@@ -2271,7 +2219,7 @@ function bindBlueprint() {
     const emailInput = $('#un-email');
     if (emailInput) emailInput.focus();
     go.onclick = async () => {
-      go.disabled = true; go.textContent = 'Generating PDF server-side...';
+      go.disabled = true; go.textContent = 'Generating PDF...';
       try {
         const j = await api.post('/api/deliver', {
           email: $('#un-email').value,
@@ -2341,21 +2289,19 @@ function bookingView() {
     const disabled = !b.day;
     return '<button class=\"slot' + (sel ? ' sel' : '') + '\" data-slot=\"' + s + '\"' + (disabled ? ' disabled aria-disabled=\"true\"' : '') + ' aria-pressed=\"' + (sel ? 'true' : 'false') + '\" aria-label=\"Book at ' + esc(s) + '\">' + esc(s) + '</button>';
   }).join('');
-  let h = '<div class=\"booking\"><div class=\"card\"><h2>Talk to a consultant</h2>' +
-    '<p class=\"sub\">30 minutes to walk through your blueprint and confirm scope. In production this panel is the embedded HubSpot Meetings scheduler (the link Allen provides).</p>' +
-    '<h3 class="pick-label">Pick a day</h3><div class="day-strip" role="group" aria-label="Pick a day">' + dayBtns + '</div>' +
-    '<h3 class="pick-label">Pick a time (your local time)</h3><div class="slot-grid" role="group" aria-label="Pick a time">' + slotBtns + '</div>' +
+  let h = '<div class=\"booking\"><div class=\"card\"><h2>Schedule consultation</h2>' +
+    '<p class=\"sub\">30-minute scope walk-through with our build team.</p>' +
+    '<h3 class="pick-label">Select date</h3><div class="day-strip" role="group" aria-label="Pick a day">' + dayBtns + '</div>' +
+    '<h3 class="pick-label">Select time</h3><div class="slot-grid" role="group" aria-label="Pick a time">' + slotBtns + '</div>' +
     '<div class=\"btn-row\">' +
-    '<button class=\"btn btn-primary\" id=\"book-go\" ' + (b.day && b.slot ? '' : 'disabled') + ' aria-label=\"Request this slot\">Request this slot</button>' +
-    '<button class=\"btn btn-ghost\" id=\"back-blueprint\">Back to blueprint</button></div>' +
-    '<div class=\"embed-note\">Prototype scheduler. Production: HubSpot Meetings embed with the real availability of the delivery team.</div>' +
+    '<button class=\"btn btn-primary\" id=\"book-go\" ' + (b.day && b.slot ? '' : 'disabled') + ' aria-label=\"Request this slot\">Confirm slot</button>' +
+    '<button class=\"btn btn-ghost\" id=\"back-blueprint\">Back</button></div>' +
     '</div>';
   if (state.booking && state.booking.confirmed) {
     h += '<div class=\"success-card\" role=\"status\"><h3>&#10003; Meeting requested</h3>' +
-      '<div class=\"kv\"><span class=\"k\">When</span><span class=\"v\">' + esc(state.booking.day) + ' at ' + esc(state.booking.slot) + ' (Asia/Manila)</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">Duration</span><span class=\"v\">30 minutes, video call</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">With</span><span class=\"v\">Your PipelineSync build lead (human review before any build)</span></div>' +
-      '<p class=\"mt8\">A calendar invite would land in your inbox. In production this booking is attached to your HubSpot contact.</p></div>' +
+      '<div class=\"kv\"><span class=\"k\">When</span><span class=\"v\">' + esc(state.booking.day) + ' at ' + esc(state.booking.slot) + '</span></div>' +
+      '<div class=\"kv\"><span class=\"k\">Duration</span><span class=\"v\">30 minutes</span></div>' +
+      '<div class=\"kv\"><span class=\"k\">With</span><span class=\"v\">PipelineSync build lead</span></div></div>' +
       '<div class=\"btn-row\"><button class=\"btn btn-dark\" id=\"finish-btn\">Finish</button></div>';
   }
   return h + '</div>';
@@ -2400,18 +2346,16 @@ function doneView() {
   let h = '<div class="card done-card">' +
     '<div class="done-mark">' + logoTile(54) + '</div>' +
     '<h2>Your blueprint is on its way</h2>' +
-    '<p class=\"sub\">Everything the brief asks for happened in this run:</p>' +
+    '<p class=\"sub\">Your strategy session is complete.</p>' +
     '<div class="done-list">' +
-    '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ' vertical, ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +
-    '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) + ' (generated server-side)' : 'not unlocked yet') + '</span></div>' +
+    '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ', ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +
+    '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) : 'not unlocked') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">HubSpot lead</span><span class=\"v mono\">' + (d ? esc(d.contact_id) : 'not created') + '</span></div>' +
-    '<div class=\"kv\"><span class=\"k\">Call booking</span><span class=\"v\">' + (b && b.confirmed ? esc(b.day) + ' at ' + esc(b.slot) : 'not booked') + '</span></div>' +
+    '<div class=\"kv\"><span class=\"k\">Consultation</span><span class=\"v\">' + (b && b.confirmed ? esc(b.day) + ' at ' + esc(b.slot) : 'not scheduled') + '</span></div>' +
     '</div>' +
     '<div class="btn-row btn-row-center">' +
     '<button class=\"btn btn-primary\" id=\"new-biz2\">Run another business</button>' +
-    '<a class=\"btn btn-ghost\" href=\"/dev/outbox\" target=\"_blank\" rel=\"noopener\">Inspect the HubSpot outbox (dev)</a>' +
     '</div>' +
-    '<p class=\"small muted mt16\">QA tip: run the four demo personas (solar, medical, home services, e-commerce) and check each blueprint against the Section 9 checklist: no invented items, correct tier floor, correct pipeline variant, all lead sources present, exactly three cost-of-inaction estimates, compliance flags where due, UK English, no em dashes.</p>' +
     '</div>';
   return h;
 }
