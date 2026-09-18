@@ -1210,7 +1210,7 @@ function topbar() {
 function steps() {
   const order = ['intake', 'review', 'blueprint', 'done', 'booking'];
   const idx = state.stage === 'consent' ? 0 : state.stage === 'extracting' ? 1 : order.indexOf(state.stage);
-  const labels = ['Discovery call', 'Review and correct', 'Blueprint', 'PDF and lead', 'Book a call'];
+  const labels = ['Tell us about your business', 'Find the gaps in your pipeline', 'Review your growth system', 'Get your blueprint', 'Plan the next step'];
   const at = Math.max(0, Math.min(labels.length - 1, idx));
   const pct = Math.max(0, Math.min(100, Math.round(((at + 1) / labels.length) * 100)));
   let h = '<nav class="steps" aria-label="Progress">' +
@@ -1252,21 +1252,21 @@ function startView() {
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
         '<div class="brand brand-lg"><div class="logo">' + logoTile(38) + '</div><div>PipelineSync AI<small>Revenue operations blueprints</small></div></div>' +
-        '<h1>Talk it through. <span class="accent">Get your HubSpot revenue operations blueprint.</span></h1>' +
-        '<p class="lede">A short voice call with Alex, our AI interviewer. You review and correct what we heard, then we build a PDF blueprint of the exact HubSpot setup your pipeline needs. A human reviews and sells the build.</p>' +
+        '<h1>Turn your sales process into a <span class="accent">predictable pipeline.</span></h1>' +
+        '<p class="lede">A calm, guided strategy session with Alex, your AI advisor. Your next step is a short AI voice call: talk through your business, find the gaps in your pipeline, and leave with a clear growth system built around your numbers.</p>' +
         '<ul class="mini-steps">' +
-          '<li class="mini-step"><span class="n">1</span><div><b>Talk through your business</b><span>Two minutes of voice, like a conversation, not a form.</span></div></li>' +
-          '<li class="mini-step"><span class="n">2</span><div><b>We structure the answers</b><span>AI extracts the facts into a clean data contract. Nothing invented.</span></div></li>' +
-          '<li class="mini-step"><span class="n">3</span><div><b>You review and correct</b><span>Every field is editable. Unstated items are flagged, not guessed.</span></div></li>' +
-          '<li class="mini-step"><span class="n">4</span><div><b>Your blueprint, your lead</b><span>A PDF built server-side, grounded in our knowledge base, plus a booking link.</span></div></li>' +
+          '<li class="mini-step"><span class="n">1</span><div><b>Tell us about your business</b><span>About 5 minutes of voice, like a conversation, not a form.</span></div></li>' +
+          '<li class="mini-step"><span class="n">2</span><div><b>Find the gaps in your pipeline</b><span>Your advisor listens for the signals that shape a better sales system.</span></div></li>' +
+          '<li class="mini-step"><span class="n">3</span><div><b>Review your growth system</b><span>See what we understood, and correct anything that needs your input.</span></div></li>' +
+          '<li class="mini-step"><span class="n">4</span><div><b>Get your blueprint</b><span>Get your plan instantly, then choose whether you want a human to help build it.</span></div></li>' +
         '</ul>' +
-        '<div class="gate-trust"><span class="trust-item"><span class="dot" aria-hidden="true"></span>No password needed</span>' +
-        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Audio transcribed, never stored</span>' +
-        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Human review before any build</span></div>' +
+        '<div class="gate-trust"><span class="trust-item"><span class="dot" aria-hidden="true"></span>About 5 minutes</span>' +
+        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Audio never stored</span>' +
+        '<span class="trust-item"><span class="dot" aria-hidden="true"></span>Typed fallback included</span></div>' +
       '</div>' +
     '</div>' +
     '<div class="gate-side"><div class="gate-card">' +
-      '<h2>Start your AI voice call</h2>' +
+      '<h2>Meet your AI strategy advisor</h2>' +
       '<p class="sub">Enter your name and email to proceed. We connect you straight to the AI interviewer, who speaks first and listens while you answer.</p>' +
       '<form id="start-form" novalidate>' +
         '<div class="field"><label for="st-name">Your name <span class="req">Required</span></label>' +
@@ -1276,7 +1276,7 @@ function startView() {
           '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false" aria-describedby="st-email-hint">' +
           '<p class="hint" id="st-email-hint">The finished blueprint PDF is delivered here.</p></div>' +
         '<p class="form-error" id="start-error" role="alert" hidden></p>' +
-        '<button class="btn btn-primary btn-lg btn-block" id="st-btn" type="submit">Start my AI voice call</button>' +
+        '<button class="btn btn-primary btn-lg btn-block" id="st-btn" type="submit">Start my strategy session</button>' +
       '</form>' +
       '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
       '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use the demo account</button>' +
@@ -1293,7 +1293,7 @@ function bindStart() {
   const fail = (msg, focusEl) => {
     if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
     if (focusEl) { focusEl.setAttribute('aria-invalid', 'true'); focusEl.focus(); }
-    if (btn) { btn.disabled = false; btn.textContent = 'Start my AI voice call'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Start my strategy session'; }
     const demoBtn = $('#demo-btn');
     if (demoBtn) { demoBtn.disabled = false; demoBtn.textContent = 'Use the demo account'; }
     toast(msg, true);
@@ -1338,13 +1338,13 @@ function bindStart() {
 /* ---------------- consent ---------------- */
 function consentView() {
   return '<div class=\"card consent-card\">' +
-    '<h2>Before we record anything</h2>' +
-    '<p class="sub">The brief requires a disclaimer and privacy notice before data collection. Please read both.</p>' +
+    '<h2>A private strategy session, with AI</h2>' +
+    '<p class="sub">A few things to know before we begin. You stay in control throughout the session.</p>' +
     '<div class="notice"><h4>AI disclaimer</h4><p>This product uses AI. Your spoken and written answers are processed by AI models: OpenAI for the voice call (it words each question, speaks it, and transcribes your answers), and Claude for extraction and drafting in production. AI output can contain errors. A human reviews every blueprint before it is used in a build. Nothing in your blueprint is legal, financial, or professional advice.</p></div>' +
     '<div class="notice"><h4>Privacy notice</h4><p>Your answers are stored in our database (Supabase) so we can build your blueprint, and a summary is sent to our CRM (HubSpot) so the right person can follow up. We do not sell your data. Voice audio is transcribed and not retained beyond the transcript. You can request deletion at any time by emailing privacy@pipelinesync.ai.</p></div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I understand how my data is used, and I agree to continue.</label>' +
     '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
-    '<p class="small muted mt8" id="consent-note">The AI interviewer starts speaking as soon as you agree, then it listens while you answer out loud.</p>' +
+    '<p class="small muted mt8" id="consent-note">Your advisor speaks first, asks 12 short questions, and listens while you answer. Skip or correct anything.</p>' +
     '</div>';
 }
 
@@ -1447,7 +1447,7 @@ function callControls(started, total) {
   if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip this question</button>';
   h += '</div>';
   if (v.done) {
-    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Structure my answers</button>' +
+    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Review what we heard</button>' +
       '<span class="small muted">' + total + ' questions covered. You can correct anything on the next screen.</span></div>';
   } else if (v.asked.length >= 4) {
     h += '<div class="call-row"><button class="btn btn-ghost" id="finish-btn">Finish the call and review what we have</button></div>';
@@ -1753,7 +1753,7 @@ function reviewView() {
       const v = f[cfg.k];
       const nullish = isNull(v);
       const req = cfg.required ? ' <span class=\"req\">REQUIRED</span>' : '';
-      const badge = nullish ? '<span class=\"nullbadge\">Not stated</span>' : '';
+      const badge = nullish ? '<span class=\"nullbadge\">We didn&#39;t capture this yet</span>' : '';
       const full = cfg.full ? ' review-full' : '';
       if (cfg.type === 'products') {
         const rows = (f.products || []).map((p, i) =>
@@ -1784,7 +1784,7 @@ function reviewView() {
       } else if (cfg.type === 'select') {
         const opts = cfg.options.map(o => '<option value=\"' + o + '\"' + (v === o ? ' selected' : '') + '>' + o + '</option>').join('');
         h += '<div class=\"field' + (nullish ? ' is-null' : '') + full + '\"><label>' + esc(cfg.label) + req + badge + '</label>' +
-          '<select data-key=\"' + cfg.k + '\" data-type=\"select\"' + (v == null ? ' data-nullsel=\"1\"' : '') + ' aria-label=\"' + esc(cfg.label) + '\">' + (v == null ? '<option value=\"\" selected>Not stated - please select</option>' : '') + opts + '</select>' +
+          '<select data-key=\"' + cfg.k + '\" data-type=\"select\"' + (v == null ? ' data-nullsel=\"1\"' : '') + ' aria-label=\"' + esc(cfg.label) + '\">' + (v == null ? '<option value=\"\" selected>We didn&#39;t capture this yet - please select</option>' : '') + opts + '</select>' +
           (cfg.k === 'close_type' && nullish ? '<div class="small field-warn">Please select how you close - this affects pipeline stages</div>' : '') +
           (nullish ? heardNote(cfg.k) : '') + '</div>';
       } else if (cfg.type === 'textarea') {
@@ -1840,10 +1840,10 @@ function reviewView() {
       (v.capture ? (v.capture.filledCount + ' of ' + v.capture.totalCount + ' fields captured') : 'captured live') +
       ' - audio not retained</span></div>'
     : '';
-  let h = '<div class="card"><h2>Review and correct your answers</h2>' + callLine +
-    '<p class="sub">This is what the AI understood from the call. Anything marked <span class="nullbadge">Not stated</span> was not captured, so the blueprint cannot ground itself without it. Prices and tool names are preserved exactly, not corrected.</p>';
+  let h = '<div class="card"><h2>Here’s what we heard</h2>' + callLine +
+    '<p class="sub">This is the business picture your advisor understood from the conversation. Anything marked <span class="nullbadge">We didn&#39;t capture this yet</span> was not captured, so the blueprint cannot ground itself without it. Prices and tool names are preserved exactly, not corrected.</p>';
   groups.forEach(g => { h += groupHtml(g[0], g[1]); });
-  h += '<div class=\"btn-row\"><button class=\"btn btn-primary\" id=\"confirm-fields\">Confirm and generate blueprint</button>' +
+  h += '<div class=\"btn-row\"><button class=\"btn btn-primary\" id=\"confirm-fields\">Review my plan</button>' +
     '<button class=\"btn btn-ghost\" id=\"back-intake\">Back to the call</button></div>' +
     '<p class=\"small muted mt8\" id=\"confirm-hint\" role=\"status\"></p></div>';
   return h;
@@ -2042,7 +2042,7 @@ function blueprintView() {
   const delivered = state.delivered;
   let h = '<div class=\"doc\">' +
     '<div class=\"doc-head\"><div class=\"kicker\">PIPELINESYNC AI  |  ' + esc(bp.meta.verticalLabel).toUpperCase() + '</div>' +
-    '<h2>Revenue Operations Blueprint</h2>' +
+    '<h2>Your growth system</h2>' +
     '<div class=\"meta\">' + esc(bp.meta.businessLine) + '  |  Prepared ' + esc(bp.meta.date) + '  |  ' + esc(bp.meta.generatedBy) + '</div></div>' +
     '<h3 class=\"sec\"><span class=\"sn\">1</span>Executive summary</h3>' +
     '<p>' + esc(bp.summary.text) + '</p><div class=\"stat-row\">' + stats + '</div>' +
@@ -2062,7 +2062,7 @@ function blueprintView() {
     '<h3 class=\"sec\"><span class=\"sn\">6</span>Build plan</h3>' +
     '<p><b>Confirmed defaults (included in the tier):</b></p><ul>' + bp.build.defaults.map(d => '<li>' + esc(d) + '</li>').join('') + '</ul>' +
     '<p><b>Custom items to create for you:</b></p><ul>' + bp.build.custom.map(d => '<li>' + esc(d) + '</li>').join('') + '</ul>' +
-    '<h3 class=\"sec\"><span class=\"sn\">7</span>Cost of inaction (from your numbers)</h3>' + coa +
+    '<h3 class=\"sec\"><span class=\"sn\">7</span>What those gaps are costing you</h3>' + coa +
     '<div class=\"coa-total\">Total estimated cost of inaction: <b>' + fmtMoney(bp.coa.totalMonthly) + ' per month</b>, ' + fmtMoney(bp.coa.totalSix) + ' over six months.</div>' +
     '<h3 class=\"sec\"><span class=\"sn\">8</span>Compliance</h3>' + compliance +
     '<h3 class=\"sec\"><span class=\"sn\">9</span>Next steps</h3><ol>' + bp.nextSteps.map(s => '<li>' + esc(s) + '</li>').join('') + '</ol>' +
@@ -2073,9 +2073,9 @@ function blueprintView() {
   h += '<div class=\"btn-row\">' +
     (delivered
       ? '<button class=\"btn btn-dark\" id=\"redownload-btn\" aria-label=\"Download PDF again\">&#11015; Download ' + esc(delivered.filename) + ' again</button>' +
-        '<button class=\"btn btn-primary\" id=\"book-btn\">Book a call</button>' +
+        '<button class=\"btn btn-primary\" id=\"book-btn\">Talk to a consultant</button>' +
         '<button class=\"btn btn-ghost\" id=\"new-biz\">Run another business</button>'
-      : '<button class=\"btn btn-primary\" id=\"unlock-btn\">Unlock the PDF</button>' +
+      : '<button class=\"btn btn-primary\" id=\"unlock-btn\">Download the blueprint</button>' +
         '<button class=\"btn btn-ghost\" id=\"new-biz\">Run another business</button>') +
     '</div>';
 
@@ -2099,8 +2099,8 @@ function bindBlueprint() {
   const ub = $('#unlock-btn');
   if (ub) ub.onclick = () => {
     const holder = $('#unlock-holder');
-    holder.innerHTML = '<div class=\"unlock-panel\"><h3 class="unlock-title">Unlock your blueprint PDF</h3>' +
-      '<p class=\"small muted\">Delivery is gated behind email, and your lead is created in HubSpot at the same moment.</p>' +
+    holder.innerHTML = '<div class=\"unlock-panel\"><h3 class="unlock-title">Download your blueprint</h3>' +
+      '<p class=\"small muted\">Your summary is ready now. Download the convenient PDF, then choose whether you want a human to help build it.</p>' +
       '<div class=\"grid-2\"><div class=\"field\"><label for=\"un-email\">Email for delivery</label><input type=\"email\" id=\"un-email\" value=\"' + esc(state.user.email) + '\" maxlength=\"254\"></div>' +
       '<div class="field field-check"><label class="checkline"><input type=\"checkbox\" id=\"un-consent\"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
       '<button class=\"btn btn-primary\" id=\"un-go\" disabled>Generate and send my PDF</button></div>';
@@ -2179,7 +2179,7 @@ function bookingView() {
     const disabled = !b.day;
     return '<button class=\"slot' + (sel ? ' sel' : '') + '\" data-slot=\"' + s + '\"' + (disabled ? ' disabled aria-disabled=\"true\"' : '') + ' aria-pressed=\"' + (sel ? 'true' : 'false') + '\" aria-label=\"Book at ' + esc(s) + '\">' + esc(s) + '</button>';
   }).join('');
-  let h = '<div class=\"booking\"><div class=\"card\"><h2>Book a call</h2>' +
+  let h = '<div class=\"booking\"><div class=\"card\"><h2>Talk to a consultant</h2>' +
     '<p class=\"sub\">30 minutes to walk through your blueprint and confirm scope. In production this panel is the embedded HubSpot Meetings scheduler (the link Allen provides).</p>' +
     '<h3 class="pick-label">Pick a day</h3><div class="day-strip" role="group" aria-label="Pick a day">' + dayBtns + '</div>' +
     '<h3 class="pick-label">Pick a time (your local time)</h3><div class="slot-grid" role="group" aria-label="Pick a time">' + slotBtns + '</div>' +
