@@ -7,6 +7,7 @@
  * Production replaces this with Supabase Auth (magic link or OTP) using the same shape.
  */
 const core = require('../../lib/core');
+const leads = require('../../lib/supabase-leads');
 const { bodyOf, json, checkRateLimit, getClientIp } = require('../../lib/netlify-helpers');
 
 exports.handler = async (event) => {
@@ -23,13 +24,30 @@ exports.handler = async (event) => {
   const entry = core.validateEntry(bodyOf(event));
   if (!entry.ok) return json(400, { error: entry.error });
   try {
-    const token = core.signToken({ email: entry.email, name: entry.name, exp: Date.now() + core.TOKEN_TTL_MS });
+    // Save first so a successful response always represents a captured lead.
+    // With no Supabase variables (local tests/demos), createLead intentionally returns null.
+    const lead = await leads.createLead(entry.name, entry.email, { env: process.env });
+    if (lead) await leads.addEvent(lead.id, 'lead_signed_up', { source: 'pipelinesync_ai' }, { env: process.env });
+    const token = core.signToken({
+      email: entry.email, name: entry.name,
+      lead_id: lead && lead.id ? lead.id : null,
+      exp: Date.now() + core.TOKEN_TTL_MS
+    });
     return json(200, {
       ok: true, token,
-      user: { name: entry.name, email: entry.email, first_name: core.firstNameOf(entry.name), initials: core.initialsOf(entry.name) }
+      user: {
+        name: entry.name, email: entry.email,
+        first_name: core.firstNameOf(entry.name), initials: core.initialsOf(entry.name),
+        lead_id: lead && lead.id ? lead.id : null
+      }
     });
   } catch (e) {
-    console.error('[security] entry gate failed:', e.message);
-    return json(500, { error: 'Server misconfigured: missing token secret.' });
+    console.error('[entry] could not create lead:', e.message);
+    const configurationError = /PS_TOKEN_SECRET|required in production|needs SUPABASE|WORKSPACE_OWNER_ID/i.test(e.message || '');
+    return json(configurationError ? 500 : 503, {
+      error: configurationError
+        ? 'The lead database is not configured correctly.'
+        : 'We could not save your details right now. Please try again in a moment.'
+    });
   }
 };

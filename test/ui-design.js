@@ -40,6 +40,12 @@ ok(ruleCount > 300, 'the stylesheet parsed into ' + ruleCount + ' rules (a parse
 ok([...media].some(m => /\(min-width/.test(m)), 'the layout is mobile-first (min-width breakpoints: ' + [...media].filter(m => /min-width/.test(m)).length + ')');
 ok([...media].some(m => /prefers-reduced-motion/.test(m)), 'reduced-motion is honoured');
 ok([...media].some(m => /forced-colors/.test(m)), 'forced-colours (high contrast) mode is handled');
+ok(/body\.entry-screen\s*\{[^}]*height:\s*100dvh[^}]*overflow:\s*hidden/s.test(css),
+  'the public entry is locked to one dynamic viewport without page scrolling');
+ok(/body\.entry-screen \.gate\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh[^}]*overflow:\s*hidden/s.test(css),
+  'the entry gate cannot grow beyond the viewport');
+ok(/classList\.toggle\(['"]entry-screen['"]/.test(appJs),
+  'the one-screen lock is scoped to the entry instead of trapping long blueprint content');
 
 // Every class the app renders must have at least one rule, or the redesign dropped a style.
 const used = new Set();

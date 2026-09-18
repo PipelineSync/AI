@@ -38,6 +38,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/lead/progress"
+  to = "/.netlify/functions/lead"
+  status = 200
+
+[[redirects]]
   from = "/api/extract"
   to = "/.netlify/functions/extract"
   status = 200

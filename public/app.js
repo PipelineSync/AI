@@ -156,6 +156,15 @@ const api = {
   }
 };
 
+/* Progress writes are best-effort from the screen; the authoritative blueprint and delivery
+   writes also happen server-side in their own endpoints. A temporary database outage must not
+   interrupt an active voice turn. */
+function trackLeadProgress(status, extra) {
+  if (!state.token) return Promise.resolve(null);
+  return api.post('/api/lead/progress', Object.assign({ status }, extra || {}))
+    .catch(e => { console.warn('[lead-progress]', e.message); return null; });
+}
+
 /* ---------------- toast ---------------- */
 let toastTimer = null;
 function toast(msg, isErr) {
@@ -255,6 +264,7 @@ function voiceReady() {
 function beginCall() {
   state.stage = 'intake';
   render();
+  trackLeadProgress('discovery_started');
   startCall();
 }
 
@@ -1138,6 +1148,9 @@ function finishCall() {
 /* ---------------- rendering ---------------- */
 function render() {
   const app = $('#app');
+  // The public entry is a true one-screen experience. The class lets CSS lock only the
+  // landing screen to the dynamic viewport without trapping the longer blueprint/review views.
+  document.body.classList.toggle('entry-screen', !state.token);
   if (!state.token) { app.innerHTML = startView(); return; }
   let h = topbar() + '<main class=\"main\" id=\"main-content\" tabindex=\"-1\">' + steps();
   switch (state.stage) {
@@ -1729,6 +1742,7 @@ function voiceMeta() {
 }
 async function startExtraction() {
   const v = state.voice;
+  trackLeadProgress('discovery_completed', { answers: state.answers, voice_meta: voiceMeta() });
   if (v && v.capture) {
     console.log('[voice] call finished: provider=' + v.provider + ' mode=' + v.mode + ' turns=' + v.turns +
       ' captured=' + v.capture.filledCount + '/' + v.capture.totalCount +
@@ -2329,6 +2343,7 @@ function bindBooking() {
   if (go) go.onclick = () => {
     go.disabled = true;
     state.booking.confirmed = true;
+    trackLeadProgress('consultation_requested');
     render();
   };
   const bb = $('#back-blueprint');
