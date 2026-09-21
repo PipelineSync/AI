@@ -3457,3 +3457,965 @@ body.entry-screen .gate {
   body { background: #FFFFFF; color: #000000; }
   .doc { box-shadow: none; border: none; padding: 0; }
 }
+
+/* =============================================================================
+   Fixed AI command centre
+   --------------------------------------------------------------------------
+   Signed-in screens use a dashboard shell: the browser viewport stays fixed and
+   only the active work panel can manage overflow. This keeps the interface calm
+   and prevents the footer/page from drifting while the user works.
+   ========================================================================== */
+body.app-screen {
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+body.app-screen #app {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+body.app-screen .topbar {
+  flex: 0 0 60px;
+  height: 60px;
+  padding: 0.55rem clamp(0.75rem, 2vw, 1.5rem);
+  position: relative;
+}
+body.app-screen .userchip-name small {
+  display: none;
+}
+body.app-screen .main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+  height: calc(100dvh - 60px);
+  min-height: 0;
+  margin: 0;
+  padding: 0.6rem clamp(0.75rem, 2vw, 1.5rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+body.app-screen .steps {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+body.app-screen .steps-count {
+  display: none;
+}
+body.app-screen .steps-rail {
+  gap: 0.35rem;
+}
+body.app-screen .step {
+  min-height: 34px;
+  padding: 0.3rem 0.55rem;
+}
+body.app-screen .steps-bar {
+  flex: 0 0 2px;
+  width: 100%;
+  max-width: none;
+  height: 2px;
+  margin: 0.35rem 0 0.6rem;
+}
+body.app-screen .footer {
+  display: none;
+}
+body.app-screen .review-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+body.app-screen .review-header h2 {
+  margin: 0;
+}
+body.app-screen .call-summary {
+  margin: 0;
+  padding: 0.35rem 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+body.app-screen .call-summary .small {
+  font-size: 0.68rem;
+}
+
+/* Review becomes a compact signal matrix rather than a long document. */
+body.app-screen[data-stage="review"] .main > .card {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0.75rem;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 0.6rem;
+}
+body.app-screen[data-stage="review"] .review-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0.7rem;
+  border-radius: var(--r);
+  overflow: hidden;
+}
+body.app-screen[data-stage="review"] .review-group h3 {
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.35rem;
+  font-size: 0.82rem;
+}
+body.app-screen[data-stage="review"] .review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 0.55rem;
+}
+body.app-screen[data-stage="review"] .field {
+  min-width: 0;
+  gap: 0.2rem;
+  margin: 0;
+}
+body.app-screen[data-stage="review"] .field.review-full {
+  grid-column: 1 / -1;
+}
+body.app-screen[data-stage="review"] .field label {
+  min-width: 0;
+  margin-bottom: 0.1rem;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+body.app-screen[data-stage="review"] .field input[type="text"],
+body.app-screen[data-stage="review"] .field input[type="number"],
+body.app-screen[data-stage="review"] .field select,
+body.app-screen[data-stage="review"] .field textarea {
+  min-height: 38px;
+  height: 38px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.78rem;
+}
+body.app-screen[data-stage="review"] .field textarea {
+  min-height: 54px;
+  height: 54px;
+}
+body.app-screen[data-stage="review"] .nullbadge {
+  padding: 1px 5px;
+  font-size: 0.58rem;
+}
+body.app-screen[data-stage="review"] .heard {
+  padding: 0.3rem 0.45rem;
+  font-size: 0.68rem;
+}
+body.app-screen[data-stage="review"] .heard .btn {
+  min-height: 28px;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.65rem;
+}
+body.app-screen[data-stage="review"] .tbl-wrap {
+  max-height: 112px;
+  margin: 0.25rem 0;
+}
+body.app-screen[data-stage="review"] .tbl {
+  font-size: 0.7rem;
+}
+body.app-screen[data-stage="review"] .tbl th,
+body.app-screen[data-stage="review"] .tbl td {
+  padding: 0.3rem 0.4rem;
+}
+body.app-screen[data-stage="review"] .tbl-edit input,
+body.app-screen[data-stage="review"] .tbl-edit select {
+  min-height: 32px;
+  height: 32px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.7rem;
+}
+body.app-screen[data-stage="review"] .review-group .mt8 {
+  margin-top: 0.25rem;
+}
+body.app-screen[data-stage="review"] > * .btn-row,
+body.app-screen[data-stage="review"] .btn-row {
+  grid-column: 1 / -1;
+  margin: 0;
+  gap: 0.45rem;
+}
+body.app-screen[data-stage="review"] #confirm-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.7rem;
+}
+
+/* Discovery call: the orb and signal rail share one bounded workspace. */
+body.app-screen[data-stage="intake"] .intake-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 0.75rem;
+  overflow: hidden;
+}
+body.app-screen[data-stage="intake"] .call {
+  min-height: 0;
+  height: 100%;
+}
+body.app-screen[data-stage="intake"] .call-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0.8rem 1rem;
+  gap: 0.55rem;
+  overflow: hidden;
+}
+body.app-screen[data-stage="intake"] .business-track {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+  padding: 0;
+  gap: 0.25rem;
+}
+body.app-screen[data-stage="intake"] .track-step {
+  padding: 0.25rem 0.45rem;
+  font-size: 0.65rem;
+}
+body.app-screen[data-stage="intake"] .voice-orb-container {
+  width: 128px;
+  height: 128px;
+  margin: 0.15rem auto;
+}
+body.app-screen[data-stage="intake"] .orb {
+  width: 92px;
+  height: 92px;
+}
+body.app-screen[data-stage="intake"] .call-status {
+  font-size: 0.75rem;
+}
+body.app-screen[data-stage="intake"] .call .line {
+  max-width: 720px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  padding: 0.45rem 0.65rem;
+}
+body.app-screen[data-stage="intake"] .call-controls {
+  flex: 0 0 auto;
+  padding: 0.65rem 0.85rem;
+  gap: 0.45rem;
+}
+body.app-screen[data-stage="intake"] .call-row {
+  gap: 0.45rem;
+}
+body.app-screen[data-stage="intake"] .call-row .btn {
+  min-height: 38px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+}
+body.app-screen[data-stage="intake"] .intake-side {
+  min-height: 0;
+  height: 100%;
+  gap: 0.5rem;
+  overflow-y: auto;
+}
+body.app-screen[data-stage="intake"] .side-card {
+  flex: 0 0 auto;
+  padding: 0.65rem;
+  border-radius: var(--r);
+}
+body.app-screen[data-stage="intake"] .side-card h3 {
+  margin-bottom: 0.4rem;
+  font-size: 0.78rem;
+}
+body.app-screen[data-stage="intake"] .chip-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+body.app-screen[data-stage="intake"] .side-chip {
+  min-width: 0;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.65rem;
+}
+body.app-screen[data-stage="intake"] .side-chip .val {
+  max-width: 92px;
+  font-size: 0.6rem;
+}
+body.app-screen[data-stage="intake"] .transcript .chat-body {
+  max-height: 150px;
+}
+
+/* Fixed shell for transition, blueprint, booking and completion screens. */
+body.app-screen[data-stage="extracting"] .loader,
+body.app-screen[data-stage="generating"] .loader,
+body.app-screen[data-stage="consent"] .consent-card,
+body.app-screen[data-stage="booking"] .booking,
+body.app-screen[data-stage="done"] .done-card {
+  margin: auto;
+}
+body.app-screen[data-stage="extracting"] .loader,
+body.app-screen[data-stage="generating"] .loader {
+  width: min(680px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  padding: 1.25rem;
+}
+body.app-screen[data-stage="extracting"] .loader .loader-orb-wrap,
+body.app-screen[data-stage="generating"] .loader .loader-orb-wrap {
+  margin-bottom: 0.5rem;
+  transform: scale(0.72);
+  transform-origin: center;
+}
+body.app-screen[data-stage="extracting"] .lstep,
+body.app-screen[data-stage="generating"] .lstep {
+  margin-bottom: 0.35rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.78rem;
+}
+body.app-screen[data-stage="consent"] .consent-card {
+  width: min(680px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 1.25rem;
+}
+body.app-screen[data-stage="consent"] .consent-card .notice {
+  margin: 0.65rem 0;
+  padding: 0.65rem 0.75rem;
+}
+body.app-screen[data-stage="consent"] .consent-card .checkline {
+  margin: 0.65rem 0;
+}
+body.app-screen[data-stage="blueprint"] .doc {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+}
+body.app-screen[data-stage="blueprint"] .doc-head {
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+body.app-screen[data-stage="blueprint"] .doc h2 {
+  font-size: clamp(1.65rem, 3vw, 2.4rem);
+}
+body.app-screen[data-stage="blueprint"] .sec {
+  margin-top: 1.2rem;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.3rem;
+  font-size: 1rem;
+}
+body.app-screen[data-stage="blueprint"] .stat-row,
+body.app-screen[data-stage="blueprint"] .priority-actions-grid {
+  gap: 0.55rem;
+  margin: 0.6rem 0;
+}
+body.app-screen[data-stage="blueprint"] .stat,
+body.app-screen[data-stage="blueprint"] .priority-action,
+body.app-screen[data-stage="blueprint"] .gap-card,
+body.app-screen[data-stage="blueprint"] .change-card,
+body.app-screen[data-stage="blueprint"] .coa-item {
+  padding: 0.65rem 0.75rem;
+  margin: 0.45rem 0;
+}
+body.app-screen[data-stage="blueprint"] .stat .k {
+  font-size: 1.8rem;
+}
+body.app-screen[data-stage="blueprint"] .doc-foot {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+}
+body.app-screen[data-stage="blueprint"] > .btn-row,
+body.app-screen[data-stage="blueprint"] > #unlock-holder,
+body.app-screen[data-stage="blueprint"] > .success-card {
+  flex: 0 0 auto;
+  margin: 0.45rem 0 0;
+}
+body.app-screen[data-stage="blueprint"] .unlock-panel,
+body.app-screen[data-stage="blueprint"] .success-card {
+  max-height: 150px;
+  overflow: auto;
+  padding: 0.75rem;
+  margin-top: 0;
+}
+body.app-screen[data-stage="booking"] .booking {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+}
+body.app-screen[data-stage="booking"] .booking .card {
+  width: min(760px, 100%);
+  max-width: none;
+  margin: 0 auto;
+  padding: 1rem;
+}
+body.app-screen[data-stage="booking"] .pick-label {
+  margin: 0.7rem 0 0.35rem;
+}
+body.app-screen[data-stage="done"] .done-card {
+  width: min(680px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 1.25rem;
+}
+
+/* Smaller screens keep the viewport fixed and stack only the active panel. */
+@media (max-width: 899px) {
+  body.app-screen .main {
+    overflow: hidden;
+    padding-inline: 0.65rem;
+  }
+  body.app-screen .step .label {
+    display: none;
+  }
+  body.app-screen .step.active .label {
+    display: block;
+  }
+  body.app-screen[data-stage="review"] .main > .card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body.app-screen[data-stage="intake"] .intake-wrap {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  body.app-screen[data-stage="intake"] .call {
+    flex: 1 1 auto;
+    height: auto;
+  }
+  body.app-screen[data-stage="intake"] .intake-side {
+    height: auto;
+    max-height: 40%;
+  }
+}
+@media (max-width: 560px) {
+  body.app-screen .topbar {
+    flex-basis: 54px;
+    height: 54px;
+  }
+  body.app-screen .main {
+    height: calc(100dvh - 54px);
+    padding: 0.45rem 0.5rem;
+  }
+  body.app-screen[data-stage="review"] .main > .card {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.55rem;
+  }
+  body.app-screen[data-stage="review"] .review-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  body.app-screen[data-stage="review"] .review-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  body.app-screen[data-stage="review"] .field.review-full {
+    grid-column: auto;
+  }
+  body.app-screen[data-stage="intake"] .business-track {
+    display: none;
+  }
+  body.app-screen[data-stage="intake"] .call-body {
+    padding: 0.55rem;
+  }
+  body.app-screen[data-stage="intake"] .voice-orb-container {
+    transform: scale(0.82);
+    margin: -0.5rem auto;
+  }
+  body.app-screen[data-stage="intake"] .call .line {
+    font-size: 0.75rem;
+  }
+  body.app-screen[data-stage="intake"] .intake-side {
+    max-height: 35%;
+  }
+}
+
+/* =============================================================================
+   Futuristic colour-mode switch
+   ========================================================================== */
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  z-index: 5;
+}
+body.app-screen .theme-switch-top {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.theme-mode-label {
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.45);
+}
+.theme-toggle {
+  position: relative;
+  width: 82px;
+  height: var(--tap);
+  min-height: var(--tap);
+  padding: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(34, 211, 238, 0.55);
+  border-radius: var(--r-pill);
+  background: linear-gradient(120deg, #071321 0%, #122A42 52%, #342145 100%);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.08), 0 0 18px rgba(34, 211, 238, 0.22), inset 0 0 16px rgba(34, 211, 238, 0.12);
+  cursor: pointer;
+  outline: none;
+  isolation: isolate;
+  transition: border-color 0.35s ease, background 0.35s ease, box-shadow 0.35s ease;
+}
+.theme-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0.6;
+  background: repeating-linear-gradient(125deg, transparent 0 7px, rgba(34, 211, 238, 0.12) 8px, transparent 9px 15px);
+  animation: themeScan 5s linear infinite;
+}
+.theme-toggle::after {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: -25%;
+  width: 30%;
+  height: 58px;
+  z-index: 1;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: rotate(18deg);
+  opacity: 0;
+  transition: left 0.45s ease, opacity 0.25s ease;
+}
+.theme-toggle:hover::after,
+.theme-toggle:focus-visible::after {
+  left: 110%;
+  opacity: 0.7;
+}
+.theme-toggle:focus-visible {
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.28), 0 0 22px rgba(34, 211, 238, 0.35), inset 0 0 16px rgba(34, 211, 238, 0.12);
+}
+.theme-toggle:hover {
+  border-color: var(--cyan);
+  transform: translateY(-1px);
+}
+.theme-glyph {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  width: 18px;
+  color: rgba(234, 240, 250, 0.72);
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  line-height: 1;
+  text-align: center;
+  transform: translateY(-52%);
+  pointer-events: none;
+  transition: color 0.3s ease, opacity 0.3s ease, text-shadow 0.3s ease;
+}
+.theme-glyph.moon { left: 9px; }
+.theme-glyph.sun { right: 9px; opacity: 0.38; }
+.theme-thumb {
+  position: absolute;
+  top: 7px;
+  left: 4px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #EAFBFF 0 10%, #22D3EE 36%, #6366F1 100%);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.8), 0 0 22px rgba(99, 102, 241, 0.45), inset -3px -3px 6px rgba(6, 10, 25, 0.38);
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), background 0.35s ease, box-shadow 0.35s ease;
+}
+.theme-toggle.is-dark .moon {
+  color: #FFFFFF;
+  opacity: 1;
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.9);
+}
+.theme-toggle.is-light {
+  border-color: rgba(7, 122, 149, 0.45);
+  background: linear-gradient(120deg, #DCEEF5 0%, #F4F1E5 55%, #FFF0D6 100%);
+  box-shadow: 0 0 0 1px rgba(7, 122, 149, 0.08), 0 0 18px rgba(245, 158, 11, 0.18), inset 0 0 16px rgba(255, 255, 255, 0.8);
+}
+.theme-toggle.is-light .theme-thumb {
+  transform: translateX(42px);
+  background: radial-gradient(circle at 34% 30%, #FFFBEA 0 12%, #FBBF24 42%, #F97316 100%);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.85), 0 0 22px rgba(249, 115, 22, 0.32), inset -3px -3px 6px rgba(154, 52, 18, 0.22);
+}
+.theme-toggle.is-light .moon { opacity: 0.35; }
+.theme-toggle.is-light .sun {
+  color: #9A3412;
+  opacity: 1;
+  text-shadow: 0 0 9px rgba(245, 158, 11, 0.8);
+}
+@keyframes themeScan {
+  to { background-position: 82px 0; }
+}
+.gate {
+  position: relative;
+}
+.gate-theme {
+  position: absolute;
+  top: max(0.75rem, env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+}
+.theme-switch-gate .theme-mode-label {
+  color: #B9CEDF;
+}
+
+/* =============================================================================
+   Light mode surface map
+   ========================================================================== */
+body[data-theme="light"] {
+  --bg: #F3F7FB;
+  --surface: #FFFFFF;
+  --surface-2: #EAF1F7;
+  --panel: rgba(255, 255, 255, 0.9);
+  --panel-text: rgba(255, 255, 255, 0.94);
+  --panel-airy: rgba(15, 47, 82, 0.045);
+  --card: #FFFFFF;
+  --bg-sunk: #E3ECF3;
+  --line: rgba(15, 47, 82, 0.14);
+  --line-strong: rgba(15, 47, 82, 0.24);
+  --line-cyan: rgba(7, 122, 149, 0.32);
+  --cyan: #087A94;
+  --cyan-glow: rgba(7, 122, 149, 0.32);
+  --indigo: #4F46E5;
+  --violet: #5B5BD6;
+  --amber: #A44600;
+  --amber-soft: #FFF3E5;
+  --amber-glow: rgba(164, 70, 0, 0.22);
+  --emerald: #047857;
+  --green: #047857;
+  --green-soft: #ECFDF5;
+  --green-line: rgba(4, 120, 87, 0.28);
+  --rose: #BE123C;
+  --red: #B91C1C;
+  --red-soft: #FEF2F2;
+  --red-line: rgba(185, 28, 28, 0.28);
+  --info: #4338CA;
+  --info-soft: #EEF2FF;
+  --ink: #0F2F52;
+  --ink-2: #456379;
+  --muted: #456379;
+  --faint: #60788D;
+  --ink-soft: #456379;
+  --deco: #547086;
+  --brand: #C2410C;
+  --brand-strong: #9A3412;
+  --brand-ink: #B13E0C;
+  --brand-soft: #FFF1E8;
+  --brand-line: rgba(194, 65, 12, 0.28);
+  --navy: #0F2F52;
+  --navy-700: #1C4262;
+  --navy-900: #0B223A;
+  --navy-600: #086F85;
+  --steel: #3E6C8E;
+  --steel-soft: #F0F6FA;
+  color-scheme: light;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle at 50% 0%, rgba(7, 122, 149, 0.09) 0%, transparent 45%), radial-gradient(circle at 85% 20%, rgba(79, 70, 229, 0.08) 0%, transparent 40%), radial-gradient(circle at 15% 75%, rgba(194, 65, 12, 0.06) 0%, transparent 45%);
+}
+body[data-theme="light"]::before,
+body[data-theme="light"]::after {
+  opacity: 0.28;
+}
+body[data-theme="light"] .aurora {
+  opacity: 0.28;
+}
+body[data-theme="light"] .grid-underlay {
+  opacity: 0.06;
+  background-image: linear-gradient(rgba(15, 47, 82, 0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(15, 47, 82, 0.5) 1px, transparent 1px);
+}
+body[data-theme="light"] .topbar {
+  background: rgba(255, 255, 255, 0.82);
+  border-bottom-color: var(--line);
+  box-shadow: 0 8px 25px rgba(15, 47, 82, 0.08);
+}
+body[data-theme="light"] .card,
+body[data-theme="light"] .call,
+body[data-theme="light"] .gate-card,
+body[data-theme="light"] .doc,
+body[data-theme="light"] .booking .card,
+body[data-theme="light"] .success-card,
+body[data-theme="light"] .unlock-panel,
+body[data-theme="light"] .side-card {
+  box-shadow: 0 12px 32px rgba(15, 47, 82, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+body[data-theme="light"] .userchip,
+body[data-theme="light"] .step,
+body[data-theme="light"] .track-step,
+body[data-theme="light"] .side-chip,
+body[data-theme="light"] .call .line.you,
+body[data-theme="light"] .call-note,
+body[data-theme="light"] .mini-step {
+  background: rgba(15, 47, 82, 0.045);
+}
+body[data-theme="light"] .field input[type="text"],
+body[data-theme="light"] .field input[type="email"],
+body[data-theme="light"] .field input[type="number"],
+body[data-theme="light"] .field select,
+body[data-theme="light"] .field textarea,
+body[data-theme="light"] #intake-input {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: var(--line-strong);
+  color: var(--ink);
+  box-shadow: inset 0 1px 2px rgba(15, 47, 82, 0.08);
+}
+body[data-theme="light"] .field input:focus,
+body[data-theme="light"] .field select:focus,
+body[data-theme="light"] .field textarea:focus,
+body[data-theme="light"] #intake-input:focus {
+  background: #FFFFFF;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(7, 122, 149, 0.16), 0 0 16px rgba(7, 122, 149, 0.12);
+}
+body[data-theme="light"] .call-controls {
+  background: rgba(234, 241, 247, 0.96);
+}
+body[data-theme="light"] .call .line.ai,
+body[data-theme="light"] .bubble.ai {
+  background: rgba(7, 122, 149, 0.08);
+  color: #0B5268;
+}
+body[data-theme="light"] .call-status,
+body[data-theme="light"] .topic-chip,
+body[data-theme="light"] .telemetry-chip {
+  background: rgba(7, 122, 149, 0.08);
+}
+body[data-theme="light"] .stage-flow,
+body[data-theme="light"] .stat,
+body[data-theme="light"] .priority-action {
+  background: rgba(15, 47, 82, 0.04);
+}
+body[data-theme="light"] .doc .meta,
+body[data-theme="light"] .kicker,
+body[data-theme="light"] .doc-foot {
+  color: var(--ink-2);
+}
+body[data-theme="light"] .step.active {
+  background: rgba(7, 122, 149, 0.1);
+  border-color: rgba(7, 122, 149, 0.42);
+}
+body[data-theme="light"] .step.active .n {
+  background: var(--cyan);
+  color: #FFFFFF;
+}
+body[data-theme="light"] .step.done .n {
+  color: #FFFFFF;
+}
+body[data-theme="light"] .notice.info {
+  background: rgba(7, 122, 149, 0.05);
+}
+body[data-theme="light"] .theme-mode-label {
+  color: var(--cyan);
+  text-shadow: none;
+}
+body[data-theme="light"] .gate-theme .theme-mode-label {
+  color: var(--ink-2);
+}
+
+/* Light mode contrast corrections for components that carry their own dark-theme
+   colours instead of inheriting the design tokens. */
+body[data-theme="light"] .telem {
+  color: var(--ink-2);
+  background: rgba(255, 255, 255, 0.82);
+  border-color: var(--line);
+}
+body[data-theme="light"] a:hover {
+  color: var(--cyan);
+  text-shadow: none;
+}
+body[data-theme="light"] .track-name,
+body[data-theme="light"] .stage-arrow {
+  color: var(--deco);
+}
+body[data-theme="light"] .stage {
+  color: #3730A3;
+  background: rgba(79, 70, 229, 0.08);
+  border-color: rgba(79, 70, 229, 0.28);
+}
+body[data-theme="light"] .stage.pipeline-sla-stage {
+  color: var(--amber);
+  background: rgba(164, 70, 0, 0.1);
+  border-color: var(--amber);
+  box-shadow: 0 0 14px rgba(164, 70, 0, 0.16);
+}
+body[data-theme="light"] .stage.won {
+  color: var(--emerald);
+  background: rgba(4, 120, 87, 0.08);
+  border-color: rgba(4, 120, 87, 0.32);
+}
+body[data-theme="light"] .stage.lost {
+  color: var(--red);
+  background: rgba(185, 28, 28, 0.07);
+  border-color: rgba(185, 28, 28, 0.3);
+}
+body[data-theme="light"] .sla-badge {
+  color: var(--amber);
+  background: rgba(164, 70, 0, 0.12);
+}
+body[data-theme="light"] .gap-card {
+  background: var(--amber-soft);
+  border-color: var(--brand-line);
+}
+body[data-theme="light"] .change-card {
+  background: var(--green-soft);
+  border-color: var(--green-line);
+}
+body[data-theme="light"] .coa-item {
+  background: var(--amber-soft);
+  border-color: var(--brand-line);
+}
+body[data-theme="light"] .coa-item .v {
+  color: var(--amber);
+  text-shadow: none;
+}
+body[data-theme="light"] .coa-total {
+  background: var(--amber-soft);
+  border-color: var(--brand-line);
+  color: var(--ink);
+  box-shadow: 0 0 18px rgba(164, 70, 0, 0.12);
+}
+body[data-theme="light"] .coa-total b {
+  color: var(--amber);
+}
+
+/* Keep the Gap Analysis signal cards equal within each responsive row. The fixed
+   viewport scrolls the outer review panel, never clips the bottom of a card. */
+body.app-screen[data-stage="review"] .main > .card {
+  grid-auto-rows: max-content;
+  align-items: stretch;
+  overflow-x: hidden;
+}
+body.app-screen[data-stage="review"] .review-group {
+  align-self: stretch;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+}
+body.app-screen[data-stage="review"] .review-group > .review-grid {
+  flex: 1 1 auto;
+  align-content: start;
+}
+body.app-screen[data-stage="review"] .review-group,
+body.app-screen[data-stage="review"] .review-group > *,
+body.app-screen[data-stage="review"] .field,
+body.app-screen[data-stage="review"] .field > * {
+  min-width: 0;
+}
+body.app-screen[data-stage="review"] .field,
+body.app-screen[data-stage="review"] .heard {
+  overflow-wrap: anywhere;
+}
+
+/* Long gap-analysis copy must reflow inside its panel at every width. */
+body.app-screen[data-stage="blueprint"] .gap-card,
+body.app-screen[data-stage="blueprint"] .change-card,
+body.app-screen[data-stage="blueprint"] .priority-action {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+body.app-screen[data-stage="blueprint"] .gap-card p,
+body.app-screen[data-stage="blueprint"] .change-card p,
+body.app-screen[data-stage="blueprint"] .priority-action p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The two executive gap cards share a balanced row on desktop and become a
+   clean full-width stack on phones. */
+.gap-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: stretch;
+  margin: 1rem 0;
+  min-width: 0;
+}
+body.app-screen[data-stage="blueprint"] .gap-analysis-grid {
+  margin: 0.45rem 0;
+}
+body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .gap-card,
+body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card {
+  min-width: 0;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .gap-card p,
+body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
+  flex: 1 1 auto;
+  margin-bottom: 0;
+}
+
+@media (max-width: 700px) {
+  .gap-analysis-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .theme-mode-label {
+    display: none;
+  }
+  .theme-toggle {
+    width: 72px;
+    height: var(--tap);
+    min-height: var(--tap);
+  }
+  .theme-thumb {
+    top: 9px;
+    width: 26px;
+    height: 26px;
+  }
+  .theme-toggle.is-light .theme-thumb {
+    transform: translateX(38px);
+  }
+  .theme-glyph {
+    font-size: 1.15rem;
+  }
+  .theme-glyph.moon { left: 7px; }
+  .theme-glyph.sun { right: 7px; }
+}
+
+/* Keep the centered theme control clear of the compact mobile top bar. */
+@media (max-width: 479px) {
+  body.app-screen .brand-text {
+    display: block;
+    max-width: 86px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.82rem;
+  }
+  body.app-screen .topbar-right .btn {
+    width: var(--tap);
+    min-width: var(--tap);
+    padding-inline: 0;
+    font-size: 0;
+  }
+  body.app-screen .topbar-right .btn::before {
+    content: "↻";
+    font-size: 1.15rem;
+    line-height: 1;
+  }
+}
+
+@media (max-width: 359px) {
+  body.app-screen .brand-text {
+    display: none;
+  }
+}

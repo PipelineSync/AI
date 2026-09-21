@@ -117,9 +117,11 @@ const FIELD_LABELS = {
 const REQUIRED = ['typical_deal_size', 'monthly_lead_volume', 'close_rate'];
 
 /* ---------------- state ---------------- */
+const savedTheme = store.get('ps_theme');
 const state = {
   token: store.get('ps_token') || null,
   user: JSON.parse(store.get('ps_user') || 'null'),
+  theme: savedTheme === 'light' ? 'light' : 'dark',
   stage: 'start',        // the entry gate: name + email, then straight to the voice call
   answers: [],           // [{id, text}] captured on the call (or by typing)
   fields: null,          // Section 7 contract
@@ -920,7 +922,14 @@ async function onRealtimeTool(callId, name, argsRaw) {
     if (out.saved === false && rt.pendingAttribution) unrecordAttribution(rt.pendingAttribution);
     rt.pendingAttribution = null;
     if (j && j.state) applyRealtimeState(j.state);
-    if (Array.isArray(out.rejected)) rt.rejected += out.rejected.length;
+    if (Array.isArray(out.rejected)) {
+      rt.rejected += out.rejected.length;
+      if (out.rejected.length) {
+        const labels = out.rejected.map(r => r && (r.label || r.field)).filter(Boolean);
+        v.notice = 'Values refused as not said on the call: ' + out.rejected.length +
+          (labels.length ? ' (' + labels.join(', ') + ')' : '') + '.';
+      }
+    }
     if (Array.isArray(out.accepted)) rt.accepted += out.accepted.length;
     if (out.end_attempts) rt.endAttempts = out.end_attempts;
     if (out.next && out.next.question_id) { v.currentQuestionId = out.next.question_id; v.pendingQuestionId = out.next.question_id; }
@@ -1156,9 +1165,13 @@ function finishCall() {
 /* ---------------- rendering ---------------- */
 function render() {
   const app = $('#app');
-  // The public entry is a true one-screen experience. The class lets CSS lock only the
-  // landing screen to the dynamic viewport without trapping the longer blueprint/review views.
+  // Keep the signed-in workspace inside a fixed dashboard viewport. Long content is handled by
+  // the active panel rather than making the browser page itself scroll.
   document.body.classList.toggle('entry-screen', !state.token);
+  document.body.classList.toggle('app-screen', !!state.token);
+  document.body.dataset.theme = state.theme;
+  document.documentElement.style.colorScheme = state.theme;
+  document.body.dataset.stage = state.token ? state.stage : 'start';
   if (!state.token) { app.innerHTML = startView(); return; }
   let h = topbar() + '<main class=\"main\" id=\"main-content\" tabindex=\"-1\">' + steps();
   switch (state.stage) {
@@ -1208,6 +1221,17 @@ function firstName() {
 function logoTile(h) {
   return '<span class="logo-plate">' + logoMark(h) + '</span>';
 }
+function themeToggleMarkup(extraClass) {
+  const light = state.theme === 'light';
+  return '<div class="theme-switch ' + esc(extraClass || '') + '" role="group" aria-label="Colour mode">' +
+    '<span class="theme-mode-label">' + (light ? 'LIGHT' : 'DARK') + '</span>' +
+    '<button class="theme-toggle ' + (light ? 'is-light' : 'is-dark') + '" id="theme-toggle" type="button" aria-pressed="' + (light ? 'true' : 'false') + '" aria-label="Switch to ' + (light ? 'dark' : 'light') + ' mode" title="Switch to ' + (light ? 'dark' : 'light') + ' mode">' +
+      '<span class="theme-glyph moon" aria-hidden="true">☾</span>' +
+      '<span class="theme-glyph sun" aria-hidden="true">☼</span>' +
+      '<span class="theme-thumb" aria-hidden="true"></span>' +
+    '</button>' +
+  '</div>';
+}
 function topbar() {
   const u = state.user || {};
   const name = esc(u.name || '');
@@ -1216,8 +1240,9 @@ function topbar() {
     '<a class="skip-link" href="#main-content">Skip to content</a>' +
     '<div class="brand">' +
       '<span class="logo">' + logoTile(28) + '</span>' +
-      '<span class="brand-text">PipelineSync AI<small>Revenue operations blueprints</small></span>' +
+      '<span class="brand-text">PipelineSync AI</span>' +
     '</div>' +
+    themeToggleMarkup('theme-switch-top') +
     '<div class="topbar-right">' +
       '<div class="userchip" title="Signed in as ' + esc(u.email || '') + '">' +
         '<span class="userchip-av" aria-hidden="true">' + initials + '</span>' +
@@ -1250,7 +1275,7 @@ function steps() {
   return h + '<div class="steps-bar" aria-hidden="true"><span style="width:' + pct + '%"></span></div>';
 }
 function footer() {
-  return '<footer class="footer"><span>PipelineSync AI &bull; Revenue Operations</span><a href="/dev/outbox" target="_blank" rel="noopener">HubSpot outbox (dev)</a></footer>';
+  return '<footer class="footer"><span>PipelineSync AI</span><a href="/dev/outbox" target="_blank" rel="noopener">Outbox</a></footer>';
 }
 
 /* ---------------- the entry gate: name + email, then the AI voice call ----------------
@@ -1271,27 +1296,22 @@ function startView() {
   const lastName = store.get('ps_last_name') || '';
   const lastEmail = store.get('ps_last_email') || '';
   return '<div class="gate">' +
+    '<div class="gate-theme">' + themeToggleMarkup('theme-switch-gate') + '</div>' +
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
-        '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>AI ADVISOR READY &bull; STRATEGY DISCOVERY &bull; 12 SIGNALS</div>' +
-        '<div class="brand brand-lg"><div class="logo">' + logoTile(38) + '</div><div class="brand-text">PipelineSync AI<small>Revenue Operations Strategy</small></div></div>' +
-        '<h1>Turn your sales process into a <span class="accent">predictable pipeline.</span></h1>' +
-        '<p class="lede">A 5-minute AI voice call to identify pipeline gaps, map sales velocity, and get your HubSpot blueprint.</p>' +
-        '<ul class="mini-steps">' +
-          '<li class="mini-step"><span class="n">1</span><div><b>Voice discovery</b><span>5-minute conversation with Alex</span></div></li>' +
-          '<li class="mini-step"><span class="n">2</span><div><b>Gap analysis</b><span>Identify lost deals and friction</span></div></li>' +
-          '<li class="mini-step"><span class="n">3</span><div><b>Review</b><span>Confirm your captured numbers</span></div></li>' +
-          '<li class="mini-step"><span class="n">4</span><div><b>Blueprint</b><span>HubSpot setup &amp; ROI roadmap</span></div></li>' +
-        '</ul>' +
+        '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>AI PIPELINE DASHBOARD</div>' +
+        '<div class="brand brand-lg"><div class="logo">' + logoTile(38) + '</div><div class="brand-text">PipelineSync AI</div></div>' +
+        '<h1>Build a <span class="accent">predictable pipeline.</span></h1>' +
+        '<p class="lede">AI discovery call. Personalised HubSpot blueprint.</p>' +
         '<div class="gate-trust">' +
-          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>5 mins</span>' +
-          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>12 questions</span>' +
-          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>Audio never stored</span>' +
+          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>5 min</span>' +
+          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>12 signals</span>' +
+          '<span class="trust-item telem"><span class="d" aria-hidden="true"></span>Audio not stored</span>' +
         '</div>' +
       '</div>' +
     '</div>' +
     '<div class="gate-side"><div class="gate-card hud-frame specular">' +
-      '<h2>Meet your AI advisor</h2>' +
+      '<h2>Start strategy session</h2>' +
       '<p class="sub">Enter your details to start the AI voice call.</p>' +
       '<form id="start-form" novalidate>' +
         '<div class="field"><label for="st-name">Your name <span class="req">Required</span></label>' +
@@ -1305,7 +1325,7 @@ function startView() {
       '</form>' +
       '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
       '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use demo account</button>' +
-      '<p class="gate-note">Audio is transcribed live and never stored.</p>' +
+      '<p class="gate-note">Live transcription. Audio is never stored.</p>' +
     '</div></div>' +
   '</div>';
 }
@@ -1363,16 +1383,15 @@ function bindStart() {
 /* ---------------- consent ---------------- */
 function consentView() {
   return '<div class="card consent-card hud-frame specular">' +
-    '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>SESSION TRANSPARENCY</div>' +
-    '<h2>AI strategy session</h2>' +
-    '<p class="sub">You are in control throughout the conversation.</p>' +
+    '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>CONSENT</div>' +
+    '<h2>Ready to start?</h2>' +
     '<div class="notice info">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
-      '<div><b>AI &amp; Privacy</b><br><span>We use OpenAI for the voice call to ask questions and transcribe your answers. Audio is never stored. Your answers are used solely to build your HubSpot blueprint.</span></div>' +
+      '<div><b>Privacy</b><br><span>OpenAI for the voice call. Audio is never stored.</span></div>' +
     '</div>' +
-    '<label class="checkline"><input type="checkbox" id="consent-cb"> I understand how my data is used, and I agree to continue.</label>' +
+    '<label class="checkline"><input type="checkbox" id="consent-cb"> I agree to continue.</label>' +
     '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
-    '<p class="small muted mt8" id="consent-note">Alex starts speaking automatically on agreement. You can skip questions or type anytime.</p>' +
+    '<p class="small muted mt8" id="consent-note">Alex starts speaking automatically. You can skip or type.</p>' +
     '</div>';
 }
 
@@ -1447,7 +1466,7 @@ function callView() {
   const started = !!v.startedAt || v.transcript.length > 0;
   const statusText = (v.mode === 'realtime' ? RT_STATUS_TEXT[v.status] : VOICE_STATUS_TEXT[v.status]) ||
     VOICE_STATUS_TEXT[v.status] || VOICE_STATUS_TEXT.idle;
-  const aiLine = v.lastLine || 'Alex, the PipelineSync AI interviewer, will call you. Twelve short questions about your business, all answered out loud. The AI speaks first, waits while you talk, then moves on.';
+  const aiLine = v.lastLine || 'Alex will ask 12 short questions. Speak naturally.';
   const youLine = v.interim || v.lastHeard || '';
 
   const curQId = v.currentQuestionId || (plan[answered] && plan[answered].id) || 'business';
@@ -1541,7 +1560,7 @@ function callSidebar() {
     return '<div class="side-chip ' + (st === 'captured' ? 'filled' : 'null') + '"><span>' + esc(labels[k] || FIELD_LABELS[k]) + '</span>' +
       '<span class="val">' + esc((val || 'not yet') + assist) + '</span></div>';
   }).join('');
-  const modeCard = '<div class="side-card"><h3>Session</h3>' +
+  const modeCard = '<div class="side-card"><h3>Mode</h3>' +
     '<div class="provider-card">' + providerBadge() + '</div>' +
     '</div>';
   const errNote = state.fieldError ? '<p class="small txt-err mt8" role="alert">' + esc(state.fieldError) + '</p>' : '';
@@ -1779,17 +1798,13 @@ async function startExtraction() {
 /* ---------------- loader ---------------- */
 function loaderView(kind) {
   const steps = [
-    'Turning your conversation into a clear picture of your sales process',
-    'Finding the gaps in your pipeline',
-    'Matching the right HubSpot setup to your numbers',
-    'Estimating what those leads are costing you'
+    'Reading your call',
+    'Checking pipeline gaps',
+    'Matching the HubSpot setup',
+    'Estimating the impact'
   ];
-  const title = kind === 'extracting'
-    ? 'Turning your conversation into a clear picture of your sales process'
-    : 'Generating your growth system blueprint';
-  const sub = kind === 'extracting'
-    ? 'Alex is structuring your conversation into a clear picture of your sales process. Unstated values are flagged as missing, never invented.'
-    : 'Matching your numbers to proven HubSpot architectures, estimating the cost of inaction, and verifying implementation scope.';
+  const title = kind === 'extracting' ? 'Structuring your signals' : 'Building your blueprint';
+  const sub = kind === 'extracting' ? 'Turning the call into a verified data set.' : 'Matching your numbers to the right HubSpot system.';
   let h = '<div class="card loader hud-frame">' +
     '<div class="scanline-sweep" aria-hidden="true"></div>' +
     '<div class="loader-orb-wrap">' + voiceOrbHtml('thinking', false) + '</div>' +
@@ -1808,9 +1823,9 @@ function reviewView() {
   const heardNote = k => {
     const h = heard[k];
     if (!h) return '';
-    return '<div class="heard">The AI heard <b>' + esc(h.value) + '</b> on the call' +
-      (h.evidence ? ' ("' + esc(String(h.evidence).slice(0, 110)) + '")' : '') +
-      '.<button class="btn btn-ghost btn-sm" data-heard="' + k + '">Use this</button></div>';
+    return '<div class="heard">Heard: <b>' + esc(h.value) + '</b>' +
+      (h.evidence ? ' <span>("' + esc(String(h.evidence).slice(0, 110)) + '")</span>' : '') +
+      '<button class="btn btn-ghost btn-sm" data-heard="' + k + '">Use</button></div>';
   };
   const groupHtml = (title, fields) => {
     let h = '<div class="review-group hud-frame"><h3>' + esc(title) + '</h3><div class="review-grid">';
@@ -1818,13 +1833,13 @@ function reviewView() {
       const v = f[cfg.k];
       const nullish = isNull(v);
       const req = cfg.required ? ' <span class="req">REQUIRED</span>' : '';
-      const badge = nullish ? '<span class="nullbadge">We didn&#39;t capture this yet</span>' : '';
+      const badge = nullish ? '<span class="nullbadge">Missing</span>' : '';
       const full = cfg.full ? ' review-full' : '';
       if (cfg.type === 'products') {
         const rows = (f.products || []).map((p, i) =>
-          '<tr><td><input data-prod="' + i + '" data-pk="name" value="' + esc(p.name) + '" maxlength="200" aria-label="Product name"></td>' +
-          '<td class="col-price"><input data-prod="' + i + '" data-pk="price" value="' + esc(p.price) + '" placeholder="PHP" aria-label="Product price"></td>' +
-          '<td class="col-pre"><input data-prod="' + i + '" data-pk="prerequisite" value="' + esc(p.prerequisite) + '" placeholder="Needs..." maxlength="200" aria-label="Prerequisite"></td>' +
+          '<tr><td><input type="text" data-prod="' + i + '" data-pk="name" value="' + esc(p.name) + '" maxlength="200" aria-label="Product name"></td>' +
+          '<td class="col-price"><input type="number" inputmode="decimal" step="any" data-prod="' + i + '" data-pk="price" value="' + esc(p.price) + '" placeholder="PHP" aria-label="Product price"></td>' +
+          '<td class="col-pre"><input type="text" data-prod="' + i + '" data-pk="prerequisite" value="' + esc(p.prerequisite) + '" placeholder="Needs..." maxlength="200" aria-label="Prerequisite"></td>' +
           '<td><button class="del" data-del-prod="' + i + '" title="Remove row" aria-label="Remove product">&times;</button></td></tr>'
         ).join('');
         h += '<div class="field review-full' + (nullish ? ' is-null' : '') + '"><label>Products and services ' + badge + '</label>' +
@@ -1832,8 +1847,8 @@ function reviewView() {
           '<button class="btn btn-ghost btn-sm mt8" id="add-prod">Add product</button></div>';
       } else if (cfg.type === 'sources') {
         const rows = (f.lead_sources || []).map((s, i) =>
-          '<tr><td><input data-src="' + i + '" data-sk="source" value="' + esc(s.source) + '" maxlength="100" aria-label="Lead source"></td>' +
-          '<td class="col-vol"><input data-src="' + i + '" data-sk="monthly_volume" value="' + esc(s.monthly_volume) + '" placeholder="per month" aria-label="Monthly volume"></td>' +
+          '<tr><td><input type="text" data-src="' + i + '" data-sk="source" value="' + esc(s.source) + '" maxlength="100" aria-label="Lead source"></td>' +
+          '<td class="col-vol"><input type="number" inputmode="numeric" step="1" data-src="' + i + '" data-sk="monthly_volume" value="' + esc(s.monthly_volume) + '" placeholder="per month" aria-label="Monthly volume"></td>' +
           '<td class="col-tracked"><select data-src="' + i + '" data-sk="tracked" aria-label="Tracked?">' +
           '<option value="unknown"' + (s.tracked == null ? ' selected' : '') + '>Unknown</option>' +
           '<option value="yes"' + (s.tracked === true ? ' selected' : '') + '>Tracked</option>' +
@@ -1857,35 +1872,42 @@ function reviewView() {
           '<textarea data-key="' + cfg.k + '" data-type="text" maxlength="2000">' + esc(v) + '</textarea>' +
           (nullish ? heardNote(cfg.k) : '') + '</div>';
       } else {
+        const numeric = cfg.type === 'money' || cfg.type === 'number';
         const ph = cfg.type === 'money' ? 'PHP amount' : cfg.type === 'number' ? 'Number' : 'Text';
+        // Keep the native type in sync with data-type. Without an explicit type these controls
+        // fall back to the browser's unstyled default input, because the design-system rules
+        // target .field input[type=text] and .field input[type=number]. inputmode keeps the
+        // numeric keypad consistent with the native numeric control.
+        const inputType = numeric ? 'number' : 'text';
+        const inputMode = numeric ? ' inputmode="decimal" step="any"' : '';
         h += '<div class="field' + (nullish ? ' is-null' : '') + full + '"><label>' + esc(cfg.label) + req + badge + '</label>' +
-          '<input data-key="' + cfg.k + '" data-type="' + (cfg.type === 'money' || cfg.type === 'number' ? 'number' : 'text') + '" value="' + esc(v) + '" placeholder="' + ph + '" maxlength="200">' +
+          '<input data-key="' + cfg.k + '" data-type="' + (numeric ? 'number' : 'text') + '" type="' + inputType + '"' + inputMode + ' value="' + esc(v) + '" placeholder="' + ph + '" maxlength="200">' +
           (nullish ? heardNote(cfg.k) : '') + '</div>';
       }
     });
     return h + '</div></div>';
   };
   const groups = [
-    ['1. Commercial Foundation & Deal Economics', [
+    ['1. Deal economics', [
       { k: 'typical_deal_size', label: 'Typical deal size', type: 'money', required: true },
       { k: 'monthly_lead_volume', label: 'Monthly lead volume', type: 'number', required: true },
       { k: 'close_rate', label: 'Close rate (%)', type: 'number', required: true },
       { k: 'monthly_deal_volume', label: 'Monthly deal volume', type: 'number' },
       { k: 'sales_cycle_length', label: 'Sales cycle length (weeks)', type: 'number' }
     ]],
-    ['2. Pipeline Motion & Buying Journey', [
+    ['2. Sales motion', [
       { k: 'close_type', label: 'Close type', type: 'select', options: ['one-call', 'two-call'] },
       { k: 'sales_reps_on_calls', label: 'Sales reps on calls', type: 'number' },
       { k: 'sales_process_notes', label: 'Sales process notes', type: 'textarea' }
     ]],
-    ['3. Lead Channels & Technology Stack', [
+    ['3. Lead channels & stack', [
       { k: 'lead_sources', label: '', type: 'sources', full: true },
       { k: 'lead_capture_method', label: 'Lead capture method', type: 'text' },
       { k: 'current_crm', label: 'Current CRM', type: 'text' },
       { k: 'current_hubspot_tier', label: 'Current HubSpot tier', type: 'text' },
       { k: 'current_tools', label: '', type: 'tags', full: true }
     ]],
-    ['4. Operations & Service Fulfilment', [
+    ['4. Operations', [
       { k: 'industry', label: 'Industry (vertical)', type: 'text' },
       { k: 'business_description', label: 'Business description', type: 'textarea' },
       { k: 'products', label: '', type: 'products', full: true },
@@ -1893,7 +1915,7 @@ function reviewView() {
       { k: 'fulfilment_method', label: 'Fulfilment method', type: 'text' },
       { k: 'marketing_ops_owner', label: 'Marketing and ops owner', type: 'text' }
     ]],
-    ['5. Growth Bottlenecks & Strategic Milestones', [
+    ['5. Growth targets', [
       { k: 'biggest_headache', label: 'Biggest headache', type: 'textarea' },
       { k: 'six_month_goal', label: 'Six-month goal', type: 'textarea' },
       { k: 'monthly_marketing_spend', label: 'Monthly marketing spend', type: 'money' },
@@ -1901,13 +1923,16 @@ function reviewView() {
     ]]
   ];
   const v = state.voice;
+  const callModeLabel = v && v.mode === 'realtime'
+    ? 'Live continuous AI voice'
+    : v && v.mode === 'openai'
+      ? 'ChatGPT voice'
+      : 'Simulated voice';
   const callLine = v && v.startedAt
-    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice') +
+    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + callModeLabel +
       ' &bull; ' + v.turns + ' turns &bull; audio not retained</span></div>'
     : '';
-  let h = '<div class="card hud-frame"><div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>SESSION INTELLIGENCE &bull; VERIFIED</div>' +
-    '<h2>Review what we heard</h2>' + callLine +
-    '<p class="sub">Verify your core commercial numbers and operational details before generating your blueprint.</p>';
+  let h = '<div class="card hud-frame"><div class="review-header"><h2>Review signals</h2>' + callLine + '</div>';
   groups.forEach(g => { h += groupHtml(g[0], g[1]); });
   h += '<div class=\"btn-row\"><button class=\"btn btn-primary\" id=\"confirm-fields\">Review my plan</button>' +
     '<button class=\"btn btn-ghost\" id=\"back-intake\">Back to call</button></div>' +
@@ -2127,8 +2152,10 @@ function blueprintView() {
     ? esc(state.fields.biggest_headache)
     : 'Delayed inbound lead response and unmonitored drop-off between inquiry and qualification.';
   const changeText = 'Deploy automated 5-minute lead distribution and standardise the ' + esc(bp.pipeline.variant) + ' qualification pipeline in HubSpot Sales Hub ' + esc(bp.stack.tier.replace(/HubSpot\s*/i, '')) + ' to eliminate pipeline leakage.';
-  const gapCards = '<div class="gap-card"><h4>⚡ The biggest operational gap</h4><p>' + gapText + '</p></div>' +
-    '<div class="change-card"><h4>✦ The single most important change</h4><p>' + changeText + '</p></div>';
+  const gapCards = '<div class="gap-analysis-grid">' +
+    '<div class="gap-card"><h4>⚡ The biggest operational gap</h4><p>' + gapText + '</p></div>' +
+    '<div class="change-card"><h4>✦ The single most important change</h4><p>' + changeText + '</p></div>' +
+    '</div>';
 
   const heroStats = [
     { v: '-35%', l: 'Sales cycle velocity acceleration' },
@@ -2172,7 +2199,7 @@ function blueprintView() {
   const delivered = state.delivered;
 
   let h = '<div class=\"doc hud-frame\">' +
-    '<div class=\"doc-head\"><div class=\"telem cy mb12\"><span class=\"d\" aria-hidden=\"true\"></span>HUBSPOT BLUEPRINT VERIFIED &bull; TIER FLOOR: PRO</div>' +
+    '<div class=\"doc-head\"><div class=\"telem cy mb12\"><span class=\"d\" aria-hidden=\"true\"></span>BLUEPRINT VERIFIED</div>' +
     '<div class=\"kicker\">PIPELINESYNC AI  |  ' + esc(bp.meta.verticalLabel).toUpperCase() + '</div>' +
     '<h2>Your growth system</h2>' +
     '<div class=\"meta\">' + esc(bp.meta.businessLine) + '  |  Prepared ' + esc(bp.meta.date) + '  |  ' + esc(bp.meta.generatedBy) + '</div></div>' +
@@ -2312,10 +2339,9 @@ function bookingView() {
     const disabled = !b.day;
     return '<button class=\"slot' + (sel ? ' sel' : '') + '\" data-slot=\"' + s + '\"' + (disabled ? ' disabled aria-disabled=\"true\"' : '') + ' aria-pressed=\"' + (sel ? 'true' : 'false') + '\" aria-label=\"Book at ' + esc(s) + '\">' + esc(s) + '</button>';
   }).join('');
-  let h = '<div class=\"booking\"><div class=\"card\"><h2>Schedule consultation</h2>' +
-    '<p class=\"sub\">30-minute scope walk-through with our build team.</p>' +
-    '<h3 class="pick-label">Select date</h3><div class="day-strip" role="group" aria-label="Pick a day">' + dayBtns + '</div>' +
-    '<h3 class="pick-label">Select time</h3><div class="slot-grid" role="group" aria-label="Pick a time">' + slotBtns + '</div>' +
+  let h = '<div class=\"booking\"><div class=\"card\"><h2>Book a call</h2>' +
+    '<h3 class="pick-label">Date</h3><div class="day-strip" role="group" aria-label="Pick a day">' + dayBtns + '</div>' +
+    '<h3 class="pick-label">Time</h3><div class="slot-grid" role="group" aria-label="Pick a time">' + slotBtns + '</div>' +
     '<div class=\"btn-row\">' +
     '<button class=\"btn btn-primary\" id=\"book-go\" ' + (b.day && b.slot ? '' : 'disabled') + ' aria-label=\"Request this slot\">Confirm slot</button>' +
     '<button class=\"btn btn-ghost\" id=\"back-blueprint\">Back</button></div>' +
@@ -2370,7 +2396,6 @@ function doneView() {
   let h = '<div class="card done-card">' +
     '<div class="done-mark">' + logoTile(54) + '</div>' +
     '<h2>Your blueprint is on its way</h2>' +
-    '<p class=\"sub\">Your strategy session is complete.</p>' +
     '<div class="done-list">' +
     '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ', ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) : 'not unlocked') + '</span></div>' +
@@ -2393,6 +2418,14 @@ function bindDone() {
 
 /* ---------------- global bindings + boot ---------------- */
 function bindGlobal() {
+  const theme = $('#theme-toggle');
+  if (theme) theme.onclick = () => {
+    state.theme = state.theme === 'light' ? 'dark' : 'light';
+    store.set('ps_theme', state.theme);
+    render();
+    const next = $('#theme-toggle');
+    if (next) next.focus({ preventScroll: true });
+  };
   const lo = $('#logout-btn');
   if (lo) lo.onclick = async () => {
     try { await api.post('/api/auth/logout', {}); } catch (e) {}
