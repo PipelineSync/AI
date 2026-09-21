@@ -2152,8 +2152,10 @@ function blueprintView() {
     ? esc(state.fields.biggest_headache)
     : 'Delayed inbound lead response and unmonitored drop-off between inquiry and qualification.';
   const changeText = 'Deploy automated 5-minute lead distribution and standardise the ' + esc(bp.pipeline.variant) + ' qualification pipeline in HubSpot Sales Hub ' + esc(bp.stack.tier.replace(/HubSpot\s*/i, '')) + ' to eliminate pipeline leakage.';
-  const gapCards = '<div class="gap-card"><h4>⚡ The biggest operational gap</h4><p>' + gapText + '</p></div>' +
-    '<div class="change-card"><h4>✦ The single most important change</h4><p>' + changeText + '</p></div>';
+  const gapCards = '<div class="gap-analysis-grid">' +
+    '<div class="gap-card"><h4>⚡ The biggest operational gap</h4><p>' + gapText + '</p></div>' +
+    '<div class="change-card"><h4>✦ The single most important change</h4><p>' + changeText + '</p></div>' +
+    '</div>';
 
   const heroStats = [
     { v: '-35%', l: 'Sales cycle velocity acceleration' },
