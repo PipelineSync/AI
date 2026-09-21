@@ -207,6 +207,31 @@ const TIMING = Object.assign({
   levelThreshold: 0.02   // mic level that counts as speech (MediaRecorder engine)
 }, window.__PS_VOICE_TIMING__ || {});
 
+/* WebRTC configuration for the live call. A public STUN server is included so the browser can
+   gather a server-reflexive candidate as well as a host candidate: with host candidates only (the
+   previous behaviour) a visitor behind a symmetric NAT, on a mobile network or inside a corporate
+   firewall can fail the handshake even though OpenAI is perfectly reachable. This changes nothing
+   about the architecture - media still flows browser <-> OpenAI over the same peer connection, no
+   WebSocket is involved, and no key material is in this file. */
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+/* Connection health timings. `graceMs` is how long a 'disconnected' state is given to recover on
+   its own (a mobile handover, a wifi blip) before the call falls back - a temporary hiccup must not
+   end a call. `channelOpenMs` bounds how long the handshake may take after the SDP answer is
+   applied, so a session that never comes up falls back instead of hanging on "Connecting...". */
+const RT_HEALTH = Object.assign({
+  graceMs: 6000,
+  channelOpenMs: 10000,
+  pollMs: 60,
+  idleMin: 5            // default; the server's idle_min wins when the session opens
+}, window.__PS_RT_HEALTH__ || {});
+/* The orb waveform is driven by the visitor's real microphone level while a live call is up. */
+const LEVEL = Object.assign({ fftSize: 512, minBar: 3, maxBar: 22, floor: 0.012, ceiling: 0.28, smooth: 0.55 }, window.__PS_MIC_LEVEL__ || {});
+
 /* The continuous call has its own status wording: there is no button to press and no turn to wait
    for, so the screen must not imply one. */
 const RT_STATUS_TEXT = {
@@ -237,7 +262,7 @@ function newVoiceState() {
     status: 'idle', transcript: [], asked: [], probes: {}, captures: [],
     callId: 'call-' + Math.random().toString(36).slice(2, 10), callTicket: null, turns: 0,
     startedAt: null, endedAt: null, currentQuestionId: null, pendingQuestionId: null,
-    lastLine: '', interim: '', lastHeard: '', error: null, notice: null,
+    lastLine: '', interim: '', lastHeard: '', error: null, notice: null, rtNotice: null,
     micBlocked: false, engine: null, handsFree: true, muted: false, typed: false,
     speaking: false, listening: false, capture: null, done: false, warnings: [],
     audioEl: null, stopListening: null, rec: null, skipped: [], stopSpeakHook: null,
@@ -597,7 +622,16 @@ function newRealtimeState() {
     startedAt: null, model: null, voice: null, vad: null, maxSessionMin: 15, watchdog: null,
     callTicket: null, opening: null, toolCalls: 0, accepted: 0, rejected: 0, endAttempts: 0,
     lastUserTurn: '', userLines: [], aiLines: [], handled: {}, aiPartial: '', pendingAttribution: null,
-    responseActive: false, userSpeaking: false, closing: false, dropped: false, micMuted: false, micCalls: 0
+    responseActive: false, userSpeaking: false, closing: false, dropped: false, micMuted: false, micCalls: 0,
+    // connection health: what the peer connection last reported, and the grace timer that keeps a
+    // temporary network hiccup from ending the call.
+    connState: '', iceState: '', healthTimer: null, teardown: false, channelTimer: null,
+    // real microphone level driving the orb waveform (null when the browser has no AudioContext).
+    level: null,
+    // inactivity: a live call with no speech from either side for idleMin is wrapped up politely.
+    idleTimer: null, lastActivityAt: 0, idleMin: RT_HEALTH.idleMin, maxToolCalls: 90,
+    // the hang-up report has been sent, so the page-exit guard does not send it twice.
+    endedSent: false
   };
 }
 function rtSync() { const v = voiceSync(); return v.rt || (v.rt = newRealtimeState()); }
@@ -618,6 +652,223 @@ function rtRespond(instructions) {
   if (instructions) ev.response = { instructions: String(instructions).slice(0, 1500) };
   return rtSend(ev);
 }
+
+/* ---------------- the visitor's real microphone level ----------------
+   The orb waveform used to be a CSS animation: it moved whether or not anyone was speaking. This
+   drives the same nine bars from an AnalyserNode on the SAME MediaStream the peer connection is
+   already using, so there is no second permission prompt and no second microphone. Where the
+   browser has no AudioContext the meter is never started and the CSS animation carries on. */
+const LEVEL_WEIGHTS = [0.55, 0.8, 1, 0.7, 0.9, 1, 0.75, 0.6, 0.85];
+function startMicLevel(stream) {
+  const rt = voiceSync().rt;
+  stopMicLevel();
+  if (!stream) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (typeof AC !== 'function') return;
+  let ctx = null, analyser = null, src = null, buf = null;
+  try {
+    ctx = new AC();
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = LEVEL.fftSize;
+    try { analyser.smoothingTimeConstant = 0.6; } catch (e) {}
+    src = ctx.createMediaStreamSource(stream);
+    src.connect(analyser);
+    buf = new Uint8Array(analyser.fftSize || LEVEL.fftSize);
+  } catch (e) {
+    // A partial or blocked AudioContext must never take the call down: fall back to the CSS wave.
+    try { if (src && src.disconnect) src.disconnect(); } catch (e2) {}
+    try { if (ctx && ctx.close) { const p = ctx.close(); if (p && typeof p.catch === 'function') p.catch(() => {}); } } catch (e3) {}
+    rt.level = null;
+    return;
+  }
+  // The call starts inside a click, so a context that begins suspended is resumed here.
+  try {
+    if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      const p = ctx.resume(); if (p && typeof p.catch === 'function') p.catch(() => {});
+    }
+  } catch (e) {}
+  rt.level = { ctx: ctx, analyser: analyser, src: src, buf: buf, raf: null, value: 0, stopped: false };
+  const tick = () => {
+    const lv = rt.level;
+    if (!lv || lv.stopped) return;          // stopMicLevel() owns the loop's lifetime
+    lv.raf = null;
+    let peak = 0;
+    try {
+      lv.analyser.getByteTimeDomainData(lv.buf);
+      for (let i = 0; i < lv.buf.length; i++) { const d = Math.abs(lv.buf[i] - 128) / 128; if (d > peak) peak = d; }
+    } catch (e) { peak = 0; }
+    // A muted microphone shows silence, and the value is smoothed so the bars breathe, not flicker.
+    const target = rt.micMuted ? 0 : peak;
+    lv.value += (target - lv.value) * (target > lv.value ? 0.6 : LEVEL.smooth);
+    paintMicLevel(lv.value);
+    lv.raf = window.requestAnimationFrame ? window.requestAnimationFrame(tick) : setTimeout(tick, 60);
+  };
+  tick();
+}
+function stopMicLevel() {
+  const rt = voiceSync().rt;
+  const lv = rt && rt.level;
+  if (!lv) return;
+  lv.stopped = true;                        // ends the loop even if a frame is already queued
+  try {
+    if (lv.raf != null) {
+      if (window.cancelAnimationFrame) window.cancelAnimationFrame(lv.raf);
+      clearTimeout(lv.raf);
+    }
+  } catch (e) {}
+  lv.raf = null;
+  try { if (lv.src && lv.src.disconnect) lv.src.disconnect(); } catch (e) {}
+  try { if (lv.analyser && lv.analyser.disconnect) lv.analyser.disconnect(); } catch (e) {}
+  try {
+    if (lv.ctx && typeof lv.ctx.close === 'function') {
+      const p = lv.ctx.close(); if (p && typeof p.catch === 'function') p.catch(() => {});
+    }
+  } catch (e) {}
+  rt.level = null;
+  clearMicLevelBars();
+}
+/* render() rebuilds the orb, so the bars are re-queried each frame instead of cached; a missing orb
+   (the visitor has left the call screen) simply paints nothing. */
+function paintMicLevel(v) {
+  const wave = document.querySelector('#orb .wave');
+  if (!wave) return;
+  // Hand the bars back from the CSS keyframes: an animation outranks an inline height.
+  if (wave.className.indexOf('level') < 0) wave.className += ' level';
+  const bars = wave.children;
+  const norm = Math.max(0, Math.min(1, (v - LEVEL.floor) / (LEVEL.ceiling - LEVEL.floor)));
+  const opacity = (0.45 + 0.55 * Math.min(1, norm * 1.4)).toFixed(2);
+  for (let i = 0; i < bars.length; i++) {
+    const w = LEVEL_WEIGHTS[i % LEVEL_WEIGHTS.length];
+    const h = LEVEL.minBar + (LEVEL.maxBar - LEVEL.minBar) * Math.min(1, norm * w * (0.75 + 0.5 * Math.random()));
+    try { bars[i].style.height = h.toFixed(1) + 'px'; bars[i].style.opacity = opacity; } catch (e) {}
+  }
+}
+function clearMicLevelBars() {
+  const wave = document.querySelector('#orb .wave');
+  if (!wave) return;
+  wave.className = wave.className.replace(/\s*\blevel\b/g, '');
+  for (let i = 0; i < wave.children.length; i++) {
+    try { wave.children[i].style.height = ''; wave.children[i].style.opacity = ''; } catch (e) {}
+  }
+}
+
+/* ---------------- WebRTC connection health ----------------
+   'disconnected' gets a grace period because it usually recovers by itself (a mobile handover, a
+   wifi blip), and ending a good call on the first hiccup is worse than waiting a few seconds.
+   'failed' and 'closed' are terminal. Every terminal path goes through dropRealtime(), which keeps
+   every answer already captured and carries the same call on step by step. */
+const CONN_LABEL = {
+  connected: 'connected', completed: 'connected', connecting: 'connecting', checking: 'connecting',
+  new: 'opening', disconnected: 'reconnecting', failed: 'failed', closed: 'closed'
+};
+function armConnectionHealth(pc) {
+  const rt = voiceSync().rt;
+  if (!rt || !pc) return;
+  const onState = () => {
+    if (!rt || rt.teardown || rt.dropped || rt.closing) return;   // ignore our own teardown
+    let conn = '', ice = '';
+    try { conn = pc.connectionState || ''; } catch (e) {}
+    try { ice = pc.iceConnectionState || ''; } catch (e) {}
+    const s = conn || ice;
+    if (s) { rt.connState = s; rt.iceState = ice || rt.iceState; }
+    if (s === 'connected' || s === 'completed') clearHealthGrace();
+    else if (s === 'failed' || s === 'closed') {
+      clearHealthGrace();
+      if (rt.live) dropRealtime(s === 'failed' ? 'The live voice connection failed.' : 'The live voice connection closed.');
+      else rt.failed = rt.failed || 'connection-' + s;
+    } else if (s === 'disconnected') armHealthGrace();
+    updateConnNote();
+  };
+  rt.onConnState = onState;
+  // addEventListener where it exists, the on* properties where it does not, as waitForIce() does.
+  try { pc.addEventListener('connectionstatechange', onState); }
+  catch (e) { try { pc.onconnectionstatechange = onState; } catch (e2) {} }
+  try { pc.addEventListener('iceconnectionstatechange', onState); }
+  catch (e) { try { pc.oniceconnectionstatechange = onState; } catch (e2) {} }
+}
+function detachConnectionHealth(pc) {
+  const rt = voiceSync().rt;
+  const fn = rt && rt.onConnState;
+  if (rt) rt.onConnState = null;
+  if (!pc || !fn) return;
+  try { pc.removeEventListener('connectionstatechange', fn); } catch (e) {}
+  try { pc.removeEventListener('iceconnectionstatechange', fn); } catch (e) {}
+  try { pc.onconnectionstatechange = null; } catch (e) {}
+  try { pc.oniceconnectionstatechange = null; } catch (e) {}
+}
+function armHealthGrace() {
+  const rt = voiceSync().rt;
+  if (!rt || rt.healthTimer) return;        // idempotent: flapping states must not extend the grace
+  rt.healthTimer = setTimeout(() => {
+    rt.healthTimer = null;
+    if (!rt.live || rt.dropped || rt.closing || rt.teardown) return;
+    let s = '';
+    try { s = (rt.pc && (rt.pc.connectionState || rt.pc.iceConnectionState)) || ''; } catch (e) {}
+    if (s === 'connected' || s === 'completed') { updateConnNote(); return; }
+    dropRealtime('The live voice connection dropped out and did not come back.');
+  }, RT_HEALTH.graceMs);
+}
+function clearHealthGrace() {
+  const rt = voiceSync().rt;
+  if (rt && rt.healthTimer) { clearTimeout(rt.healthTimer); rt.healthTimer = null; }
+}
+/* Connection state on screen, patched in place so a state change never rebuilds the orb. */
+function updateConnNote() {
+  const el = document.getElementById('conn-state');
+  if (!el) return;
+  const rt = voiceSync().rt;
+  const s = (rt && rt.connState) || '';
+  const bad = s === 'disconnected' || s === 'failed' || s === 'closed';
+  el.textContent = 'Connection: ' + (s ? (CONN_LABEL[s] || s) : 'opening');
+  el.className = 'conn-state' + (bad ? ' bad' : '');
+}
+
+/* Inactivity: on a live call the model is always asking something, so total silence for this long
+   means the visitor has walked away. Wrapping up politely protects both the spend and the
+   transcript, and it is a courtesy only - the server enforces its own limit independently. */
+function armIdleWatchdog() {
+  const v = voiceSync(); const rt = v.rt;
+  if (!rt || rt.idleTimer) return;
+  const mins = Math.max(1, rt.idleMin || RT_HEALTH.idleMin);
+  rt.lastActivityAt = rt.lastActivityAt || Date.now();
+  rt.idleTimer = setInterval(() => {
+    if (!rt.live || v.done || rt.closing || rt.teardown || rt.dropped) return;
+    if (Date.now() - (rt.lastActivityAt || Date.now()) < mins * 60 * 1000) return;
+    rt.lastActivityAt = Date.now();         // one wrap-up attempt per idle window
+    rt.closing = true;
+    v.notice = 'It has been quiet for a while, so let us wrap up. Everything we captured is on the next screen.';
+    rtRespond('It has been quiet for a while. Thank them, tell them the next step is to review and correct what we captured on screen, and that a human reviews the blueprint. Then call end_call.');
+    setTimeout(() => { if (!v.done) finishCall(); }, 30000);
+    render();
+  }, 20000);
+}
+function clearIdleWatchdog() {
+  const rt = voiceSync().rt;
+  if (rt && rt.idleTimer) { clearInterval(rt.idleTimer); rt.idleTimer = null; }
+}
+function touchActivity() {
+  const rt = voiceSync().rt;
+  if (rt) rt.lastActivityAt = Date.now();
+}
+
+/* Bound the handshake: if the event channel never opens, the session is not usable and the call
+   must fall back rather than sit on "Connecting..." forever. */
+function waitForDataChannel(dc, ms) {
+  return new Promise(resolve => {
+    if (!dc) return resolve(false);
+    if (dc.readyState === 'open') return resolve(true);
+    const limit = Date.now() + (ms || RT_HEALTH.channelOpenMs);
+    const poll = () => {
+      if (!dc) return resolve(false);
+      if (dc.readyState === 'open') return resolve(true);
+      if (dc.readyState === 'closed' || dc.readyState === 'closing') return resolve(false);
+      if (Date.now() > limit) return resolve(false);
+      setTimeout(poll, RT_HEALTH.pollMs);
+    };
+    poll();
+  });
+}
+
 function waitForIce(pc, ms) {
   return new Promise(resolve => {
     let done = false;
@@ -639,6 +890,7 @@ async function startRealtimeCall() {
   const v = voiceSync();
   const rt = rtSync();
   if (rt.live) return true;
+  rt.teardown = false; rt.endedSent = false; rt.connState = ''; rt.dropped = false;
   try { await ensureSession(); } catch (e) { rt.failed = e.message; return false; }
   if (!realtimePlanned()) { rt.failed = rt.failed || 'not-available'; return false; }
   v.engine = 'realtime';
@@ -653,9 +905,18 @@ async function startRealtimeCall() {
     return false;   // the step-by-step path shows the blocked-microphone notice and turns typing on
   }
   rt.mic = mic;
+  // The orb waveform reacts to the visitor's actual voice, on this same stream: no second
+  // getUserMedia, so no second permission prompt.
+  startMicLevel(mic);
   let pc = null;
-  try { pc = new RTCPeerConnection(); } catch (e) { cleanupRealtime(); rt.failed = 'webrtc'; return false; }
+  // A public STUN server gives the browser a server-reflexive candidate as well as a host one, so
+  // NAT, mobile and corporate networks can complete the handshake. If a browser rejects the config
+  // object at all, fall back to the unconfigured peer connection rather than losing the call.
+  try { pc = new RTCPeerConnection(ICE_SERVERS); }
+  catch (e) { try { pc = new RTCPeerConnection(); } catch (e2) { cleanupRealtime(); rt.failed = 'webrtc'; return false; } }
+  if (!pc) { cleanupRealtime(); rt.failed = 'webrtc'; return false; }
   rt.pc = pc;
+  armConnectionHealth(pc);
   const audioEl = document.createElement('audio');
   audioEl.autoplay = true;
   try { audioEl.setAttribute('playsinline', ''); audioEl.setAttribute('aria-hidden', 'true'); } catch (e) {}
@@ -689,6 +950,7 @@ async function startRealtimeCall() {
     if (rt.opening && rt.opening.question_id) v.currentQuestionId = rt.opening.question_id;
     render();
     armSessionWatchdog();
+    touchActivity(); armIdleWatchdog();
     // The opening question was picked by the guardrail set on the server: ask the session to say it.
     rtRespond(rt.opening && rt.opening.instruction
       ? rt.opening.instruction + (rt.opening.ask_now ? ' Start with: "' + rt.opening.ask_now + '"' : '')
@@ -716,12 +978,22 @@ async function startRealtimeCall() {
   rt.opening = res.opening || null;
   rt.model = res.model || null; rt.voice = res.voice || null; rt.vad = res.turn_detection || null;
   rt.maxSessionMin = res.max_session_min || 15;
+  rt.maxToolCalls = res.max_tool_calls || rt.maxToolCalls || 90;
+  rt.idleMin = res.idle_min || RT_HEALTH.idleMin;
   v.provider = res.provider || 'openai-realtime';
   v.mode = 'realtime';
   if (res.warnings && res.warnings.length) v.warnings = (v.warnings || []).concat(res.warnings);
   try { await pc.setRemoteDescription({ type: 'answer', sdp: res.sdp }); }
   catch (e) { cleanupRealtime(); rt.failed = 'answer'; return false; }
+  /* The answer is applied, but a session that never brings the event channel up is not usable.
+     Bounding the wait here is what turns "stuck on Connecting..." into the step-by-step fallback. */
+  const opened = await waitForDataChannel(dc, RT_HEALTH.channelOpenMs);
   rt.connecting = false;
+  if (!opened) {
+    if (!rt.failed) rt.failed = 'channel-timeout';
+    cleanupRealtime();
+    return false;
+  }
   return true;
 }
 /* A call has a ceiling: the session is closed by the client before the provider closes it. */
@@ -741,7 +1013,14 @@ function armSessionWatchdog() {
 function cleanupRealtime() {
   const v = voiceSync(); const rt = v.rt;
   if (!rt) return;
+  /* Mark the teardown first: closing the peer connection fires connection/ICE state changes, and
+     those must not be mistaken for a network failure and trigger a second fallback. */
+  rt.teardown = true;
+  clearHealthGrace();
+  clearIdleWatchdog();
   if (rt.watchdog) { clearTimeout(rt.watchdog); rt.watchdog = null; }
+  detachConnectionHealth(rt.pc);
+  stopMicLevel();                       // closes the AudioContext and the analyser, not the mic track
   try { if (rt.dc) rt.dc.close(); } catch (e) {}
   try { if (rt.pc) rt.pc.close(); } catch (e) {}
   try { if (rt.mic) rt.mic.getTracks().forEach(t => t.stop()); } catch (e) {}
@@ -749,6 +1028,14 @@ function cleanupRealtime() {
   rt.dc = null; rt.pc = null; rt.mic = null; rt.audioEl = null;
   rt.live = false; rt.userSpeaking = false; rt.responseActive = false;
   v.speaking = false; v.listening = false;
+}
+/* A fallback notice has to survive the automatic continuation turn that follows it, and that turn
+   clears v.notice. So it lives in its own field, is rendered on its own, and goes away once the
+   visitor has answered something themselves. Without this the visitor was never actually told that
+   their live call had dropped: the notice was wiped before it reached the screen. */
+function setFallbackNotice(msg) {
+  const v = voiceSync();
+  v.rtNotice = String(msg || '');
 }
 /* The live session died mid-call: keep everything captured and carry on step by step. */
 function dropRealtime(reason) {
@@ -759,7 +1046,7 @@ function dropRealtime(reason) {
   cleanupRealtime();
   v.rtFallback = true;
   v.provider = 'openai'; v.mode = 'openai'; v.engine = null;
-  v.notice = msg + ' The call carries on step by step from where you were, with everything you said kept.';
+  setFallbackNotice(msg + ' The call carries on step by step from where you were, with everything you said kept.');
   v.warnings = (v.warnings || []).concat([msg + ' Fell back to the step-by-step call.']);
   v.status = 'ready';
   render();
@@ -771,6 +1058,7 @@ function handleRealtimeEvent(raw) {
   let ev = null;
   try { ev = JSON.parse(raw); } catch (e) { return; }
   if (!ev || !ev.type) return;
+  touchActivity();     // any traffic on the session means the call is not abandoned
   switch (ev.type) {
     case 'session.created':
     case 'session.updated': {
@@ -1045,6 +1333,9 @@ async function voiceTurn(userText) {
     v.transcript.push({ role: 'user', text: userText, questionId: id });
   }
   v.status = 'thinking'; v.interim = ''; v.error = null; v.notice = null;
+  // The fallback notice stays up through the automatic continuation turn and goes away once the
+  // visitor has answered something themselves, so they are not left wondering what happened.
+  if (userText != null) v.rtNotice = null;
   render();
   let res;
   try {
@@ -1093,7 +1384,7 @@ async function startCall() {
       return;
     }
     if (rt && rt.failed) {
-      v.notice = 'The continuous voice call could not start (' + String(rt.failed).slice(0, 140) + '). Running the same call step by step instead.';
+      setFallbackNotice('The continuous voice call could not start (' + String(rt.failed).slice(0, 140) + '). Running the same call step by step instead.');
       v.rtFallback = true;
     }
   }
@@ -1130,6 +1421,36 @@ function skipQuestion() {
   }
   voiceTurn(null);
 }
+/* The hang-up report, shared by the End button, the model's own end_call, the session watchdog and
+   the page-exit guard. `useBeacon` sends it with navigator.sendBeacon so it survives the tab
+   closing without ever blocking navigation (no synchronous request during unload); the ordinary
+   path waits for the server's final contract state so the review screen shows exactly what the live
+   call produced, and nothing that failed grounding. */
+function sendRealtimeEnd(v, useBeacon) {
+  const body = {
+    call_id: v.callId, answers: state.answers, asked: v.asked, probes: v.probes, skipped: v.skipped,
+    voice_captures: v.captures,
+    transcript: (v.transcript || []).slice(-30).map(t => ({ role: t.role, text: t.text }))
+  };
+  if (v.rt) v.rt.endedSent = true;
+  const payload = JSON.stringify(Object.assign({ token: state.token }, body));
+  if (useBeacon) {
+    try {
+      if (navigator.sendBeacon) {
+        const blob = window.Blob ? new window.Blob([payload], { type: 'application/json' }) : payload;
+        if (navigator.sendBeacon('/api/voice/realtime/end', blob)) return Promise.resolve(null);
+      }
+    } catch (e) {}
+    // No beacon available (or it was refused): fire and forget with keepalive, never synchronously.
+    try {
+      const p = fetch('/api/voice/realtime/end', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: payload
+      });
+      return p && typeof p.catch === 'function' ? p.catch(() => null) : Promise.resolve(null);
+    } catch (e) { return Promise.resolve(null); }
+  }
+  return api.post('/api/voice/realtime/end', body).catch(() => null);
+}
 function finishCall() {
   const v = voiceSync();
   const rt = v.rt;
@@ -1137,20 +1458,36 @@ function finishCall() {
   v.endedAt = new Date().toISOString();
   const wasLive = !!(rt && (rt.live || rt.startedAt));
   if (wasLive) { rt.closing = true; if (rt.audioEl) { try { rt.audioEl.pause(); } catch (e) {} } }
+  /* Stops the microphone tracks, the AI audio, the analyser, the data channel and the peer
+     connection, and clears every timer this call armed. The transcript and state.answers are
+     untouched, so everything the visitor said carries into the review screen. */
   cleanupRealtime();
   if (!wasLive) { startExtraction(); return; }
-  /* The server recomputes the contract state from everything the call captured, so the review screen
-     and Function A see exactly what the live call produced (and nothing that failed grounding). */
-  api.post('/api/voice/realtime/end', {
-    call_id: v.callId, answers: state.answers, asked: v.asked, probes: v.probes, skipped: v.skipped,
-    voice_captures: v.captures,
-    transcript: v.transcript.slice(-30).map(t => ({ role: t.role, text: t.text }))
-  }).then(j => {
+  sendRealtimeEnd(v, false).then(j => {
     if (j && j.capture) v.capture = j.capture;
     if (j && Array.isArray(j.voice_captures)) v.captures = j.voice_captures;
     if (j && j.provider) { v.provider = j.provider; v.mode = j.mode; }
     startExtraction();
-  }).catch(() => startExtraction());
+  });
+}
+/* Closing the tab, refreshing or navigating away must not leave the microphone live, the peer
+   connection open, the analyser running, or the call unreported. `pagehide` covers all three (and
+   fires for bfcache entries, where `unload` no longer does); the report goes out as a beacon so
+   navigation is never blocked. Tab visibility changes are deliberately NOT treated as an exit:
+   locking a phone or switching apps must not hang up on someone. */
+let pageExitArmed = false;
+function armPageExitGuard() {
+  if (pageExitArmed) return;
+  pageExitArmed = true;
+  const onExit = () => {
+    const v = state.voice;
+    const rt = v && v.rt;
+    try {
+      if (v && rt && (rt.live || rt.startedAt) && !rt.endedSent && !v.done) sendRealtimeEnd(v, true);
+    } catch (e) {}
+    cleanupRealtime();
+  };
+  try { window.addEventListener('pagehide', onExit); } catch (e) {}
 }
 
 /* ---------------- rendering ---------------- */
@@ -1393,6 +1730,28 @@ function providerBadge() {
   return '<span class="badge-mode ' + (openai ? 'openai' : 'simulated') + '">' +
     (openai ? 'ChatGPT voice' : 'Simulated voice') + '</span>';
 }
+/* Was this call held over one continuous WebRTC session? The answer has to survive the hang-up
+   (cleanupRealtime clears rt.live but keeps rt.startedAt) and must never be claimed for a call that
+   fell back to the step-by-step engine. */
+function wasRealtime(v) {
+  v = v || voiceSync();
+  if (v.mode === 'realtime') return true;
+  return !!(v.rt && v.rt.startedAt && !v.rtFallback);
+}
+/* One line saying how the call was actually held. This is what the call head and the review screen
+   show, and it is the string that must never read "Simulated voice" for a live continuous call. */
+function callModeLabel(v) {
+  v = v || voiceSync();
+  if (wasRealtime(v)) {
+    const rt = v.rt || {};
+    return 'Live continuous AI voice' +
+      (rt.model ? ' &bull; ' + esc(rt.model) : '') +
+      (rt.voice ? ' &bull; voice ' + esc(rt.voice) : '') +
+      (rt.vad ? ' &bull; ' + esc(rt.vad) : '');
+  }
+  if (v.mode === 'openai') return v.rtFallback ? 'ChatGPT voice (the live call fell back to step by step)' : 'ChatGPT voice';
+  return 'Simulated voice';
+}
 const QUESTION_TOPICS = {
   business: 'Business overview & target audience',
   products: 'Products, pricing & prerequisite milestones',
@@ -1467,7 +1826,7 @@ function callView() {
 
   let h = '<div class="intake-wrap"><div class="call hud-frame">' +
     '<div class="call-head"><div class="who"><div class="avatar">AI</div><div><b>AI Discovery</b><span class="small muted" id="call-mode">' +
-      (v.cfg ? (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice') : 'Connecting...') + '</span></div></div>' +
+      (v.cfg ? callModeLabel(v) : 'Connecting...') + '</span></div></div>' +
       '<div class="call-head-right"><div class="progress" id="call-progress">' + (started ? 'Question ' + Math.min(answered + 1, total) + ' of ' + total : 'Not started') + '</div>' +
       '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress<span class="side-toggle-count">' + answered + '/' + total + '</span></button></div></div>' +
     '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
@@ -1478,6 +1837,7 @@ function callView() {
       '<div class="call-status" id="call-status" role="status" aria-live="polite">' + esc(statusText) + '</div>' +
       '<div class="line ai" id="ai-line" aria-live="polite">' + esc(aiLine) + '</div>' +
       (youLine ? '<div class="line you" id="you-line">' + esc(youLine) + '</div>' : '<div class="line you empty" id="you-line">Your answer appears here as you speak.</div>') +
+      (v.rtNotice ? '<div class="call-note" id="fallback-note">' + esc(v.rtNotice) + '</div>' : '') +
       (v.notice ? '<div class="call-note">' + esc(v.notice) + '</div>' : '') +
       (v.error ? '<div class="call-note err">' + esc(v.error) + ' <button class="btn btn-ghost btn-sm" id="retry-turn">Retry</button></div>' : '') +
     '</div>' +
@@ -1489,12 +1849,20 @@ function callControls(started, total) {
   const v = voiceSync();
   const rt = v.rt;
   if (rt && (rt.live || rt.connecting)) {
+    /* Three clear controls, in the order a visitor reaches for them: my microphone, the AI's
+       speaker, and the way out. Repeat and Type instead stay beside them because both are useful
+       mid-call. Microphone mute and speaker mute are separate buttons and say which is which. */
     let h = '<div class="call-row">';
-    h += '<button class="btn ' + (rt.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" aria-pressed="' + (rt.micMuted ? 'false' : 'true') + '">' +
+    h += '<button class="btn ' + (rt.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" type="button" aria-pressed="' + (rt.micMuted ? 'false' : 'true') + '" title="Mute or unmute your microphone">' +
       (rt.micMuted ? 'Microphone muted' : 'Microphone live') + '</button>';
+    h += '<button class="btn ' + (v.muted ? 'btn-ghost' : 'btn-dark') + '" id="mute-btn" type="button" aria-pressed="' + (v.muted ? 'false' : 'true') + '" title="Mute or unmute the AI voice">' +
+      (v.muted ? 'Speaker muted' : 'Speaker on') + '</button>';
     h += '<button class="btn btn-ghost" id="repeat-btn">Repeat</button>';
     h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
     h += '</div>';
+    if (!v.done) {
+      h += '<div class="call-row"><button class="btn btn-end" id="end-call-btn" type="button" title="Stop the call and review what we captured">End conversation</button></div>';
+    }
     if (v.done) {
       h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Review what we heard</button></div>';
     }
@@ -1529,6 +1897,7 @@ function callControls(started, total) {
 }
 function callSidebar() {
   const v = voiceSync();
+  const rt = v.rt;
   const labels = (v.cfg && v.cfg.field_labels) || FIELD_LABELS;
   const status = (v.capture && v.capture.status) || {};
   const fields = (v.capture && v.capture.fields) || {};
@@ -1541,8 +1910,26 @@ function callSidebar() {
     return '<div class="side-chip ' + (st === 'captured' ? 'filled' : 'null') + '"><span>' + esc(labels[k] || FIELD_LABELS[k]) + '</span>' +
       '<span class="val">' + esc((val || 'not yet') + assist) + '</span></div>';
   }).join('');
+  /* What the live session is running on, and how it is connected. Both are patched in place while
+     the call is up (updateConnNote) so a state change never rebuilds the orb. */
+  const live = wasRealtime(v);
+  const everLive = live || !!(rt && rt.startedAt);
+  const detailBits = live ? [
+    rt && rt.model ? 'Model ' + esc(rt.model) : '',
+    rt && rt.voice ? 'Voice ' + esc(rt.voice) : '',
+    rt && rt.vad ? 'Turn detection ' + esc(rt.vad) : '',
+    rt && rt.maxSessionMin ? 'Limit ' + esc(rt.maxSessionMin) + ' min' : ''
+  ].filter(Boolean) : [];
+  const detail = detailBits.length ? '<div class="side-note">' + detailBits.join(' &bull; ') + '</div>' : '';
+  const conn = live ? '<div class="conn-state" id="conn-state">Connection: opening</div>' : '';
+  /* The grounding gate's tally, which was already counted but never shown: what the server saved
+     because the visitor said it, and what it refused because the words were never actually spoken. */
+  const grounding = everLive && ((rt.accepted || 0) > 0 || (rt.rejected || 0) > 0)
+    ? '<div class="side-note grounding" id="grounding-note">Values saved from your words: ' + (rt.accepted || 0) +
+      ((rt.rejected || 0) > 0 ? ' &bull; refused as not said on the call: ' + rt.rejected : '') + '</div>'
+    : '';
   const modeCard = '<div class="side-card"><h3>Session</h3>' +
-    '<div class="provider-card">' + providerBadge() + '</div>' +
+    '<div class="provider-card">' + providerBadge() + '</div>' + detail + conn + grounding +
     '</div>';
   const errNote = state.fieldError ? '<p class="small txt-err mt8" role="alert">' + esc(state.fieldError) + '</p>' : '';
   const reqCard = missingReq.length
@@ -1607,6 +1994,12 @@ function bindCall() {
   };
   const skip = $('#skip-btn');
   if (skip) skip.onclick = () => skipQuestion();
+  /* The manual way out of a live call. finishCall() already stops the microphone tracks, stops the
+     AI audio, closes the data channel and the peer connection, reports the hang-up to
+     /api/voice/realtime/end, keeps the transcript and every captured answer, and carries on into
+     the review flow - so the button reuses it rather than duplicating any of that. */
+  const endBtn = $('#end-call-btn');
+  if (endBtn) endBtn.onclick = () => finishCall();
   const fin = $('#finish-btn');
   if (fin) fin.onclick = () => finishCall();
   const st = $('#structure-btn');
@@ -1687,6 +2080,7 @@ function afterCallRender() {
   const body = $('#chat-body');
   if (body) body.scrollTop = body.scrollHeight;
   updateLiveLine();
+  updateConnNote();
   // Warm the session and the opening line while the client reads the screen, so the AI can speak
   // inside the click that starts the call.
   if (state.stage === 'intake' && !v.startedAt && !v.opening && !v.prefetching && !v.prefetchTried) prefetchOpening();
@@ -1902,7 +2296,7 @@ function reviewView() {
   ];
   const v = state.voice;
   const callLine = v && v.startedAt
-    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + (v.mode === 'openai' ? 'ChatGPT voice' : 'Simulated voice') +
+    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + callModeLabel(v) +
       ' &bull; ' + v.turns + ' turns &bull; audio not retained</span></div>'
     : '';
   let h = '<div class="card hud-frame"><div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>SESSION INTELLIGENCE &bull; VERIFIED</div>' +
@@ -2439,6 +2833,7 @@ function routeBindings() {
   }
 }
 function boot() {
+  armPageExitGuard();
   fetchSchedulerLink();
   render();
   routeBindings();

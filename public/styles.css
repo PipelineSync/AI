@@ -898,6 +898,24 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
   transform: translateY(-1px);
 }
 
+/* End conversation: the way out of a live call. Deliberately not the primary cyan - it should be
+   obvious without competing with the button that moves the visitor forward. */
+.btn-end {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: var(--red-line);
+  color: var(--red) !important;
+  font-weight: 600;
+}
+.btn-end:hover {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: var(--red);
+  box-shadow: 0 4px 18px rgba(248, 113, 113, 0.18);
+}
+.btn-end:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+
 .btn-lg {
   min-height: 48px;
   padding: 0.75rem 1.65rem;
@@ -1781,6 +1799,24 @@ input:-webkit-autofill:focus {
 @keyframes wv-8 { 0%, 100% { height: 5px; opacity: 0.45; } 50% { height: 11px; opacity: 0.95; } }
 @keyframes wv-9 { 0%, 100% { height: 9px; opacity: 0.55; } 50% { height: 17px; opacity: 1; } }
 
+/* Live microphone level. While a continuous call is up, app.js measures the visitor's real voice
+   with an AnalyserNode on the same MediaStream the peer connection uses and writes each bar's
+   height inline. A running CSS animation outranks an inline style, so the keyframes are switched
+   off here and the bars are driven by the measured level instead. Where the browser has no
+   AudioContext the class is never added and the animation above carries on exactly as before. */
+.wave.level span,
+.orb.speaking .wave.level span,
+.orb.live .wave.level span,
+.orb.listening .wave.level span {
+  animation-name: none;
+  transition: height 90ms linear, opacity 120ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wave.level span {
+    transition: none;
+  }
+}
+
 .orbital {
   position: relative;
   width: 64px;
@@ -2013,6 +2049,41 @@ input:-webkit-autofill:focus {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+/* Session detail on a live call: the model, the voice, the turn detection, the connection state,
+   and what the grounded-capture gate accepted and refused. Small, quiet, mono - telemetry, not
+   decoration, in the same voice as the rest of the sidebar. */
+.side-note {
+  margin-top: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.side-note.grounding {
+  color: var(--cyan);
+}
+.conn-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  color: var(--emerald, #34D399);
+}
+.conn-state::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+.conn-state.bad {
+  color: var(--red);
 }
 .side-toggle {
   display: none;

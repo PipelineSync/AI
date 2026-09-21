@@ -45,15 +45,17 @@ Site configuration → **Environment variables** → **Add a variable**:
 
 | Variable | Value | Why |
 |---|---|---|
-| `PS_TOKEN_SECRET` | any long random string, e.g. the output of `openssl rand -hex 16` | Signs the entry-gate session tokens and the voice call tickets. Without it a built-in dev secret is used (fine for a throwaway test deploy, not for anything shared). |
+| `PS_TOKEN_SECRET` | any long random string of at least 16 characters, e.g. the output of `openssl rand -hex 24` | Signs the entry-gate session tokens and the voice call tickets. **Required in production**: without it the entry gate refuses to run, and the live voice routes additionally fail closed if it is missing, under 16 characters, or still the built-in development secret published in this repo - a forgeable token would let a stranger spend your OpenAI credit. Local development is unaffected. |
 | `OPENAI_API_KEY` | your OpenAI key (`sk-...`) | **Switches the discovery call on to live AI voice**: one continuous WebRTC session (OpenAI Realtime) carries the whole call, and the same key drives the step-by-step fallback (wording, speech out, transcription in). Read inside the functions only, never sent to the browser. Without it the call runs on the built-in interviewer and the browser voice, so the demo still works. |
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
-`OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`, `VOICE_PROVIDER`,
-`OPENAI_CHAT_MODEL`, `OPENAI_TTS_MODEL`, `OPENAI_TTS_VOICE`, `OPENAI_STT_MODEL`, `VOICE_STT`,
-`VOICE_LANGUAGE`, `VOICE_LOCALE`, `VOICE_MAX_TURNS`, `OPENAI_BASE_URL`) and everything else about the
-voice layer is documented in `docs/VOICE_SETUP.md` (all of them are commented out in `.env.example`
-with their defaults).
+`OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`,
+`OPENAI_REALTIME_MAX_TOOLS`, `OPENAI_REALTIME_TIMEOUT_MS`, `OPENAI_REALTIME_CONNECT_PER_MIN`,
+`OPENAI_REALTIME_MAX_CONCURRENT`, `OPENAI_REALTIME_DAILY_MAX`, `OPENAI_REALTIME_IDLE_MIN`,
+`VOICE_PROVIDER`, `OPENAI_CHAT_MODEL`, `OPENAI_TTS_MODEL`, `OPENAI_TTS_VOICE`, `OPENAI_STT_MODEL`,
+`VOICE_STT`, `VOICE_LANGUAGE`, `VOICE_LOCALE`, `VOICE_MAX_TURNS`, `OPENAI_BASE_URL`) and everything
+else about the voice layer is documented in `docs/VOICE_SETUP.md` (all of them are commented out in
+`.env.example` with their defaults).
 
 Later, when the remaining keys arrive, add them here too (they only reach the functions, never the
 browser): `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HUBSPOT_ACCESS_TOKEN`,

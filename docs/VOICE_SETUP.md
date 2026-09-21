@@ -53,6 +53,36 @@ replayed between questions, so the client is never cut off mid-answer.
 7. **No audio is kept.** The session stores transcripts only; the lead carries
    `"audio_retained": false`.
 
+### What the visitor can do during the live call
+
+Three controls sit in the call controls bar while the live session is up (and nothing else changes):
+
+- **End conversation.** Stops the microphone tracks, stops the AI audio, closes the peer connection
+  and its data channel, tells the server the call has ended (`/api/voice/realtime/end`, which is what
+  actually stops the billing), and hands over to the review screen with the transcript, the captured
+  signals and every refused capture kept. Hanging up mid-call is the same path as a network drop: the
+  call carries on step by step from where it left off.
+- **Pause my mic** (microphone). Disables the live audio track, so the model stops hearing. The AI's
+  voice keeps playing.
+- **Pause the voice** (speaker). Silences the AI audio element; the mic stays live. Both toggles
+  report their state in the label and in `aria-pressed` ("Speaker on" / "Speaker muted").
+
+The orb's waveform follows a real level meter: an `AnalyserNode` on the microphone stream the call
+already opened, so there is no second permission prompt. It is torn down with the call - hanging up,
+dropping to the step-by-step path, or closing the tab all stop the animation loop, disconnect the
+analyser and close the audio context. The page-exit handler (`pagehide`, which also covers iOS
+Safari's back swipe and Chrome's discard) releases the mic, closes the connection and reports the
+hang-up with `navigator.sendBeacon` - non-blocking, so nothing is held up during unload, and the
+transcript is saved from local state rather than by a request that may never land.
+
+Connection health is watched on both `iceConnectionState` and `connectionState`. `disconnected` - a
+mobile network handover, a lift, a moment of Wi-Fi - starts a grace period and says "reconnecting…"
+without ending anything; recovery resumes the live session and clears the message. Only `failed` or
+`closed` ends the call, and then it ends cleanly and carries on step by step with everything already
+said kept, which the visitor is told in one line. Public STUN servers are configured so the media
+path can be established from behind NAT. This is still WebRTC; nothing moved to WebSockets and
+nothing became record-then-submit.
+
 ### The fallback: the same call, step by step
 
 If the browser cannot do WebRTC, the microphone is blocked (browsers block `getUserMedia` inside
@@ -85,8 +115,10 @@ never reaches the browser.
 
 1. Netlify dashboard → your site → **Site configuration → Environment variables → Add a variable**.
 2. Add `OPENAI_API_KEY` = your key (`sk-...`). Keep the scope to Functions (the default is fine).
-3. Add `PS_TOKEN_SECRET` if you have not already (any long random string) so entry-gate tokens and voice
-   call tickets are signed with your own secret.
+3. Add `PS_TOKEN_SECRET` if you have not already (any long random string of at least 16 characters,
+   e.g. the output of `openssl rand -hex 24`) so entry-gate tokens and voice call tickets are signed
+   with your own secret. Without it the entry gate refuses to run in production, and the live voice
+   routes refuse to open a paid session.
 4. **Deploys → Trigger deploy → Deploy site.** Environment changes need a redeploy for functions to
    pick them up.
 5. Optional, same screen (defaults shown; see section 4 for when to change them):
@@ -101,8 +133,14 @@ never reaches the browser.
    | `OPENAI_REALTIME_EAGERNESS` | `medium` | How quickly the model takes the turn back: `low`, `medium`, `high`, `auto` |
    | `OPENAI_REALTIME_SILENCE_MS` | `700` | `server_vad` only: the silence window before the turn ends |
    | `OPENAI_REALTIME_VAD_THRESHOLD` | `0.5` | `server_vad` only: how loud speech must be to count |
-   | `OPENAI_REALTIME_MAX_MIN` | `15` | Spend guard: the session is closed politely at this point |
-   | `OPENAI_REALTIME_MAX_TOOLS` | `90` | Spend guard: tool calls per call before the server hangs up |
+   | `OPENAI_REALTIME_MAX_MIN` | `15` | Spend guard: the session is closed politely at this point. Enforced server-side from the original call start time (section 4) |
+   | `OPENAI_REALTIME_MAX_TOOLS` | `90` | Spend guard: tool calls per call before the server hangs up. Enforced server-side the same way |
+   | `OPENAI_REALTIME_TIMEOUT_MS` | `9000` | How long the server waits for OpenAI to answer the SDP offer. Keep it inside your function timeout - Netlify's default plan kills a function at 10s, and `VOICE_TIMEOUT_MS` (45s) is longer than that |
+   | `OPENAI_REALTIME_CONNECT_PER_MIN` | `4` | New live sessions per minute per IP. Only sessions actually opened are counted, never refusals |
+   | `OPENAI_REALTIME_MAX_CONCURRENT` | `2` | Live calls one signed-in address may hold at once |
+   | `OPENAI_REALTIME_DAILY_MAX` | `25` | Live sessions per signed-in address per day |
+   | `OPENAI_REALTIME_IDLE_MIN` | `5` | A live call with no speech at all for this long is wrapped up politely |
+   | `PS_TOKEN_SECRET` | unset | Signs the session tokens and the call tickets. In production the live voice routes **fail closed** when it is missing, under 16 characters, or still the development secret published in this repo |
    | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | The turn brain (words each line on the step-by-step call) |
    | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | The voice the client hears on the step-by-step call |
    | `OPENAI_TTS_VOICE` | `alloy` | alloy, ash, ballad, coral, echo, sage, shimmer, verse |
@@ -151,8 +189,11 @@ against the mock endpoint - a whole twelve-question call over one session, with 
 1. **On screen.** The call panel shows a badge: **Live AI voice** on a continuous call (with the
    realtime model, the voice and the turn detection underneath, plus how many values were accepted
    and refused), **ChatGPT voice** on the step-by-step call, **Simulated voice** with no key. The
-   sidebar also lists the models in use, and the call controls change to *Mute mic*, *Hear that
-   again*, *Mute the AI*, *Type instead* and *End the call*.
+   sidebar also lists the models in use. On a continuous call the controls are *Microphone live* /
+   *Microphone muted*, *Speaker on* / *Speaker muted*, *Repeat*, *Type instead* and *End
+   conversation*; the orb's waveform follows the real microphone level, and a network handover shows
+   "reconnecting…" instead of ending the call. On the review screen a continuous call is recorded as
+   "Live continuous AI voice" - the word "simulated" only appears when there is no key.
 2. **In the function logs.** Netlify → Functions → `voice`. A continuous call logs one line when the
    session opens and one per answer:
 
@@ -211,6 +252,35 @@ Knobs if that needs to be cheaper:
 - `OPENAI_REALTIME_MAX_MIN=10` and `OPENAI_REALTIME_MAX_TOOLS=60` bound the worst case; the call is
   closed politely at the limit with everything captured so far.
 
+### What bounds the worst case, and how strongly
+
+Be honest about this, because "there is a limit" and "the limit cannot be bypassed" are different
+claims. Every control below is on by default and needs no configuration.
+
+| Control | Default | Where it is enforced | How strong |
+|---|---|---|---|
+| Session length | `OPENAI_REALTIME_MAX_MIN=15` | `runRealtimeTool()` in `lib/voice.js`, from the **original** call start time | **Strong.** The start time is inside the signed ticket and the server re-issues it with the same value, so a client cannot reset the clock. It also keeps its own record of each call it opened, so *dropping* the ticket does not reset the clock either: the server always takes the earliest start it knows. A modified browser cannot get past this. |
+| Tool calls per call | `OPENAI_REALTIME_MAX_TOOLS=90` | same place, same two sources | **Strong**, for the same reason (the server takes the highest count it has seen). |
+| Length of one AI reply | `max_output_tokens: 600` | the session object the server sends to OpenAI | **Strong.** The client never sees or writes the session config. |
+| New sessions per minute per IP | `OPENAI_REALTIME_CONNECT_PER_MIN=4` | `registerRealtimeCall()`, counted only when a session is actually opened | **Best effort.** In-memory, so per serverless instance. |
+| Concurrent live calls per address | `OPENAI_REALTIME_MAX_CONCURRENT=2` | same | **Best effort.** Freed by `/api/voice/realtime/end`, by the page-exit beacon, or by expiry at the session limit. |
+| Sessions per address per day | `OPENAI_REALTIME_DAILY_MAX=25` | same | **Best effort.** |
+| HTTP requests on the voice routes | `RATE_PER_MIN` in `lib/voice-api.js` (6/min for `realtime/connect`, 120/min for `realtime/tool`) | both mounts, before the handler | **Best effort.** A flood guard, not a spend control. |
+| Idle call | `OPENAI_REALTIME_IDLE_MIN=5` | the browser wraps the call up politely | **Courtesy only.** A modified client can ignore it; the session-length cap above is what actually stops it. |
+| A forgeable session token | - | `realtimeReadiness()`: production refuses to open a paid session when `PS_TOKEN_SECRET` is missing, under 16 characters, or still the published development secret | **Strong**, and it fails closed: no live session, no spend, and the call carries on step by step. |
+| Kill switches | `VOICE_REALTIME=off`, `VOICE_PROVIDER=simulated` | `mode()` | **Strong.** One environment variable and a redeploy, no code change. |
+
+What "best effort" means concretely: those counters live in a `Map` inside the function's process, so
+each warm instance keeps its own copy and a cold start forgets. On a single-instance local server
+they are exact. On Netlify they hold per instance, which still stops the common abuse (one visitor
+opening many sessions, a client that never hangs up, a dropped ticket) but is not a global
+guarantee. **If you need a global guarantee**, put the four registry functions in `lib/voice.js`
+(`registerRealtimeCall`, `releaseRealtimeCall`, `noteRealtimeToolCall`, `closeRealtimeCall`) on top
+of a shared store - Upstash/Redis, or a Supabase table next to the leads. Every read and write
+already goes through those four functions, so nothing else has to change. In the meantime the two
+controls that actually bound a single call's cost (session length and tool count) are the strong
+ones, and the OpenAI-side monthly budget in your project settings is the backstop.
+
 ### The step-by-step call (the fallback, or `VOICE_REALTIME=off`)
 
 | Part | Model | Typical cost per call (about 15 turns, 3 to 5 minutes of speech) |
@@ -239,6 +309,12 @@ to bound the worst case.
 | Values the client clearly said are missing from the sidebar | The grounded-capture gate refused them: the model quoted words that do not support the value, or the number was never heard | This is the guardrail working. `[voice] realtime tool ... rejected=N` counts them, and the review screen shows "The AI heard ..." so a human can add them |
 | A field the client never mentioned appears on the review screen | It cannot come from the live call: captures need a quote that supports the value | If it does appear, the answer text is still saved for Function A; report it, because the parser (not the model) filled it |
 | The call ends on its own after about 15 minutes | The spend guard | `OPENAI_REALTIME_MAX_MIN` (the client is told the call is wrapping up first, and everything captured is kept) |
+| The notice says live voice is refused because of `PS_TOKEN_SECRET` | Production fails closed on a missing, short or published-secret signing key | Set your own long random string (16+ characters) in Netlify and redeploy. The message names the variable and never a value; the call carries on step by step in the meantime |
+| "Too many live voice calls from here" | `OPENAI_REALTIME_CONNECT_PER_MIN` (4 per minute per IP, counted only for sessions actually opened) | Wait a minute, or raise it. This one is per serverless instance - see section 4 for how strong each limit is |
+| "You already have live voice calls open" | `OPENAI_REALTIME_MAX_CONCURRENT` (2 per address). A slot is freed by hanging up, by the page-exit report, or when the session limit expires | Hang up the other call, or raise it. An entry left behind by a crashed browser cannot cost anything: it expires at `OPENAI_REALTIME_MAX_MIN` |
+| "You have reached today's limit for live voice calls" | `OPENAI_REALTIME_DAILY_MAX` (25 per address per day) | Raise it if the volume is real. The daily window follows the server's date |
+| The live call drops and carries on step by step | `connectionState` went to `failed`/`closed` (a brief `disconnected` is treated as a handover and given a grace period instead) | Expected behaviour, and the transcript plus every accepted capture is kept. If it happens often on one network, check egress/UDP restrictions; the lead records `fallback_to_turns: true` |
+| The continuous call never opens on Netlify and the function log shows a timeout | The SDP handshake outlived the function's own timeout (10s on the default plan) | Lower `OPENAI_REALTIME_TIMEOUT_MS` (default 9000) so the refusal is readable, and/or raise the function `max_duration` if your plan allows it |
 | The model name is rejected (404) on a new account | Realtime model names change | The server already retries `gpt-realtime-2.1` -> `gpt-realtime` -> `gpt-realtime-2`; set `OPENAI_REALTIME_MODEL` to the name your account has |
 | WebRTC never connects on a corporate network | Egress firewall or no TURN path | Nothing to fix in code: the client falls back to the step-by-step call, and the lead records `fallback_to_turns: true` |
 | The badge says **Simulated voice** on the live site | The key is not visible to the functions | Add `OPENAI_API_KEY` in Netlify env vars, scoped to Functions, then redeploy |
@@ -258,12 +334,12 @@ to bound the worst case.
 
 | File | Role |
 |---|---|
-| `lib/voice.js` | The intake plan, the interviewer policy, capture state, the grounded-capture gate (`validateCaptures`), the FAQ (`REALTIME_FAQ`), the OpenAI adapters, the turn runner, and the continuous-call engine (`realtimeSessionConfig`, `connectRealtime`, `realtimeGuidance`, `runRealtimeTool`, `endRealtimeCall`) |
+| `lib/voice.js` | The intake plan, the interviewer policy, capture state, the grounded-capture gate (`validateCaptures`), the FAQ (`REALTIME_FAQ`), the OpenAI adapters, the turn runner, the continuous-call engine (`realtimeSessionConfig`, `connectRealtime`, `realtimeGuidance`, `runRealtimeTool`, `endRealtimeCall`), and the live-session registry with the spend and abuse guards (`realtimeReadiness`, `registerRealtimeCall`, `releaseRealtimeCall`, `noteRealtimeToolCall`, `closeRealtimeCall`, `realtimeCallState`) |
 | `lib/voice-api.js` | The routes (`session`, `turn`, `transcribe`, `speak`, `realtime/connect`, `realtime/tool`, `realtime/end`), their rate limits, and the lead-metadata clamp |
-| `lib/core.js` | Function A: the deterministic parser, including the spoken-number normaliser (`normalizeSpokenNumbers`) that turns "one and a half million" into 1500000 |
+| `lib/core.js` | Function A: the deterministic parser, including the spoken-number normaliser (`normalizeSpokenNumbers`) that turns "one and a half million" into 1500000, plus token signing and `tokenSecretStatus()` (the production readiness check on `PS_TOKEN_SECRET`) |
 | `netlify/functions/voice.js` | The Netlify entry point for `/api/voice/*` (one function) |
-| `public/app.js` | Both client engines: the continuous call (one WebRTC session, one data channel, live transcript, mute/repeat/type controls) and the step-by-step call. Text sits behind "Type instead" |
-| `test/voice-realtime.js` | A whole continuous call in jsdom: fake WebRTC, fake model, mock endpoint |
+| `public/app.js` | Both client engines: the continuous call (one WebRTC session, one data channel, live transcript, connection-health handling, the real microphone level meter, microphone/speaker/end controls, page-exit cleanup) and the step-by-step call. Text sits behind "Type instead" |
+| `test/voice-realtime.js` | A whole continuous call in jsdom: fake WebRTC, fake model, mock endpoint. Also the guards, the controls, the connection-health fallback and the page-exit cleanup |
 | `test/voice.js`, `test/voice-openai.js`, `test/ui-smoke.js`, `test/mock-openai.js` | Policy, step-by-step ChatGPT path, frontend journey, mock endpoint (chat, speech, transcription and `/v1/realtime/calls`) |
 
 Two rules are enforced everywhere and must stay true: **the API key only ever exists server-side**,
@@ -306,7 +382,7 @@ the same screen and create a new one.
 |---|---|---|
 | C1 | Netlify -> your site -> **Site configuration** | Open **Environment variables** |
 | C2 | Environment variables | **Add a variable**: key `OPENAI_API_KEY`, value your `sk-...` key. Leave the scopes at their default so **Functions** can read it (a variable scoped to Builds only will not reach the functions) |
-| C3 | Same screen | Add `PS_TOKEN_SECRET` if it is not there yet: any long random string (`openssl rand -hex 16`). It signs the entry-gate session tokens and the voice call tickets |
+| C3 | Same screen | Add `PS_TOKEN_SECRET` if it is not there yet: your own long random string, 16 characters or more (`openssl rand -hex 24`). It signs the entry-gate session tokens and the voice call tickets, and in production the live voice routes refuse to open a paid session without it |
 | C4 | Netlify -> **Deploys** | **Trigger deploy -> Clear cache and deploy site**. Environment changes only reach functions on a new deploy |
 
 Optional, to change how it sounds or what it costs:
