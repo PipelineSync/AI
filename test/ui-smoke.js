@@ -98,6 +98,17 @@ async function passGate(page, details) {
   ok(!/\bLog in\b/.test(document.body.textContent), 'nothing on the gate says "Log in"');
   ok(/voice call/i.test(document.body.textContent), 'the gate says the next step is the AI voice call');
   ok(!!document.querySelector('#start-form button[type=submit]'), 'the gate has one submit action');
+  const themeToggle = document.querySelector('#theme-toggle');
+  const initialTheme = document.body.dataset.theme;
+  ok(!!themeToggle && themeToggle.getAttribute('aria-label'), 'the colour-mode switch is available and labelled');
+  if (themeToggle) {
+    themeToggle.click();
+    await sleep(20);
+    ok(document.body.dataset.theme !== initialTheme && document.querySelector('#theme-toggle').getAttribute('aria-pressed') === 'true',
+      'the colour-mode switch changes to light mode');
+    document.querySelector('#theme-toggle').click();
+    await sleep(20);
+  }
 
   if (details) {
     // An empty gate must not start a call: the error is inline and the client stays put.
@@ -117,8 +128,21 @@ async function passGate(page, details) {
 }
 
 async function reachCall(page, details) {
-  const { document, spoken, speechTimes } = page;
+  const { document, spoken, speechTimes, window } = page;
   await passGate(page, details);
+  const signedInTheme = document.querySelector('.theme-switch-top .theme-toggle');
+  ok(!!signedInTheme && signedInTheme.getAttribute('aria-label') === 'Switch to light mode',
+    'the signed-in dashboard has a contextual colour-mode switch');
+  if (signedInTheme) {
+    signedInTheme.click();
+    await sleep(20);
+    const lightTheme = document.querySelector('.theme-switch-top .theme-toggle');
+    ok(document.body.dataset.theme === 'light' && lightTheme && lightTheme.getAttribute('aria-pressed') === 'true' &&
+      lightTheme.getAttribute('aria-label') === 'Switch to dark mode' && window.localStorage.getItem('ps_theme') === 'light',
+      'the signed-in switch changes and persists light mode');
+    lightTheme.click();
+    await sleep(20);
+  }
   ok(/OpenAI for the voice call/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
   ok(/starts speaking/i.test(document.getElementById('consent-note').textContent), 'the consent screen says the AI starts speaking on agreement');
   ok(/Agree and start the voice call/.test(document.getElementById('consent-go').textContent), 'the button that agrees to the disclaimer is the one that starts the call');
@@ -175,6 +199,12 @@ async function reachCall(page, details) {
   ok(/ChatGPT voice|Simulated voice/.test(d1.querySelector('.call-summary').textContent), 'the review screen records how the call was run');
   const nullBadges = d1.querySelectorAll('.nullbadge').length;
   console.log('  (review shows ' + nullBadges + ' "Not stated" badges)');
+  const reviewInputs = Array.from(d1.querySelectorAll('[data-key], [data-prod], [data-src]'))
+    .filter(el => el.tagName === 'INPUT');
+  ok(reviewInputs.length > 0 && reviewInputs.every(el => el.type === 'text' || el.type === 'number'),
+    'review inputs declare a native type so the design-system controls are styled');
+  ok(Array.from(d1.querySelectorAll('input[data-type="number"]')).every(el => el.type === 'number'),
+    'review numeric fields use numeric inputs and the numeric keypad');
 
   d1.getElementById('confirm-fields').click();
   await sleep(7000);
