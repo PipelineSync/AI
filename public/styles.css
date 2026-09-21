@@ -4390,3 +4390,32 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   .theme-glyph.moon { left: 7px; }
   .theme-glyph.sun { right: 7px; }
 }
+
+/* Keep the centered theme control clear of the compact mobile top bar. */
+@media (max-width: 479px) {
+  body.app-screen .brand-text {
+    display: block;
+    max-width: 86px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.82rem;
+  }
+  body.app-screen .topbar-right .btn {
+    width: var(--tap);
+    min-width: var(--tap);
+    padding-inline: 0;
+    font-size: 0;
+  }
+  body.app-screen .topbar-right .btn::before {
+    content: "↻";
+    font-size: 1.15rem;
+    line-height: 1;
+  }
+}
+
+@media (max-width: 359px) {
+  body.app-screen .brand-text {
+    display: none;
+  }
+}
