@@ -174,3 +174,55 @@ interactions were found and resolved, so the hardening holds and the voice still
 
 All suites pass after the merge: voice, voice-openai (mock ChatGPT path), ui-smoke (voice-first and
 typed fallback), e2e, netlify-sim, pdfcheck.
+
+---
+
+## Merge note: continuous voice call hardening (2026-09-22)
+
+The live (WebRTC/OpenAI Realtime) call was production-hardened in place. Nothing was rebuilt, no
+integration was added, no page was redesigned, and no test was weakened - the two tests that were
+failing are now passing because the product changed, not because the assertions did.
+
+1. **The two failing tests.** The review screen records a continuous call as "Live continuous AI
+   voice" (the word "simulated" only appears when there is no key), and the call screen renders the
+   accepted/refused grounded-capture counts from the live tool responses.
+2. **Real controls on a live call.** *End conversation* stops the mic tracks, the AI audio, the peer
+   connection and its data channel, reports `/api/voice/realtime/end` (which is what stops the
+   billing), and carries on into review with the transcript and every capture kept. It reuses the
+   existing `finishCall()`/`cleanupRealtime()` rather than duplicating teardown. *Speaker on / muted*
+   now exposes the existing `setRealtimeSpeakerMuted()`; the mic toggle keeps working and neither
+   one affects the other.
+3. **A real microphone level.** The orb waveform is driven by an `AnalyserNode` on the stream the
+   call already opened - no second permission prompt - and the animation loop and audio graph are
+   torn down with the call, so no orphaned `requestAnimationFrame` survives a hang-up or a drop.
+4. **Connection health.** `iceConnectionState`/`connectionState` are watched. `disconnected` gets a
+   grace period and says "reconnecting…" instead of ending anything; only `failed`/`closed` ends the
+   call, and then it ends through the existing `dropRealtime()` so the step-by-step call carries on
+   with everything already said. One real bug came out of this: the fallback notice was written to
+   `v.notice`, which `voiceTurn()` clears before rendering, so the visitor never saw it. Notices that
+   must survive an automatic continuation now live in `v.rtNotice`.
+5. **Page exit.** `pagehide` (which also covers iOS back-swipe and Chrome tab discard) stops the
+   tracks, closes the connection, the audio graph and the level meter, and reports the hang-up with
+   `navigator.sendBeacon` - never a synchronous XHR during unload.
+6. **STUN, still WebRTC.** Public STUN servers are in the peer connection config. Nothing moved to
+   WebSockets and nothing became record-then-submit; barge-in (`semantic_vad`,
+   `interrupt_response: true`) and `validateCaptures()` are untouched.
+7. **Server-side spend guards.** `started_at` in the signed ticket is authoritative for the call's
+   lifetime, and the server also keeps its own record of every call it opened, taking the earliest
+   start and the highest tool count it has seen. A modified client cannot extend a call by re-issuing
+   or dropping the ticket. New limits on *opening* a session: 4 per minute per IP, 2 concurrent and
+   25 per day per address, an idle wrap-up, and a 9s handshake timeout so the refusal is readable
+   inside Netlify's 10s function limit rather than being killed by the platform.
+8. **`PS_TOKEN_SECRET` fails closed in production.** Missing, under 16 characters, or still the
+   published development secret: no live session, no spend, a reason that names the variable and
+   never a value, and the call carries on step by step. Local development keeps its dev behaviour.
+9. **Key hygiene re-verified.** `OPENAI_API_KEY` appears in no HTML, no browser bundle, no
+   `localStorage` and no API response; the smoke tests assert it.
+10. **Documentation.** `.env.example`, `README.md` and `docs/VOICE_SETUP.md` now list every new
+    variable and, importantly, say plainly which limits are strong and which are best effort
+    (in-memory per serverless instance) - with the four registry functions named as the place to put
+    a shared store if a global guarantee is ever needed.
+
+No CRM, scheduling or database integration was added; the tool-calling path stays ready for one.
+All suites pass after the merge: `npm run test:all` (voice, voice-openai, voice-realtime, ui-smoke,
+ui-design, e2e, netlify-sim, supabase-leads).

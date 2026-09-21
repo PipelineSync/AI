@@ -13,6 +13,14 @@
  *      refusal is visible on screen.
  *   4. The API key never reaches the browser: the SDP offer is exchanged by the server.
  *   5. When realtime is unavailable the same call still runs, step by step, from the same answers.
+ *   6. The visitor is in control of the call: a microphone mute, a separate speaker mute, an End
+ *      conversation button that releases everything, an orb waveform that follows their real
+ *      microphone level, a connection failure that falls back without losing an answer, and a tab
+ *      close that still hangs up cleanly.
+ *   7. The spend guards are the server's, not the browser's: the session clock cannot be reset by
+ *      re-issuing or dropping a ticket, a production server with an unusable signing secret refuses
+ *      to open a paid session at all, and the per-IP, per-email and per-day caps on opening one
+ *      behave as documented.
  *
  * Self-contained: mock on 8098, app on 8089, both in this process.
  */
@@ -31,6 +39,14 @@ process.env.OPENAI_API_KEY = 'sk-mock';
 process.env.OPENAI_BASE_URL = 'http://127.0.0.1:' + MOCK_PORT + '/v1';
 process.env.PORT = String(APP_PORT);
 process.env.PS_TOKEN_SECRET = 'voice-realtime-test-secret';
+/* Test-only relaxation of the abuse limits, exactly as test/harness.js already does for
+   VOICE_RATE_PER_MIN: this file opens several live sessions from one IP within a few seconds,
+   which is more than any real visitor is allowed. The production defaults are NOT changed here -
+   they live in lib/voice.js (REALTIME_DEFAULTS.connectPerMin = 4, maxConcurrent = 2, dailyMax = 25)
+   and lib/voice-api.js (RATE_PER_MIN['realtime/connect'] = 6), and guardTests() below asserts them
+   directly, along with what each one refuses. */
+process.env.VOICE_RATE_PER_MIN = '1000';
+process.env.OPENAI_REALTIME_CONNECT_PER_MIN = '100';
 
 const mock = createMock(MOCK_PORT);
 
@@ -263,6 +279,88 @@ function groundingTests() {
 }
 
 /* ------------------------------------------------------------------ */
+/* 1b. Spend guards, the signing secret, and the abuse controls        */
+/* ------------------------------------------------------------------ */
+function guardTests() {
+  section('spend guards: the server ends a long call, not the browser');
+  const env = { OPENAI_API_KEY: 'sk-x', PS_TOKEN_SECRET: 'guard-test-secret-000000' };
+  const args = { question_id: 'goal', answer_text: 'Twenty closed installs a month.', answer_quality: 'complete', captured: [] };
+  const base = { answers: [], asked: [], probes: {}, skipped: [], voice_captures: [] };
+  const call = (callId, ticket) => voice.runRealtimeTool({
+    env, email: 'guard@b.c',
+    body: Object.assign({ call_id: callId, name: 'record_answer', arguments: args }, ticket ? { call_ticket: ticket } : {}, base)
+  });
+  const twentyMinAgo = Date.now() - 20 * 60 * 1000;      // the default cap is 15 minutes
+
+  const over = call('c-guard', voice.issueRealtimeTicket('guard@b.c', 'c-guard', 3, 0, twentyMinAgo));
+  ok(over.output.close === true, 'a call past OPENAI_REALTIME_MAX_MIN is closed by the server');
+  ok(/out of time|minute limit/i.test(over.output.instruction), 'the model is told the call is over in words it can say out loud');
+  ok(over.elapsed_s >= 19 * 60, 'the elapsed time is the real age of the call, not the age of the ticket (' + over.elapsed_s + 's)');
+  ok(over.max_session_min === voice.REALTIME_DEFAULTS.maxSessionMin, 'the client is told the limit that was applied');
+
+  const again = call('c-guard', over.call_ticket);
+  ok(again.output.close === true && again.elapsed_s >= over.elapsed_s, 'a re-issued ticket carries the original start time, so the clock never restarts');
+
+  const dropped = call('c-guard', null);
+  ok(dropped.output.close === true && dropped.elapsed_s >= 19 * 60, 'dropping the ticket does not reset the session clock either');
+
+  const fresh = call('c-fresh', voice.issueRealtimeTicket('guard@b.c', 'c-fresh', 1, 0, Date.now()));
+  ok(fresh.output.close !== true, 'a call inside its limit carries on as normal');
+
+  const capTicket = voice.issueRealtimeTicket('guard@b.c', 'c-tools', voice.REALTIME_DEFAULTS.maxToolCalls, 0, Date.now());
+  ok(call('c-tools', capTicket).output.close === true, 'the tool call cap still closes a runaway call');
+
+  section('the signing secret: a paid session needs one that cannot be forged');
+  const prod = { OPENAI_API_KEY: 'sk-x', CONTEXT: 'production' };
+  const noSecret = voice.realtimeReadiness(prod);
+  ok(noSecret.ok === false && noSecret.code === 'token-secret-missing', 'production with no PS_TOKEN_SECRET refuses to open a paid session');
+  ok(/PS_TOKEN_SECRET/.test(noSecret.reason) && !/sk-x/.test(noSecret.reason), 'the reason names the variable and leaks no value');
+  ok(voice.realtimeReadiness({ OPENAI_API_KEY: 'sk-x', CONTEXT: 'production', PS_TOKEN_SECRET: 'pipelinesync-prototype-dev-secret' }).ok === false,
+    'the known development fallback secret is refused in production');
+  ok(voice.realtimeReadiness({ OPENAI_API_KEY: 'sk-x', NETLIFY: 'true', PS_TOKEN_SECRET: 'tooshort' }).ok === false, 'a weak secret is refused in production');
+  ok(voice.realtimeReadiness({ OPENAI_API_KEY: 'sk-x', NODE_ENV: 'production', PS_TOKEN_SECRET: 'tooshort' }).ok === false, 'NODE_ENV=production is treated as production too');
+  const secret = 'a-long-random-secret-value-0000';
+  const good = voice.realtimeReadiness({ OPENAI_API_KEY: 'sk-x', CONTEXT: 'production', PS_TOKEN_SECRET: secret });
+  ok(good.ok === true, 'a proper secret opens the way in production');
+  ok(JSON.stringify(good).indexOf(secret) < 0, 'the readiness report never contains the secret');
+  ok(voice.realtimeReadiness({ OPENAI_API_KEY: 'sk-x' }).ok === true, 'local development still runs without a production secret');
+  ok(voice.realtimeReadiness({}).ok === false, 'with no key there is no live session');
+  ok(voice.realtimeReadiness({ OPENAI_API_KEY: 'sk-x', VOICE_REALTIME: 'off' }).ok === false, 'the VOICE_REALTIME kill switch still stops the continuous call');
+
+  section('abuse controls on opening a paid session');
+  const cfg = voice.mode({ OPENAI_API_KEY: 'sk-x', PS_TOKEN_SECRET: 'guard-test-secret-000000' });
+  ok(cfg.realtime.connectPerMin === 4, 'the production default is four new live sessions per minute per IP (' + cfg.realtime.connectPerMin + ')');
+  ok(cfg.realtime.maxConcurrent === 2 && cfg.realtime.dailyMax === 25, 'the defaults cap concurrent calls and sessions per day');
+  let allowed = 0;
+  for (let i = 1; i <= 6; i++) {
+    if (voice.registerRealtimeCall({ email: 'min' + i + '@b.c', callId: 'c-min-' + i, ip: '203.0.113.7', cfg }).ok) allowed++;
+  }
+  ok(allowed === 4, 'the fifth and sixth session from one address in a minute are refused (' + allowed + ' allowed)');
+  ok(voice.registerRealtimeCall({ email: 'min7@b.c', callId: 'c-min-7', ip: '203.0.113.8', cfg }).ok === true, 'a different visitor on a different address is unaffected');
+
+  const c1 = voice.registerRealtimeCall({ email: 'two@b.c', callId: 'c-two-1', ip: '203.0.113.9', cfg });
+  const c2 = voice.registerRealtimeCall({ email: 'two@b.c', callId: 'c-two-2', ip: '203.0.113.9', cfg });
+  const c3 = voice.registerRealtimeCall({ email: 'two@b.c', callId: 'c-two-3', ip: '203.0.113.9', cfg });
+  ok(c1.ok && c2.ok && c3.ok === false && c3.code === 'concurrent', 'one address cannot hold more live calls than the concurrent cap');
+  voice.closeRealtimeCall('two@b.c', 'c-two-1', cfg);
+  ok(voice.registerRealtimeCall({ email: 'two@b.c', callId: 'c-two-3', ip: '203.0.113.9', cfg }).ok === true, 'hanging up frees the slot for the next call');
+
+  const rel = voice.registerRealtimeCall({ email: 'rel@b.c', callId: 'c-rel', ip: '203.0.113.10', cfg });
+  voice.releaseRealtimeCall('rel@b.c', 'c-rel', cfg);
+  ok(rel.ok && voice.registerRealtimeCall({ email: 'rel@b.c', callId: 'c-rel', ip: '203.0.113.10', cfg }).ok === true,
+    'a session OpenAI refused costs the visitor no allowance, so a genuine retry works');
+
+  const small = voice.mode({ OPENAI_API_KEY: 'sk-x', OPENAI_REALTIME_DAILY_MAX: '3' });
+  for (let i = 1; i <= 3; i++) {
+    voice.registerRealtimeCall({ email: 'day@b.c', callId: 'c-day-' + i, ip: '203.0.113.' + (20 + i), cfg: small });
+    voice.closeRealtimeCall('day@b.c', 'c-day-' + i, small);
+  }
+  const denied = voice.registerRealtimeCall({ email: 'day@b.c', callId: 'c-day-4', ip: '203.0.113.24', cfg: small });
+  ok(denied.ok === false && denied.code === 'daily', 'the per-email daily session limit is enforced');
+  ok(/daily limit/i.test(denied.reason), 'the visitor is told plainly what happened, in words that can be shown on screen');
+}
+
+/* ------------------------------------------------------------------ */
 /* 2. The routes                                                       */
 /* ------------------------------------------------------------------ */
 async function routeTests(token) {
@@ -331,12 +429,20 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-function bootBrowser(plan) {
+/* opts.hold          the fake model asks its question and then waits, so the call stays live and the
+                      controls can be exercised instead of running to the end on their own
+   opts.audioContext  install a fake AudioContext, so the orb's waveform can be proved to follow the
+                      visitor's real microphone level (and to stop when the call is cleaned up)
+   opts.health        keep the peer connection's state listeners, so a connection failure can be
+                      fired at the client the way a real browser fires it */
+function bootBrowser(plan, opts) {
+  opts = opts || {};
   const dom = new JSDOM(html, { url: APP + '/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   const { document } = window;
   const errors = [];
-  window.fetch = (p, o) => fetch(new URL(p, APP).toString(), o);
+  const fetched = [];
+  window.fetch = (p, o) => { try { fetched.push(String(p)); } catch (e) {} return fetch(new URL(p, APP).toString(), o); };
   window.addEventListener('error', e => errors.push(e.message));
   window.__PS_VOICE_TIMING__ = { silenceMs: 40, noSpeechMs: 200, maxListenMs: 600, speakFactorMs: 2, minSpeakMs: 5, maxSpeakMs: 60 };
 
@@ -345,21 +451,43 @@ function bootBrowser(plan) {
   window.HTMLMediaElement.prototype.play = function () { played++; return Promise.resolve(); };
   window.HTMLMediaElement.prototype.pause = function () {};
 
-  // The microphone: opened once for the whole call.
+  // The microphone: opened once for the whole call. A real MediaStream hands back the same track
+  // objects on every call, so this fake does too - which is what lets a test observe a mute.
   let micCalls = 0, tracksStopped = 0;
-  const micStream = {
-    getAudioTracks: () => [{ kind: 'audio', enabled: true, stop() { tracksStopped++; } }],
-    getTracks: function () { return this.getAudioTracks(); }
-  };
+  const micTracks = [{ kind: 'audio', enabled: true, stop() { tracksStopped++; this.stopped = true; } }];
+  const micStream = { getAudioTracks: () => micTracks, getTracks: () => micTracks };
   Object.defineProperty(window.navigator, 'mediaDevices', {
     value: { getUserMedia: () => { micCalls++; return Promise.resolve(micStream); } },
     configurable: true
   });
 
+  /* The microphone level meter: a fake AnalyserNode on the same stream the peer connection uses.
+     `frames` counts reads, which is how a test proves the animation loop really stops on cleanup. */
+  const audio = { contexts: 0, closed: 0, disconnected: 0, frames: 0, loud: true };
+  if (opts.audioContext) {
+    window.AudioContext = class {
+      constructor() { audio.contexts++; this.state = 'running'; }
+      resume() { return Promise.resolve(); }
+      close() { audio.closed++; return Promise.resolve(); }
+      createAnalyser() {
+        const an = { fftSize: 512, smoothingTimeConstant: 0 };
+        an.getByteTimeDomainData = buf => {
+          audio.frames++;
+          for (let i = 0; i < buf.length; i++) buf[i] = audio.loud ? 200 : 128;   // 200 = loud, 128 = silence
+        };
+        an.disconnect = () => { audio.disconnected++; };
+        return an;
+      }
+      createMediaStreamSource() { return { connect() {}, disconnect() { audio.disconnected++; } }; }
+    };
+  }
+
   // One WebRTC session. Everything the client sends is recorded, and the fake model reacts to it.
   const sent = [];
-  const calls = { connect: 0, channelsClosed: 0, tracks: 0, offers: 0 };
+  const calls = { connect: 0, channelsClosed: 0, tracks: 0, offers: 0, pcClosed: 0 };
   let dc = null;
+  let pcRef = null;
+  const pcListeners = {};
   let onClientEvent = () => {};
   class FakeDataChannel {
     constructor(label) { this.label = label; this.readyState = 'connecting'; }
@@ -375,7 +503,11 @@ function bootBrowser(plan) {
     open() { this.readyState = 'open'; if (this.onopen) this.onopen(); }
   }
   class FakePeerConnection {
-    constructor() { this.iceGatheringState = 'new'; this.localDescription = null; this.remoteDescription = null; calls.connect++; }
+    constructor() {
+      this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; this.connectionState = 'new';
+      this.localDescription = null; this.remoteDescription = null;
+      calls.connect++; pcRef = this;
+    }
     addTrack(track) { calls.tracks++; this._track = track; }
     createDataChannel(label) { dc = new FakeDataChannel(label); return dc; }
     async createOffer() { calls.offers++; return { type: 'offer', sdp: 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\nm=audio 9 UDP/TLS/RTP/SAVPF 0\r\n' }; }
@@ -386,10 +518,24 @@ function bootBrowser(plan) {
       if (this.ontrack) this.ontrack({ track: { kind: 'audio' }, streams: [{ id: 'remote' }] });
       setTimeout(() => { if (dc) dc.open(); }, 5);
     }
-    close() { this.connectionState = 'closed'; }
-    addEventListener() {}
-    removeEventListener() {}
+    close() { this.connectionState = 'closed'; calls.pcClosed++; }
+    addEventListener(type, fn) { if (opts.health) (pcListeners[type] = pcListeners[type] || []).push(fn); }
+    removeEventListener(type, fn) {
+      if (!opts.health) return;
+      const l = pcListeners[type] || []; const i = l.indexOf(fn);
+      if (i >= 0) l.splice(i, 1);
+    }
   }
+  /* Fire a connection state at the client exactly as a browser would: the property changes first,
+     then every registered listener runs. */
+  const fireConnectionState = s => {
+    if (!pcRef) return false;
+    pcRef.connectionState = s;
+    pcRef.iceConnectionState = s;
+    (pcListeners.connectionstatechange || []).slice().forEach(fn => { try { fn(); } catch (e) { errors.push('connectionstatechange: ' + e.message); } });
+    (pcListeners.iceconnectionstatechange || []).slice().forEach(fn => { try { fn(); } catch (e) { errors.push('iceconnectionstatechange: ' + e.message); } });
+    return true;
+  };
   window.RTCPeerConnection = FakePeerConnection;
   window.MediaStream = class { constructor(tracks) { this.tracks = tracks; } };
 
@@ -467,11 +613,17 @@ function bootBrowser(plan) {
     const askedNow = qid;
     lastOutput = null;
     await sleep(5);
-    if (!closing) answer(askedNow);
+    // With `hold` the model asks its question and then waits, so the call stays live and the
+    // controls can be driven by the test instead of the call running to the end on its own.
+    if (!closing && !opts.hold) answer(askedNow);
   };
 
   window.eval(appJs);
-  return { window, document, sent, calls, errors, spokenLines, micCalls: () => micCalls, tracksStopped: () => tracksStopped, played: () => played };
+  return {
+    window, document, sent, calls, errors, spokenLines, micTracks, fetched, audio,
+    emit, fireConnectionState,
+    micCalls: () => micCalls, tracksStopped: () => tracksStopped, played: () => played
+  };
 }
 
 async function browserTests(token) {
@@ -533,6 +685,172 @@ async function browserTests(token) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 3b. The controls a visitor has on a live call                        */
+/* ------------------------------------------------------------------ */
+/* Start a call and wait until the live session is genuinely up: the model has spoken its opening
+   question, which only happens once the data channel is open. */
+async function waitLive(page) {
+  const document = page.document;
+  document.getElementById('demo-btn').click();
+  await sleep(300);
+  document.getElementById('consent-cb').click();
+  document.getElementById('consent-go').click();
+  for (let i = 0; i < 160 && !(page.spokenLines.length >= 1 && document.querySelector('#end-call-btn')); i++) await sleep(50);
+  return page.spokenLines.length >= 1 && !!document.querySelector('#end-call-btn');
+}
+
+/* Each browser test signs in as its own visitor: the abuse controls count live calls per email, and
+   a test that leaves a call unreported (a dropped connection, exactly what healthTests simulates)
+   must not eat the next test's allowance. */
+async function loginFor(name, email) {
+  const r = await (await fetch(APP + '/api/auth/start', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email })
+  })).json();
+  return r.token;
+}
+
+async function controlsTests() {
+  section('continuous call: the controls a visitor actually has');
+  const token = await loginFor('Controls Tester', 'controls@pipelinesync.ai');
+  const sessRes = await (await fetch(APP + '/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })).json();
+  const page = bootBrowser(sessRes.plan, { hold: true, audioContext: true, health: true });
+  const { document } = page;
+  await sleep(150);
+  ok(await waitLive(page), 'the live call is up and the controls are on screen');
+
+  const endBtn = document.querySelector('#end-call-btn');
+  ok(!!endBtn && /End conversation/.test(endBtn.textContent), 'a live call has a plain "End conversation" button');
+  ok(!!document.querySelector('#mic-btn') && /Microphone live/.test(document.querySelector('#mic-btn').textContent), 'the microphone control says the microphone is live');
+  ok(!!document.querySelector('#mute-btn') && /Speaker on/.test(document.querySelector('#mute-btn').textContent), 'the speaker control is separate from the microphone, and says it is on');
+  ok(!!document.querySelector('#conn-state'), 'the connection state is on screen during a live call');
+
+  /* ---- the orb waveform follows the visitor's real microphone ---- */
+  ok(page.audio.contexts === 1, 'one AudioContext was opened for the level meter (' + page.audio.contexts + ')');
+  ok(page.micCalls() === 1, 'the level meter reused the call\'s microphone stream: no second permission prompt');
+  for (let i = 0; i < 40 && page.audio.frames < 3; i++) await sleep(25);
+  ok(page.audio.frames >= 3, 'the analyser is reading the microphone (' + page.audio.frames + ' frames)');
+  const wave = document.querySelector('#orb .wave');
+  ok(!!wave && /level/.test(wave.className), 'the waveform hands its bars over to the measured level');
+  const barHeight = () => {
+    const w = document.querySelector('#orb .wave');
+    const bars = w ? w.querySelectorAll('span') : [];
+    return bars.length >= 3 ? parseFloat(bars[2].style.height || '0') : 0;
+  };
+  const loud = barHeight();
+  ok(loud > 5, 'a loud microphone moves the bars (' + loud.toFixed(1) + 'px)');
+  page.audio.loud = false;
+  await sleep(400);
+  const quiet = barHeight();
+  ok(quiet < loud - 2, 'silence brings the bars back down (' + quiet.toFixed(1) + 'px)');
+  page.audio.loud = true;
+
+  /* ---- microphone mute: the visitor goes quiet, the AI does not ---- */
+  document.querySelector('#mic-btn').click();
+  await sleep(80);
+  ok(page.micTracks[0].enabled === false, 'muting the microphone disables the live audio track');
+  ok(/Microphone muted/.test(document.querySelector('#mic-btn').textContent), 'the microphone button says it is muted');
+  ok(document.querySelector('#mic-btn').getAttribute('aria-pressed') === 'false', 'the microphone button reports its state to a screen reader');
+  const audioEl = document.querySelector('audio');
+  ok(audioEl && audioEl.muted === false, 'muting the microphone does not mute the AI voice');
+  document.querySelector('#mic-btn').click();
+  await sleep(80);
+  ok(page.micTracks[0].enabled === true && /Microphone live/.test(document.querySelector('#mic-btn').textContent), 'the microphone unmutes again');
+
+  /* ---- speaker mute: the AI goes quiet, the microphone does not ---- */
+  document.querySelector('#mute-btn').click();
+  await sleep(80);
+  ok(document.querySelector('audio').muted === true, 'muting the speaker silences the AI audio element');
+  ok(/Speaker muted/.test(document.querySelector('#mute-btn').textContent), 'the speaker button says it is muted');
+  ok(page.micTracks[0].enabled === true, 'muting the speaker leaves the visitor\'s microphone live');
+  document.querySelector('#mute-btn').click();
+  await sleep(80);
+  ok(document.querySelector('audio').muted === false && /Speaker on/.test(document.querySelector('#mute-btn').textContent), 'the speaker unmutes again');
+
+  /* ---- ending the call by hand ---- */
+  const framesAtEnd = page.audio.frames;
+  document.querySelector('#end-call-btn').click();
+  ok(page.micTracks[0].stopped === true, 'ending the call stops the microphone track');
+  ok(page.calls.channelsClosed >= 1, 'ending the call closes the WebRTC data channel');
+  ok(page.calls.pcClosed >= 1, 'ending the call closes the peer connection');
+  ok(!document.querySelector('audio'), 'ending the call removes the AI audio element');
+  ok(page.audio.closed >= 1, 'ending the call closes the analyser context');
+  ok(page.fetched.some(p => /\/api\/voice\/realtime\/end/.test(p)), 'ending the call reports the hang-up to the server');
+  for (let i = 0; i < 120 && !document.querySelector('#confirm-fields'); i++) await sleep(100);
+  await sleep(400);
+  ok(page.audio.frames === framesAtEnd, 'no orphaned animation loop keeps reading the microphone after the call (' + page.audio.frames + ' frames)');
+  ok(!!document.querySelector('#confirm-fields'), 'ending the call by hand carries on into the review screen');
+  ok(/Live continuous AI voice/.test(document.querySelector('.call-summary').textContent), 'a call ended by hand is still recorded as a live continuous call');
+  ok(page.errors.length === 0, 'no runtime errors on the controls path' + (page.errors.length ? ': ' + page.errors[0] : ''));
+}
+
+async function healthTests() {
+  section('continuous call: a bad connection falls back instead of losing the call');
+  const token = await loginFor('Health Tester', 'health@pipelinesync.ai');
+  const sessRes = await (await fetch(APP + '/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })).json();
+  const page = bootBrowser(sessRes.plan, { hold: true, health: true });
+  const { document } = page;
+  await sleep(150);
+  ok(await waitLive(page), 'the live call is up before the connection is tested');
+
+  // Something the visitor actually said, so there is an answer to lose if the fallback is careless.
+  page.emit({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'We install solar systems for homeowners in Ilocos.' });
+  await sleep(120);
+  ok(document.querySelectorAll('.bubble.user').length >= 1, 'the answer is on the transcript while the call is live');
+  ok(/Live AI voice/.test(document.body.textContent), 'the screen says the call is live');
+
+  // A hiccup: the browser reports 'disconnected', which usually recovers by itself.
+  page.fireConnectionState('disconnected');
+  await sleep(150);
+  ok(/Live AI voice/.test(document.body.textContent), 'a momentary disconnection does not end the call');
+  ok(page.calls.pcClosed === 0, 'the peer connection is left open during the grace period');
+  ok(/reconnecting/i.test(document.querySelector('#conn-state').textContent), 'the screen says the connection is recovering, not that it is dead');
+
+  page.fireConnectionState('connected');
+  await sleep(150);
+  ok(/connected/i.test(document.querySelector('#conn-state').textContent), 'the connection state on screen recovers');
+  ok(/Live AI voice/.test(document.body.textContent), 'the call is still live after the recovery');
+
+  // A terminal failure: the live session is over, but the call is not.
+  page.fireConnectionState('failed');
+  for (let i = 0; i < 80 && /Live AI voice/.test(document.body.textContent); i++) await sleep(50);
+  ok(!/Live AI voice/.test(document.body.textContent), 'a failed connection ends the live session');
+  ok(page.calls.pcClosed >= 1, 'the peer connection is closed once the failure is terminal');
+  ok(page.micTracks[0].stopped === true, 'the microphone is released when the live session fails');
+  ok(/carries on step by step/i.test(document.body.textContent), 'the visitor is told the call carries on, with everything they said kept');
+  ok(document.querySelectorAll('.bubble.user').length >= 1, 'the answer they gave survives the fallback');
+  ok(/solar systems for homeowners in Ilocos/i.test(document.body.textContent), 'their words are still on screen after the fallback');
+  await sleep(600);
+  ok(/carries on step by step/i.test(document.body.textContent), 'the notice is still on screen after the next question arrives, so the visitor is not left wondering');
+  ok(page.errors.length === 0, 'no runtime errors when the connection fails' + (page.errors.length ? ': ' + page.errors[0] : ''));
+}
+
+async function pageExitTests() {
+  section('continuous call: closing the tab releases the microphone and reports the hang-up');
+  const token = await loginFor('Exit Tester', 'exit@pipelinesync.ai');
+  const sessRes = await (await fetch(APP + '/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })).json();
+  const page = bootBrowser(sessRes.plan, { hold: true, audioContext: true, health: true });
+  await sleep(150);
+  ok(await waitLive(page), 'the live call is up before the tab is closed');
+  for (let i = 0; i < 40 && page.audio.frames < 3; i++) await sleep(25);
+  const frames = page.audio.frames;
+  ok(frames >= 3, 'the level meter is running before the exit');
+
+  // What a tab close, a refresh or a navigation looks like to the page.
+  page.window.dispatchEvent(new page.window.Event('pagehide'));
+  await sleep(400);
+  ok(page.micTracks[0].stopped === true, 'leaving the page stops the microphone track');
+  ok(page.calls.pcClosed >= 1, 'leaving the page closes the peer connection');
+  ok(page.calls.channelsClosed >= 1, 'leaving the page closes the data channel');
+  ok(!page.document.querySelector('audio'), 'leaving the page removes the AI audio element');
+  ok(page.audio.closed >= 1, 'leaving the page closes the analyser context');
+  ok(page.fetched.some(p => /\/api\/voice\/realtime\/end/.test(p)), 'leaving the page still reports the hang-up to the server');
+  await sleep(400);
+  ok(page.audio.frames === frames, 'leaving the page stops the level meter, so no loop is orphaned (' + page.audio.frames + ' frames)');
+  ok(page.errors.length === 0, 'no runtime errors on the way out' + (page.errors.length ? ': ' + page.errors[0] : ''));
+}
+
+/* ------------------------------------------------------------------ */
 /* 4. No realtime: the same call still runs, step by step               */
 /* ------------------------------------------------------------------ */
 async function fallbackTests() {
@@ -585,10 +903,14 @@ async function fallbackTests() {
   console.log('\nThe continuous voice call: OpenAI Realtime over WebRTC, against a mock endpoint');
   configTests();
   groundingTests();
+  guardTests();
 
   const login = await (await fetch(APP + '/api/auth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Maria Santos', email: 'maria@pipelinesync.ai' }) })).json();
   await routeTests(login.token);
   await browserTests(login.token);
+  await controlsTests();
+  await pageExitTests();
+  await healthTests();
   await fallbackTests();
 
   console.log('\n' + (failures === 0 ? 'CONTINUOUS VOICE CALL PASSED' : failures + ' FAILURES'));
