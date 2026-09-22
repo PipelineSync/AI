@@ -207,8 +207,15 @@ async function reachCall(page, details) {
     'review numeric fields use numeric inputs and the numeric keypad');
 
   d1.getElementById('confirm-fields').click();
-  await sleep(7000);
-  ok(!!d1.querySelector('.doc'), 'blueprint document rendered');
+  // Phase 2: generation is a real background job. The loader must show a state the
+  // server actually reported, and the blueprint must not appear before it is done.
+  await sleep(500);
+  const loaderStep = d1.querySelector('#loader-step');
+  ok(!!loaderStep, 'the generation loader shows a progress state');
+  ok(!d1.querySelector('.doc'), 'the blueprint is not rendered while the job is still running');
+  for (let i = 0; i < 60 && !d1.querySelector('.doc'); i++) await sleep(250);
+  
+  ok(!!d1.querySelector('.doc'), 'blueprint document rendered only after the API reported done');
   ok(!!d1.querySelector('.coa-item'), 'cost of inaction items rendered');
   ok(d1.querySelectorAll('.chip.kb').length > 5, 'KB reference chips rendered');
   ok(!d1.querySelector('.doc').textContent.includes('\u2014'), 'no em dashes in the blueprint view');

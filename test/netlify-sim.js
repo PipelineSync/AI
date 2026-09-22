@@ -9,6 +9,25 @@ const login = F('login.js').handler;   // alias of start.js
 const logout = F('logout.js').handler;
 const extract = F('extract.js').handler;
 const generate = F('generate.js').handler;
+const generateStatus = F('generate-status.js').handler;
+
+/* /api/generate is asynchronous: 202 + jobId, then poll /api/generate/status.
+   Without URL/DEPLOY_PRIME_URL the dispatcher runs the job inline, which is what
+   `netlify dev` and this simulation do. */
+async function runGenerate(token, fields) {
+  const res = await generate({ httpMethod: 'POST', path: '/api/generate', body: JSON.stringify({ token, fields }) });
+  const body = JSON.parse(res.body || '{}');
+  if (res.statusCode !== 202 || !body.jobId) return { statusCode: res.statusCode, body, status: null, blueprint: null };
+  for (let i = 0; i < 100; i++) {
+    const st = await generateStatus({ httpMethod: 'GET', path: '/api/generate/status', queryStringParameters: { jobId: body.jobId, token } });
+    const sj = JSON.parse(st.body || '{}');
+    if (sj.status === 'done' || sj.status === 'error') {
+      return { statusCode: res.statusCode, body, status: sj, blueprint: sj.blueprint || null, jobId: body.jobId };
+    }
+    await new Promise(r => setTimeout(r, 20));
+  }
+  throw new Error('runGenerate: job never finished');
+}
 const deliver = F('deliver.js').handler;
 const outbox = F('outbox.js').handler;
 const voiceFn = F('voice.js').handler;
@@ -139,9 +158,12 @@ function patchContactCalls(calls) {
   ok(ex.statusCode === 200, 'extract function 200');
   const fields = JSON.parse(ex.body).fields;
 
-  const gen = await generate({ httpMethod: 'POST', path: '/api/generate', body: JSON.stringify({ token: T, fields }) });
-  ok(gen.statusCode === 200, 'generate function 200');
-  const bp = JSON.parse(gen.body).blueprint;
+  const gen = await runGenerate(T, fields);
+  ok(gen.statusCode === 202 && gen.body.jobId, 'generate function accepts the job (202 + jobId)');
+  ok(gen.status && gen.status.status === 'done' && gen.blueprint, 'the job completes and the status endpoint returns the blueprint');
+  ok(gen.status.source === 'fallback', 'no ANTHROPIC_API_KEY: source is reported as fallback');
+  ok(gen.status.progress === 100, 'a finished job reports 100% progress');
+  const bp = gen.blueprint;
 
   const dv = await deliver({ httpMethod: 'POST', path: '/api/deliver', body: JSON.stringify({ token: T, email: 'owner@solar.ph', consent: true, fields, blueprint: bp }) });
   ok(dv.statusCode === 200, 'deliver function 200');
@@ -316,9 +338,9 @@ function patchContactCalls(calls) {
     const liveEx = await extract({ httpMethod: 'POST', path: '/api/extract', body: JSON.stringify({ token: liveTok, answers }) });
     ok(liveEx.statusCode === 200, 'extract after live start 200');
     const liveFields = JSON.parse(liveEx.body).fields;
-    const liveGen = await generate({ httpMethod: 'POST', path: '/api/generate', body: JSON.stringify({ token: liveTok, fields: liveFields }) });
-    ok(liveGen.statusCode === 200, 'generate after live start 200');
-    const liveBp = JSON.parse(liveGen.body).blueprint;
+    const liveGen = await runGenerate(liveTok, liveFields);
+    ok(liveGen.statusCode === 202 && liveGen.blueprint, 'generate after live start completes');
+    const liveBp = liveGen.blueprint;
 
     const liveDv = await deliver({
       httpMethod: 'POST', path: '/api/deliver',

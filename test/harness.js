@@ -55,3 +55,28 @@ async function startServer(port) {
 }
 
 module.exports = { startServer };
+
+/* Phase 2: /api/generate is asynchronous (202 + jobId, polled at
+   /api/generate/status). generateBlueprint() drives the whole job over HTTP and
+   returns the final status payload, so existing tests keep one call site. */
+async function generateBlueprint(base, token, fields, opts) {
+  opts = opts || {};
+  const start = await fetch(base + '/api/generate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, fields })
+  });
+  const sj = await start.json().catch(() => ({}));
+  if (start.status !== 202 || !sj.jobId) return { code: start.status, j: sj, blueprint: null };
+  const deadline = Date.now() + (opts.timeoutMs || 20000);
+  while (Date.now() < deadline) {
+    const r = await fetch(base + '/api/generate/status?jobId=' + encodeURIComponent(sj.jobId) + '&token=' + encodeURIComponent(token));
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 200 && (j.status === 'done' || j.status === 'error')) {
+      return { code: j.status === 'done' ? 200 : 500, j, blueprint: j.blueprint || null, jobId: sj.jobId };
+    }
+    await new Promise(res => setTimeout(res, 40));
+  }
+  throw new Error('generateBlueprint: timed out polling job ' + sj.jobId);
+}
+
+module.exports.generateBlueprint = generateBlueprint;

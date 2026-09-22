@@ -7,6 +7,12 @@
 
 [functions]
   directory = "netlify/functions"
+  # Blueprint generation is dispatched to generate-background.js, so the synchronous
+  # functions only need headroom for the extract call to Claude (Prompt B + retry).
+  timeout = 26
+  # @netlify/blobs is the one allowed runtime dependency in server code (Phase 2):
+  # it backs the background job store.
+  external_node_modules = ["@netlify/blobs"]
 
 # Security headers for all responses (static + functions)
 [[headers]]
@@ -48,13 +54,14 @@
   status = 200
 
 [[redirects]]
-  from = "/api/ai/*"
-  to = "/.netlify/functions/ai"
-  status = 200
-
-[[redirects]]
   from = "/api/generate"
   to = "/.netlify/functions/generate"
+  status = 200
+
+# Poll target for the background blueprint job (client polls every 2s).
+[[redirects]]
+  from = "/api/generate/status"
+  to = "/.netlify/functions/generate-status"
   status = 200
 
 [[redirects]]

@@ -3,7 +3,7 @@
 << /Type /Catalog /Pages 2 0 R >>
 endobj
 2 0 obj
-<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R] /Count 3 >>
 endobj
 3 0 obj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
@@ -15,7 +15,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
 endobj
 6 0 obj
-<< /Length 4119 >>
+<< /Length 4006 >>
 stream
 0 g
 BT
@@ -23,44 +23,45 @@ BT
 /F1 9 Tf 1 0 0 1 381.0 798 Tm (REVENUE OPERATIONS BLUEPRINT) Tj
 0.97 0.48 0.35 RG 0.8 w 56 790 m 539 790 l S
 /F2 20 Tf 1 0 0 1 56 704.0 Tm (REVENUE OPERATIONS BLUEPRINT) Tj
-/F1 9.5 Tf 1 0 0 1 56 683.8 Tm (We run a dental clinic in Ilocos with four chairs and general plus cosmetic dentistry.  |  Medical  |  Prepared 22 September 2026) Tj
+/F1 9.5 Tf 1 0 0 1 56 683.8 Tm (We run a dental clinic in Ilocos with four chairs and general plus cosmetic dentistry.  |  Medical  |  Prepared 23 September 2026) Tj
 /F2 12.5 Tf 1 0 0 1 56 651.0 Tm (1. Executive summary) Tj
 /F1 9.8 Tf 1 0 0 1 56 633.3 Tm (We run a dental clinic in Ilocos with four chairs and general plus cosmetic dentistry. You currently bring in about) Tj
 /F1 9.8 Tf 1 0 0 1 56 618.6 Tm (80 leads a month and close 60 \(75%\), running on no CRM \(manual tracking\) with Microsoft Excel, WhatsApp,) Tj
 /F1 9.8 Tf 1 0 0 1 56 603.9 Tm (Meta Ads, Google Ads. This blueprint moves you to Sales Hub Professional plus Service Hub Professional,) Tj
 /F1 9.8 Tf 1 0 0 1 56 589.2 Tm (installs a single-call pipeline across 3 lead sources, and works towards: 30 percent more bookings and fewer) Tj
 /F1 9.8 Tf 1 0 0 1 56 574.5 Tm (no-shows. Estimated cost of inaction: PHP 258,000 per month.) Tj
-/F2 12.5 Tf 1 0 0 1 56 547.7 Tm (2. Recommended HubSpot stack) Tj
-/F1 9.8 Tf 1 0 0 1 72 530.0 Tm (-  Core: Sales Hub Professional) Tj
-/F1 9.8 Tf 1 0 0 1 72 515.3 Tm (-  Add-on: Service Hub Professional) Tj
-/F1 9.8 Tf 1 0 0 1 72 500.6 Tm (-  2 hub\(s\) x 3 seats x USD 90 per seat per month = approx. USD 540 per month) Tj
-/F1 8.2 Tf 1 0 0 1 56 488.3 Tm (List price, USD per seat per month, from knowledge base v1. Regional and committed pricing varies. Confirm at the build call.) Tj
-/F1 9.8 Tf 1 0 0 1 72 473.6 Tm (-  Sales Hub Professional is the floor: the build requires workflows, and Starter cannot run them.) Tj
-/F1 9.8 Tf 1 0 0 1 72 458.9 Tm (-  A Service Hub seat for the front desk gives you ticketing, no-show tracking, and post-visit follow-up in one) Tj
-/F1 9.8 Tf 1 0 0 1 72 444.2 Tm (place.) Tj
-/F2 12.5 Tf 1 0 0 1 56 417.5 Tm (3. Pipeline architecture) Tj
-/F1 9.8 Tf 1 0 0 1 56 399.8 Tm (Single-call pipeline \(one-call close\). Every stage can advance on one conversation. Speed and first-response) Tj
-/F1 9.8 Tf 1 0 0 1 56 385.1 Tm (time are the differentiators.) Tj
-/F1 9.8 Tf 1 0 0 1 72 370.4 Tm (-  Stages: New  >  Contacted  >  Qualified  >  Proposal  >  Closed Won  >  Closed Lost) Tj
-/F1 9.8 Tf 1 0 0 1 72 355.7 Tm (-  Workflow: Same-day reminder for the first visit) Tj
-/F1 9.8 Tf 1 0 0 1 72 341.0 Tm (-  Workflow: No-show win-back after 48 hours) Tj
-/F1 9.8 Tf 1 0 0 1 72 326.3 Tm (-  Workflow: 6-month recall for routine patients) Tj
-/F2 12.5 Tf 1 0 0 1 56 299.5 Tm (4. Lead source architecture) Tj
-/F1 9.8 Tf 1 0 0 1 72 281.8 Tm (-  Google \(30/mo, tracked\): HubSpot form with a source field and monthly volume tracking) Tj
-/F1 9.8 Tf 1 0 0 1 72 267.1 Tm (-  Referrals \(12/mo, not tracked\): Referral landing form plus a shareable tracking link for every customer) Tj
-/F1 9.8 Tf 1 0 0 1 72 252.4 Tm (-  Walk-ins \(40/mo, not tracked\): Mobile quick-capture form, plus a 30-day manual entry discipline while the) Tj
-/F1 9.8 Tf 1 0 0 1 72 237.7 Tm (habit forms) Tj
-/F2 12.5 Tf 1 0 0 1 56 211.0 Tm (5. Tool mapping \(current -> recommended\)) Tj
-/F1 9.8 Tf 1 0 0 1 72 193.3 Tm (-  Microsoft Excel  ->  Consolidate. Move tracking into HubSpot objects and properties. Keep Excel for) Tj
-/F1 9.8 Tf 1 0 0 1 72 178.6 Tm (one-way reports while the habit forms.) Tj
-/F1 9.8 Tf 1 0 0 1 72 163.9 Tm (-  WhatsApp  ->  Keep. Connect it to HubSpot so conversations attach to the right contact and deal.) Tj
-/F1 9.8 Tf 1 0 0 1 72 149.2 Tm (-  Meta Ads  ->  Keep. Connect to HubSpot Ads. Route the best-landing ads to a dedicated landing form.) Tj
-/F1 9.8 Tf 1 0 0 1 72 134.5 Tm (-  Google Ads  ->  Keep. Connect to HubSpot Ads for automated tracking and contact-level reporting.) Tj
-/F2 12.5 Tf 1 0 0 1 56 107.7 Tm (6. Build plan) Tj
-/F1 9.8 Tf 1 0 0 1 56 90.0 Tm (Confirmed defaults \(included in the tier\):) Tj
+/F1 9.8 Tf 1 0 0 1 72 559.8 Tm (-  Leads / month: 80) Tj
+/F1 9.8 Tf 1 0 0 1 72 545.1 Tm (-  Closed / month: 60) Tj
+/F1 9.8 Tf 1 0 0 1 72 530.4 Tm (-  Close rate: 75%) Tj
+/F1 9.8 Tf 1 0 0 1 72 515.7 Tm (-  Typical deal: PHP 6,000) Tj
+/F2 12.5 Tf 1 0 0 1 56 488.9 Tm (2. Recommended HubSpot stack) Tj
+/F1 9.8 Tf 1 0 0 1 72 471.2 Tm (-  Core: Sales Hub Professional) Tj
+/F1 9.8 Tf 1 0 0 1 72 456.5 Tm (-  Enterprise review: no) Tj
+/F1 9.8 Tf 1 0 0 1 72 441.8 Tm (-  Add-on: Service Hub Professional) Tj
+/F1 9.8 Tf 1 0 0 1 72 427.1 Tm (-  2 hub\(s\) x 3 seats x USD 90 per seat per month = approx. USD 540 per month) Tj
+/F1 8.2 Tf 1 0 0 1 56 414.8 Tm (List price, USD per seat per month, from knowledge base v1. Regional and committed pricing varies. Confirm at the build call.) Tj
+/F1 9.8 Tf 1 0 0 1 72 400.1 Tm (-  Sales Hub Professional is the floor: the build requires workflows, and Starter cannot run them.) Tj
+/F1 9.8 Tf 1 0 0 1 72 385.4 Tm (-  A Service Hub seat for the front desk gives you ticketing, no-show tracking, and post-visit follow-up in one) Tj
+/F1 9.8 Tf 1 0 0 1 72 370.7 Tm (place.) Tj
+/F2 12.5 Tf 1 0 0 1 56 344.0 Tm (3. Pipeline architecture) Tj
+/F1 9.8 Tf 1 0 0 1 56 326.3 Tm (Single-call pipeline \(one-call close\). Every stage can advance on one conversation. Speed and first-response) Tj
+/F1 9.8 Tf 1 0 0 1 56 311.6 Tm (time are the differentiators.) Tj
+/F1 9.8 Tf 1 0 0 1 72 296.9 Tm (-  Stages: New  >  Contacted  >  Qualified  >  Proposal  >  Closed Won  >  Closed Lost) Tj
+/F1 9.8 Tf 1 0 0 1 72 282.2 Tm (-  Workflow: Same-day reminder for the first visit) Tj
+/F1 9.8 Tf 1 0 0 1 72 267.5 Tm (-  Workflow: No-show win-back after 48 hours) Tj
+/F1 9.8 Tf 1 0 0 1 72 252.8 Tm (-  Workflow: 6-month recall for routine patients) Tj
+/F2 12.5 Tf 1 0 0 1 56 226.0 Tm (4. Lead source architecture) Tj
+/F1 9.8 Tf 1 0 0 1 72 208.3 Tm (-  Google \(30/mo, tracked\): HubSpot form with a source field and monthly volume tracking) Tj
+/F1 9.8 Tf 1 0 0 1 72 193.6 Tm (-  Referrals \(12/mo, not tracked\): Referral landing form plus a shareable tracking link for every customer) Tj
+/F1 9.8 Tf 1 0 0 1 72 178.9 Tm (-  Walk-ins \(40/mo, not tracked\): Mobile quick-capture form, plus a 30-day manual entry discipline while the) Tj
+/F1 9.8 Tf 1 0 0 1 72 164.2 Tm (habit forms) Tj
+/F2 12.5 Tf 1 0 0 1 56 137.5 Tm (5. Tool mapping \(current -> recommended\)) Tj
+/F1 9.8 Tf 1 0 0 1 72 119.8 Tm (-  Microsoft Excel  ->  Consolidate. Move tracking into HubSpot objects and properties. Keep Excel for) Tj
+/F1 9.8 Tf 1 0 0 1 72 105.1 Tm (one-way reports while the habit forms.) Tj
+/F1 9.8 Tf 1 0 0 1 72 90.4 Tm (-  WhatsApp  ->  Keep. Connect it to HubSpot so conversations attach to the right contact and deal.) Tj
 ET
 0.45 g
-BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 1 of 2  |  PipelineSync AI  |  22 September 2026  |  Generated server-side) Tj ET
+BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 1 of 3  |  PipelineSync AI  |  23 September 2026  |  Generated server-side) Tj ET
 0.45 g 0.4 w 56 52 m 539 52 l S
 endstream
 endobj
@@ -68,67 +69,95 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
 endobj
 8 0 obj
-<< /Length 3786 >>
+<< /Length 4143 >>
 stream
 0 g
 BT
 /F2 9 Tf 1 0 0 1 56 798 Tm (PIPELINESYNC AI) Tj
 /F1 9 Tf 1 0 0 1 381.0 798 Tm (REVENUE OPERATIONS BLUEPRINT) Tj
 0.97 0.48 0.35 RG 0.8 w 56 790 m 539 790 l S
-/F1 9.8 Tf 1 0 0 1 72 719.3 Tm (-  Contact, company, and deal objects) Tj
-/F1 9.8 Tf 1 0 0 1 72 704.6 Tm (-  Email sync for every sales seat) Tj
-/F1 9.8 Tf 1 0 0 1 72 689.9 Tm (-  Pipelines, deal stages, and basic dashboards) Tj
-/F1 9.8 Tf 1 0 0 1 72 675.2 Tm (-  Task management and reminders) Tj
-/F1 9.8 Tf 1 0 0 1 72 660.5 Tm (-  Sequences \(included with Professional\)) Tj
-/F1 9.8 Tf 1 0 0 1 56 645.8 Tm (Custom items to create for you:) Tj
-/F1 9.8 Tf 1 0 0 1 72 631.1 Tm (-  Pipeline: medical pipeline with 6 stages, matched to your one-call close pattern) Tj
-/F1 9.8 Tf 1 0 0 1 72 616.4 Tm (-  Custom properties from your answers: product, list price, deal size, fulfilment status, and lead source) Tj
-/F1 9.8 Tf 1 0 0 1 72 601.7 Tm (volume) Tj
-/F1 9.8 Tf 1 0 0 1 72 587.0 Tm (-  Form and tracking for: Google) Tj
-/F1 9.8 Tf 1 0 0 1 72 572.3 Tm (-  Form and tracking for: Referrals \(currently untracked, this brings it into view\)) Tj
-/F1 9.8 Tf 1 0 0 1 72 557.6 Tm (-  Form and tracking for: Walk-ins \(currently untracked, this brings it into view\)) Tj
-/F1 9.8 Tf 1 0 0 1 72 542.9 Tm (-  Workflow: Same-day reminder for the first visit) Tj
-/F1 9.8 Tf 1 0 0 1 72 528.2 Tm (-  Workflow: No-show win-back after 48 hours) Tj
-/F1 9.8 Tf 1 0 0 1 72 513.5 Tm (-  Workflow: 6-month recall for routine patients) Tj
-/F1 9.8 Tf 1 0 0 1 72 498.8 Tm (-  Dashboard: monthly leads, closed deals, close rate, and pipeline value by source) Tj
-/F2 12.5 Tf 1 0 0 1 56 472.0 Tm (7. Cost of inaction \(from your numbers\)) Tj
-/F2 9.8 Tf 1 0 0 1 56 454.3 Tm (Deals lost to slow follow-up  PHP 24,000  \(per month\)) Tj
-/F1 8.2 Tf 1 0 0 1 56 442.0 Tm (Basis: 80 leads in, 60 closed, 20 slipping each month. Assumption: 20% of slipped deals are winnable with faster follow-up. Valued) Tj
-/F1 8.2 Tf 1 0 0 1 56 429.7 Tm (at PHP 6,000 typical deal.) Tj
-/F2 9.8 Tf 1 0 0 1 56 415.0 Tm (Value hiding in untracked sources  PHP 234,000  \(per month\)) Tj
-/F1 8.2 Tf 1 0 0 1 56 402.7 Tm (Basis: 52 leads a month are untracked today. Assumption: they close at your 75% rate. Valued at PHP 6,000 typical deal.) Tj
-/F2 9.8 Tf 1 0 0 1 56 388.0 Tm (Closing a 30% growth gap  PHP 648,000  \(over 6 months\)) Tj
-/F1 8.2 Tf 1 0 0 1 56 375.7 Tm (Basis: Your goal states 30% more. That is 18 extra deals a month at PHP 6,000, over six months.) Tj
-/F1 9.8 Tf 1 0 0 1 56 357.0 Tm (Total estimated cost of inaction: PHP 258,000 per month, PHP 2,196,000 over six months.) Tj
-/F2 12.5 Tf 1 0 0 1 56 330.3 Tm (8. Compliance) Tj
-/F1 9.8 Tf 1 0 0 1 72 312.6 Tm (-  HIPAA: Patient data needs restricted access, field-level permissions, and a data processing addendum) Tj
-/F1 9.8 Tf 1 0 0 1 72 297.9 Tm (before any sync. In the Philippines, the Data Privacy Act of 2012 applies in parallel, so apply the stricter) Tj
-/F1 9.8 Tf 1 0 0 1 72 283.2 Tm (rule.) Tj
-/F2 12.5 Tf 1 0 0 1 56 256.4 Tm (9. Next steps) Tj
-/F1 9.8 Tf 1 0 0 1 72 238.7 Tm (-  1. Book the 30-minute call to walk through this blueprint \(scheduler below\).) Tj
-/F1 9.8 Tf 1 0 0 1 72 224.0 Tm (-  2. Confirm scope: hubs, seats, and the custom items list in section 6.) Tj
-/F1 9.8 Tf 1 0 0 1 72 209.3 Tm (-  3. Launch in 2 to 3 weeks, then a 30-day tuning review of workflow performance.) Tj
-/F1 8.2 Tf 1 0 0 1 56 183.0 Tm (Generated by PipelineSync AI from your confirmed answers and knowledge base v1 \(rules, tools, prices\). Figures are planning) Tj
-/F1 8.2 Tf 1 0 0 1 56 170.7 Tm (estimates, not a quote. Prepared in UK English.) Tj
+/F1 9.8 Tf 1 0 0 1 72 719.3 Tm (-  Meta Ads  ->  Keep. Connect to HubSpot Ads. Route the best-landing ads to a dedicated landing form.) Tj
+/F1 9.8 Tf 1 0 0 1 72 704.6 Tm (-  Google Ads  ->  Keep. Connect to HubSpot Ads for automated tracking and contact-level reporting.) Tj
+/F2 12.5 Tf 1 0 0 1 56 677.8 Tm (6. Build plan) Tj
+/F1 9.8 Tf 1 0 0 1 56 660.1 Tm (Confirmed defaults \(included in the tier\):) Tj
+/F1 9.8 Tf 1 0 0 1 72 645.4 Tm (-  Contact, company, and deal objects) Tj
+/F1 9.8 Tf 1 0 0 1 72 630.7 Tm (-  Email sync for every sales seat) Tj
+/F1 9.8 Tf 1 0 0 1 72 616.0 Tm (-  Pipelines, deal stages, and basic dashboards) Tj
+/F1 9.8 Tf 1 0 0 1 72 601.3 Tm (-  Task management and reminders) Tj
+/F1 9.8 Tf 1 0 0 1 72 586.6 Tm (-  Sequences \(included with Professional\)) Tj
+/F1 9.8 Tf 1 0 0 1 56 571.9 Tm (Custom items to create for you:) Tj
+/F1 9.8 Tf 1 0 0 1 72 557.2 Tm (-  Pipeline: medical pipeline with 6 stages, matched to your one-call close pattern) Tj
+/F1 9.8 Tf 1 0 0 1 72 542.5 Tm (-  Custom properties from your answers: product, list price, deal size, fulfilment status, and lead source) Tj
+/F1 9.8 Tf 1 0 0 1 72 527.8 Tm (volume) Tj
+/F1 9.8 Tf 1 0 0 1 72 513.1 Tm (-  Form and tracking for: Google) Tj
+/F1 9.8 Tf 1 0 0 1 72 498.4 Tm (-  Form and tracking for: Referrals \(currently untracked, this brings it into view\)) Tj
+/F1 9.8 Tf 1 0 0 1 72 483.7 Tm (-  Form and tracking for: Walk-ins \(currently untracked, this brings it into view\)) Tj
+/F1 9.8 Tf 1 0 0 1 72 469.0 Tm (-  Workflow: Same-day reminder for the first visit) Tj
+/F1 9.8 Tf 1 0 0 1 72 454.3 Tm (-  Workflow: No-show win-back after 48 hours) Tj
+/F1 9.8 Tf 1 0 0 1 72 439.6 Tm (-  Workflow: 6-month recall for routine patients) Tj
+/F1 9.8 Tf 1 0 0 1 72 424.9 Tm (-  Dashboard: monthly leads, closed deals, close rate, and pipeline value by source) Tj
+/F2 12.5 Tf 1 0 0 1 56 398.2 Tm (7. Cost of inaction \(from your numbers\)) Tj
+/F2 9.8 Tf 1 0 0 1 56 380.5 Tm (Deals lost to slow follow-up  PHP 24,000  \(per month\)) Tj
+/F1 8.2 Tf 1 0 0 1 56 368.2 Tm (Basis: 80 leads in, 60 closed, 20 slipping each month. Assumption: 20% of slipped deals are winnable with faster follow-up. Valued) Tj
+/F1 8.2 Tf 1 0 0 1 56 355.9 Tm (at PHP 6,000 typical deal.) Tj
+/F2 9.8 Tf 1 0 0 1 56 341.2 Tm (Value hiding in untracked sources  PHP 234,000  \(per month\)) Tj
+/F1 8.2 Tf 1 0 0 1 56 328.9 Tm (Basis: 52 leads a month are untracked today. Assumption: they close at your 75% rate. Valued at PHP 6,000 typical deal.) Tj
+/F2 9.8 Tf 1 0 0 1 56 314.2 Tm (Closing a 30% growth gap  PHP 648,000  \(over 6 months\)) Tj
+/F1 8.2 Tf 1 0 0 1 56 301.9 Tm (Basis: Your goal states 30% more. That is 18 extra deals a month at PHP 6,000, over six months.) Tj
+/F1 9.8 Tf 1 0 0 1 56 283.2 Tm (Total estimated cost of inaction: PHP 258,000 per month, PHP 2,196,000 over six months.) Tj
+/F2 12.5 Tf 1 0 0 1 56 256.4 Tm (8. Compliance) Tj
+/F1 9.8 Tf 1 0 0 1 72 238.7 Tm (-  HIPAA: Patient data needs restricted access, field-level permissions, and a data processing addendum) Tj
+/F1 9.8 Tf 1 0 0 1 72 224.0 Tm (before any sync. In the Philippines, the Data Privacy Act of 2012 applies in parallel, so apply the stricter) Tj
+/F1 9.8 Tf 1 0 0 1 72 209.3 Tm (rule.) Tj
+/F2 12.5 Tf 1 0 0 1 56 182.6 Tm (9. Next steps) Tj
+/F1 9.8 Tf 1 0 0 1 72 164.9 Tm (-  1. Book the 30-minute call to walk through this blueprint \(scheduler below\).) Tj
+/F1 9.8 Tf 1 0 0 1 72 150.2 Tm (-  2. Confirm scope: hubs, seats, and the custom items list in section 6.) Tj
+/F1 9.8 Tf 1 0 0 1 72 135.5 Tm (-  3. Launch in 2 to 3 weeks, then a 30-day tuning review of workflow performance.) Tj
+/F2 12.5 Tf 1 0 0 1 56 108.7 Tm (10. Knowledge base references) Tj
+/F1 9.8 Tf 1 0 0 1 56 91.0 Tm (Sourced exclusively from knowledge base v1 \(no invented items\): KB-BUILD-01, KB-COMP-HIPAA,) Tj
 ET
 0.45 g
-BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 2 of 2  |  PipelineSync AI  |  22 September 2026  |  Generated server-side) Tj ET
+BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 2 of 3  |  PipelineSync AI  |  23 September 2026  |  Generated server-side) Tj ET
+0.45 g 0.4 w 56 52 m 539 52 l S
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 10 0 R >>
+endobj
+10 0 obj
+<< /Length 896 >>
+stream
+0 g
+BT
+/F2 9 Tf 1 0 0 1 56 798 Tm (PIPELINESYNC AI) Tj
+/F1 9 Tf 1 0 0 1 381.0 798 Tm (REVENUE OPERATIONS BLUEPRINT) Tj
+0.97 0.48 0.35 RG 0.8 w 56 790 m 539 790 l S
+/F1 9.8 Tf 1 0 0 1 56 719.3 Tm (KB-PIPE-O1, KB-PRISE-01, KB-SRC-DEF, KB-SRC-PHN, KB-SRC-REF, KB-TIER-01, KB-TIER-04,) Tj
+/F1 9.8 Tf 1 0 0 1 56 704.6 Tm (KB-TOOL-GoogleAds, KB-TOOL-MetaAds, KB-TOOL-MicrosoftExcel, KB-TOOL-WhatsApp) Tj
+/F1 8.2 Tf 1 0 0 1 56 692.3 Tm (PipelineSync AI \(Claude, Prompt A\) + knowledge base v1) Tj
+/F1 8.2 Tf 1 0 0 1 56 666.0 Tm (Generated by PipelineSync AI from your confirmed answers and knowledge base v1 \(rules, tools, prices\). Figures are planning) Tj
+/F1 8.2 Tf 1 0 0 1 56 653.7 Tm (estimates, not a quote. Prepared in UK English.) Tj
+ET
+0.45 g
+BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 3 of 3  |  PipelineSync AI  |  23 September 2026  |  Generated server-side) Tj ET
 0.45 g 0.4 w 56 52 m 539 52 l S
 endstream
 endobj
 xref
-0 9
+0 11
 0000000000 65535 f 
 0000000009 00000 n 
 0000000058 00000 n 
-0000000121 00000 n 
-0000000218 00000 n 
-0000000320 00000 n 
-0000000456 00000 n 
-0000004626 00000 n 
-0000004762 00000 n 
+0000000127 00000 n 
+0000000224 00000 n 
+0000000326 00000 n 
+0000000462 00000 n 
+0000004519 00000 n 
+0000004655 00000 n 
+0000008849 00000 n 
+0000008986 00000 n 
 trailer
-<< /Size 9 /Root 1 0 R >>
+<< /Size 11 /Root 1 0 R >>
 startxref
-8599
+9933
 %%EOF
