@@ -3032,8 +3032,147 @@ function core_filename(bp) {
   return 'PipelineSync_Blueprint_' + (bp.meta.verticalLabel || 'Report').replace(/\s+/g, '') + '_' + new Date().toISOString().slice(0, 10) + '.pdf';
 }
 
-/* ---------------- booking (HubSpot Meetings embed stand-in) ---------------- */
+/* ---------------- booking (HubSpot Meetings embed, with a request fallback) ----------------
+ * When SCHEDULER_LINK is set (arriving via /api/config), this screen embeds the real HubSpot
+ * Meetings scheduler with the lead's email, firstname and lastname prefilled, and confirms
+ * only when the iframe posts a booking-success message from a HubSpot meetings origin AND
+ * the /api/lead/booked round trip answers ok:true. Anything else — an unset link, a link
+ * that is not a HubSpot meetings URL, a message from the wrong origin — never claims a
+ * booking. With no usable link, the day/slot picker stays ONLY as a clearly labelled
+ * "Request a time — we'll confirm by email" fallback, which asks for a time rather than
+ * booking one.
+ */
+const MEETINGS_HOST_RE = /^meetings(-[a-z0-9-]+)?\.hubspot\.com$/i;
+/* True only for https://meetings.hubspot.com and the regional https://meetings-*.hubspot.com
+   origins. Everything else — http, lookalike hosts, subdomains of subdomains — is rejected. */
+function isHubSpotMeetingsOrigin(origin) {
+  if (typeof origin !== 'string') return false;
+  const m = origin.trim().match(/^https:\/\/([^\/:?#]+)(?::443)?$/i);
+  if (!m) return false;
+  return MEETINGS_HOST_RE.test(m[1]);
+}
+function splitLeadName() {
+  const parts = String((state.user && state.user.name) || '').trim().split(/\s+/).filter(Boolean);
+  return { firstname: parts[0] || '', lastname: parts.slice(1).join(' ') };
+}
+/* The embed src with the lead prefilled, or null when the configured link is missing or is
+   not a HubSpot meetings URL — treated as unset, so the fallback picker shows instead. */
+function schedulerEmbedUrl() {
+  const raw = String(state.schedulerLink || '').trim();
+  if (!raw || raw.length > 500 || /\s/.test(raw)) return null;
+  let u = null;
+  try { u = new URL(raw); } catch (e) { return null; }
+  if (u.protocol !== 'https:' || !MEETINGS_HOST_RE.test(u.hostname)) return null;
+  const email = String((state.user && state.user.email) || '').trim();
+  const nm = splitLeadName();
+  if (email) u.searchParams.set('email', email);
+  if (nm.firstname) u.searchParams.set('firstname', nm.firstname);
+  if (nm.lastname) u.searchParams.set('lastname', nm.lastname);
+  u.searchParams.set('embed', 'true');
+  return u.toString();
+}
+/* The embed reports success by postMessage. Both shapes HubSpot has used are accepted —
+   meetingBookSucceeded with the booking payload, and the meetingBooked event name — but
+   only from a HubSpot meetings origin. Messages from anywhere else are ignored. */
+function isBookingSuccessMessage(e) {
+  if (!e || !isHubSpotMeetingsOrigin(e.origin)) return false;
+  const d = e.data;
+  if (!d || typeof d !== 'object') return false;
+  if (d.meetingBookSucceeded === true) return true;
+  if (d.eventName === 'meetingBooked') return true;
+  if (d.type === 'meetingBooked' || d.meetingBooked === true) return true;
+  return false;
+}
+/* Keep only the small known fields for /api/lead/booked; the server sanitises again. */
+function bookingDetailFrom(d) {
+  if (!d || typeof d !== 'object') return null;
+  const out = {};
+  const put = (k, v) => {
+    if (typeof v === 'string' && v) out[k] = v.slice(0, 200);
+    else if (typeof v === 'number' && isFinite(v)) out[k] = v;
+  };
+  const keys = ['date', 'startTimeLocalized', 'meetingType', 'linkUrl', 'formGuid', 'startTimeUtc', 'duration'];
+  keys.forEach(k => { if (d[k] != null) put(k, d[k]); });
+  const inner = d.bookedMeeting || d.meetingsPayload;
+  if (inner && typeof inner === 'object') {
+    keys.forEach(k => { if (out[k] == null && inner[k] != null) put(k, inner[k]); });
+    if (out.date == null && inner.event && typeof inner.event.dateString === 'string') put('date', inner.event.dateString);
+    if (out.date == null && typeof inner.dateString === 'string') put('date', inner.dateString);
+  }
+  if (d.meetingType && out.meetingType == null) put('meetingType', d.meetingType);
+  return Object.keys(out).length ? out : null;
+}
+let bookingListenerArmed = false;
+function armBookingListener() {
+  if (bookingListenerArmed) return;
+  bookingListenerArmed = true;
+  window.addEventListener('message', onBookingMessage);
+}
+function onBookingMessage(e) {
+  if (!isBookingSuccessMessage(e)) return;
+  if (state.stage !== 'booking') return;
+  const b = state.booking || {};
+  if (b.booked || b.recording) return;   // the iframe can post the event more than once
+  recordBooking(bookingDetailFrom(e.data));
+}
+/* The booking is only shown as booked when this round trip answers ok:true. Until then the
+   screen says "Confirming...", and on failure it says what failed — never a success. */
+async function recordBooking(detail) {
+  state.booking = { mode: 'embed', booked: false, recording: true, error: null, detail: detail || null };
+  const statusEl = document.getElementById('booking-status');
+  if (statusEl) {
+    // Patch in place: a full render would rebuild the iframe and reload the scheduler.
+    statusEl.textContent = 'Confirming your booking...';
+    statusEl.className = 'call-note';
+    statusEl.setAttribute('role', 'status');
+  } else {
+    render();
+  }
+  try {
+    const j = await api.post('/api/lead/booked', { meeting: detail || null });
+    if (j && j.ok) {
+      state.booking = { mode: 'embed', booked: true, recording: false, error: null, detail: detail || null, recorded: j.recorded || null };
+      render();
+      toast('Meeting booked.');
+    } else {
+      throw new Error((j && j.error) || 'The booking could not be recorded.');
+    }
+  } catch (err) {
+    state.booking = { mode: 'embed', booked: false, recording: false, error: err.message, detail: detail || null };
+    render();
+    toast('Could not confirm the booking: ' + err.message, true);
+  }
+}
 function bookingView() {
+  const embed = schedulerEmbedUrl();
+  if (embed) return bookingEmbedView(embed);
+  return bookingFallbackView();
+}
+function bookingEmbedView(embed) {
+  const b = state.booking || {};
+  let status = '';
+  if (b.booked) {
+    status = '<div class=\"success-card\" role=\"status\"><h3>Meeting booked &#10003;</h3>' +
+      (b.detail && b.detail.date ? '<div class=\"kv\"><span class=\"k\">When</span><span class=\"v\">' + esc(b.detail.date) + '</span></div>' : '') +
+      '<div class=\"kv\"><span class=\"k\">Where</span><span class=\"v\">HubSpot Meetings</span></div></div>';
+  } else if (b.recording) {
+    status = '<div class=\"call-note\" id=\"booking-status\" role=\"status\">Confirming your booking...</div>';
+  } else if (b.error) {
+    status = '<div class=\"call-note err\" id=\"booking-status\" role=\"alert\">The scheduler finished, but the booking could not be confirmed on our side: ' + esc(b.error) +
+      ' If you picked a time, it may still be held — check your email for the HubSpot invite. <button class=\"btn btn-ghost btn-sm\" id=\"booking-retry\">Try confirming again</button></div>';
+  } else {
+    status = '<p class=\"small muted\" id=\"booking-status\" role=\"status\">Pick a time in the scheduler. This page confirms automatically once the booking goes through.</p>';
+  }
+  return '<div class=\"booking\"><div class=\"card booking-embed-card\"><h2>Book a call</h2>' +
+    '<p class=\"sub\">Choose a time that suits you. Your name and email are already filled in.</p>' +
+    '<div class=\"meetings-embed\"><iframe id=\"hs-meetings-iframe\" src=\"' + esc(embed) + '\" title=\"Book a consultation call\" loading=\"lazy\"></iframe></div>' +
+    status +
+    '<div class=\"btn-row\">' +
+    (b.booked ? '<button class=\"btn btn-dark\" id=\"finish-btn\">Finish</button>' : '') +
+    '<button class=\"btn btn-ghost\" id=\"back-blueprint\">Back</button></div>' +
+    '</div></div>';
+}
+function bookingFallbackView() {
   const days = [];
   const now = new Date();
   // DST-safe: use setDate instead of +86400000
@@ -3057,28 +3196,38 @@ function bookingView() {
   const slotBtns = slots.map(s => {
     const sel = b.day && b.slot === s;
     const disabled = !b.day;
-    return '<button class=\"slot' + (sel ? ' sel' : '') + '\" data-slot=\"' + s + '\"' + (disabled ? ' disabled aria-disabled=\"true\"' : '') + ' aria-pressed=\"' + (sel ? 'true' : 'false') + '\" aria-label=\"Book at ' + esc(s) + '\">' + esc(s) + '</button>';
+    return '<button class=\"slot' + (sel ? ' sel' : '') + '\" data-slot=\"' + s + '\"' + (disabled ? ' disabled aria-disabled=\"true\"' : '') + ' aria-pressed=\"' + (sel ? 'true' : 'false') + '\" aria-label=\"Request ' + esc(s) + '\">' + esc(s) + '</button>';
   }).join('');
-  let h = '<div class=\"booking\"><div class=\"card\"><h2>Book a call</h2>' +
+  let h = '<div class=\"booking\"><div class=\"card\"><h2>Request a time \u2014 we\u2019ll confirm by email</h2>' +
+    '<p class=\"sub\">Online booking is not available right now. Pick a preferred day and time and we will confirm by email.</p>' +
     '<h3 class="pick-label">Date</h3><div class="day-strip" role="group" aria-label="Pick a day">' + dayBtns + '</div>' +
     '<h3 class="pick-label">Time</h3><div class="slot-grid" role="group" aria-label="Pick a time">' + slotBtns + '</div>' +
     '<div class=\"btn-row\">' +
-    '<button class=\"btn btn-primary\" id=\"book-go\" ' + (b.day && b.slot ? '' : 'disabled') + ' aria-label=\"Request this slot\">Confirm slot</button>' +
+    '<button class=\"btn btn-primary\" id=\"book-go\" ' + (b.day && b.slot ? '' : 'disabled') + ' aria-label=\"Request this time\">Request this time</button>' +
     '<button class=\"btn btn-ghost\" id=\"back-blueprint\">Back</button></div>' +
     '</div>';
-  if (state.booking && state.booking.confirmed) {
-    h += '<div class=\"success-card\" role=\"status\"><h3>&#10003; Meeting requested</h3>' +
-      '<div class=\"kv\"><span class=\"k\">When</span><span class=\"v\">' + esc(state.booking.day) + ' at ' + esc(state.booking.slot) + '</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">Duration</span><span class=\"v\">30 minutes</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">With</span><span class=\"v\">PipelineSync build lead</span></div></div>' +
+  if (b.requested && b.day && b.slot) {
+    h += '<div class=\"success-card\" role=\"status\"><h3>Thanks \u2014 we\u2019ll confirm by email</h3>' +
+      '<div class=\"kv\"><span class=\"k\">Preferred</span><span class=\"v\">' + esc(b.day) + ' at ' + esc(b.slot) + '</span></div>' +
+      '<p class=\"small muted mt8\">This is a request, not a confirmed booking. We reply within one business day.</p></div>' +
       '<div class=\"btn-row\"><button class=\"btn btn-dark\" id=\"finish-btn\">Finish</button></div>';
   }
   return h + '</div>';
 }
 function bindBooking() {
+  armBookingListener();
+  const bb = $('#back-blueprint');
+  if (bb) bb.onclick = () => { state.stage = 'blueprint'; render(); };
+  const fin = $('#finish-btn');
+  if (fin) fin.onclick = () => { state.stage = 'done'; render(); };
+  if (schedulerEmbedUrl()) {
+    const retry = $('#booking-retry');
+    if (retry) retry.onclick = () => recordBooking((state.booking && state.booking.detail) || null);
+    return;
+  }
   document.querySelectorAll('[data-day]').forEach(el => {
     const handler = () => {
-      state.booking = { day: el.getAttribute('data-day'), slot: null };
+      state.booking = { mode: 'fallback', day: el.getAttribute('data-day'), slot: null };
       render();
     };
     el.onclick = handler;
@@ -3086,7 +3235,7 @@ function bindBooking() {
   });
   document.querySelectorAll('[data-slot]').forEach(el => {
     const handler = () => {
-      if (!state.booking) state.booking = { day: null, slot: null };
+      if (!state.booking || state.booking.mode === 'embed') state.booking = { mode: 'fallback', day: null, slot: null };
       state.booking.slot = el.getAttribute('data-slot');
       render();
     };
@@ -3096,23 +3245,42 @@ function bindBooking() {
   const go = $('#book-go');
   if (go) go.onclick = () => {
     go.disabled = true;
-    state.booking.confirmed = true;
+    state.booking.requested = true;
     trackLeadProgress('consultation_requested');
     render();
   };
-  const bb = $('#back-blueprint');
-  if (bb) bb.onclick = () => { state.stage = 'blueprint'; render(); };
-  const fin = $('#finish-btn');
-  if (fin) fin.onclick = () => { state.stage = 'done'; render(); };
   const firstDay = document.querySelector('[data-day]');
-  if (firstDay && !state.booking?.day) firstDay.focus();
+  if (firstDay && !(state.booking && state.booking.day)) firstDay.focus();
 }
+/* One line for the done screen. A scheduler booking is only named once /api/lead/booked
+   answered ok:true; a fallback pick is named as the request it is. */
+function bookingSummary() {
+  const b = state.booking;
+  if (!b) return 'not scheduled';
+  if (b.mode === 'embed' && b.booked) {
+    return 'booked via scheduler' + (b.detail && b.detail.date ? ' (' + b.detail.date + ')' : '');
+  }
+  if (b.mode !== 'embed' && b.requested && b.day && b.slot) {
+    return b.day + ' at ' + b.slot + ' (requested \u2014 we\u2019ll confirm by email)';
+  }
+  return 'not scheduled';
+}
+/* Test seam for test/ui-smoke.js: the pure scheduler checks plus the two UI-only moves the
+   tests need (pretend /api/config returned a link, jump to the booking screen). Nothing here
+   touches the server, and every API still verifies the signed token. */
+window.__PS_BOOKING__ = {
+  meetingsOriginOk: isHubSpotMeetingsOrigin,
+  embedUrl: schedulerEmbedUrl,
+  isBookingSuccess: isBookingSuccessMessage,
+  setSchedulerLink: l => { state.schedulerLink = l; },
+  gotoBooking: () => { state.stage = 'booking'; render(); },
+  booking: () => state.booking
+};
 
 /* ---------------- done ---------------- */
 function doneView() {
   const bp = state.blueprint;
   const d = state.delivered;
-  const b = state.booking;
   const mail = emailStatusOf(d);
   const hasPdf = !!(d && d.pdf_base64);
   // Phase 3: the heading only promises an email when the API confirmed one. Otherwise it says
@@ -3128,7 +3296,7 @@ function doneView() {
     '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) : 'not unlocked') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">Emailed</span><span class=\"v\">' + esc(mail.text) + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">HubSpot lead</span><span class=\"v mono\">' + hubspotLeadLabel(d) + '</span></div>' +
-    '<div class=\"kv\"><span class=\"k\">Consultation</span><span class=\"v\">' + (b && b.confirmed ? esc(b.day) + ' at ' + esc(b.slot) : 'not scheduled') + '</span></div>' +
+    '<div class=\"kv\"><span class=\"k\">Consultation</span><span class=\"v\">' + esc(bookingSummary()) + '</span></div>' +
     '</div>' +
     (mail.known && !mail.sent && mail.error ? '<p class=\"small muted mt8\">Email: ' + esc(mail.error) + '</p>' : '') +
     '<div class="btn-row btn-row-center">' +

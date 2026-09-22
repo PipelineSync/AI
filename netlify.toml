@@ -53,6 +53,12 @@
   to = "/.netlify/functions/lead"
   status = 200
 
+# Phase 4: called after the HubSpot Meetings iframe reports a booking (postMessage verified client-side)
+[[redirects]]
+  from = "/api/lead/booked"
+  to = "/.netlify/functions/lead-booked"
+  status = 200
+
 [[redirects]]
   from = "/api/extract"
   to = "/.netlify/functions/extract"

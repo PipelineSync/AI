@@ -2903,6 +2903,29 @@ input:-webkit-autofill:focus {
   font-style: italic;
 }
 
+/* Phase 4: the HubSpot Meetings scheduler embed. */
+.booking-embed-card {
+  max-width: 780px;
+}
+.meetings-embed {
+  margin: 1rem 0 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: #FFFFFF;
+}
+.meetings-embed iframe {
+  display: block;
+  width: 100%;
+  min-height: 660px;
+  border: 0;
+}
+@media (max-width: 560px) {
+  .meetings-embed iframe {
+    min-height: 560px;
+  }
+}
+
 /* Done View */
 .done-card {
   max-width: 680px;

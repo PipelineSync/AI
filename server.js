@@ -23,6 +23,7 @@ const blueprintSchema = require('./lib/blueprint-schema');
 const jobStore = require('./lib/job-store');
 const generateJob = require('./lib/generate-job');
 const deliverCore = require('./lib/deliver-core');
+const bookedCore = require('./lib/booked-core');
 
 /* Zero-dependency .env loader: reads KEY=VALUE lines from a .env in the repo root, skipping
    blanks and comment lines, stripping inline " # comments" and surrounding quotes. Real
@@ -295,6 +296,14 @@ async function handleApi(req, res, url) {
     }
     await leads.addEvent(payload.lead_id, status, {}, { env: process.env });
     return sendJson(res, 200, { ok: true, stored: true });
+  }
+
+  /* Phase 4: the browser calls this after the HubSpot Meetings iframe posts a
+     booking-success message from a HubSpot meetings origin. Shared with
+     netlify/functions/lead-booked.js so the deployed and local paths cannot drift. */
+  if (method === 'POST' && route === '/api/lead/booked') {
+    const out = await bookedCore.record({ body: authBody, env: process.env, fetchImpl: fetch });
+    return sendJson(res, out.statusCode, out.body);
   }
 
   /* The /api/ai/* arbitrary-prompt passthrough is removed (Phase 2): Claude is only

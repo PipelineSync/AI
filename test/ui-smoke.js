@@ -40,13 +40,14 @@ const QMAP = [
 ];
 
 /* A jsdom page wired the way the sandbox preview would be, with the microphone and voice faked. */
-function boot(withMic) {
-  const dom = new JSDOM(html, { url: BASE + '/', runScripts: 'outside-only', pretendToBeVisual: true });
+function boot(withMic, baseOverride) {
+  const pageBase = baseOverride || BASE;
+  const dom = new JSDOM(html, { url: pageBase + '/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   const { document } = window;
   const spoken = [];
   const errors = [];
-  window.fetch = (p, o) => fetch(new URL(p, BASE).toString(), o);
+  window.fetch = (p, o) => fetch(new URL(p, pageBase).toString(), o);
   window.addEventListener('error', e => { errors.push(e.message); });
   window.__PS_VOICE_TIMING__ = { silenceMs: 50, noSpeechMs: 400, maxListenMs: 1500, speakFactorMs: 4, minSpeakMs: 10, maxSpeakMs: 120 };
   // Faked spoken voice: the AI can also receive OpenAI audio, in which case Audio fires onended.
@@ -86,6 +87,27 @@ function boot(withMic) {
   }
   window.eval(appJs);
   return { window, document, spoken, errors, speechTimes };
+}
+
+/* Dispatch a postMessage the way the HubSpot Meetings iframe would. jsdom's MessageEvent
+   honours the origin init dict; where it does not, the property is defined directly. */
+function fireBookingMessage(page, origin, data) {
+  const { window, document } = page;
+  let evt = null;
+  try {
+    evt = new window.MessageEvent('message', { origin, data });
+  } catch (e) { evt = null; }
+  if (!evt) {
+    evt = document.createEvent('Event');
+    evt.initEvent('message', false, false);
+  }
+  try {
+    if (evt.origin !== origin) Object.defineProperty(evt, 'origin', { value: origin });
+  } catch (e) {}
+  try {
+    if (evt.data !== data) Object.defineProperty(evt, 'data', { value: data });
+  } catch (e) {}
+  window.dispatchEvent(evt);
 }
 
 /* The app opens on the entry gate: name + email, no password. Pass a name and email to go
@@ -245,19 +267,27 @@ async function reachCall(page, details) {
 
   d1.getElementById('book-btn').click();
   await sleep(200);
+  // Phase 4: no SCHEDULER_LINK on this server, so the picker is the labelled fallback.
+  ok(/Request a time/.test(d1.body.textContent) && /confirm by email/i.test(d1.body.textContent),
+    'unset scheduler link: the picker is labelled "Request a time — we\'ll confirm by email"');
+  ok(!d1.querySelector('#hs-meetings-iframe'), 'no meetings iframe without a scheduler link');
   const dayBtn = d1.querySelector('[data-day]');
   ok(!!dayBtn, 'booking screen rendered with days');
   dayBtn.click();
   await sleep(150);
   d1.querySelectorAll('[data-slot]')[1].click();
   await sleep(150);
+  ok(/Request this time/.test(d1.getElementById('book-go').textContent), 'the fallback asks for a time, it does not confirm a slot');
   d1.getElementById('book-go').click();
   await sleep(150);
-  ok(d1.body.textContent.includes('Meeting requested'), 'meeting requested state');
+  ok(/confirm by email/i.test(d1.body.textContent), 'fallback request state names the email confirmation');
+  ok(!/Meeting requested/.test(d1.body.textContent), 'the fake "Meeting requested" confirmation is gone');
+  ok(!/Meeting booked/.test(d1.body.textContent), 'the fallback never claims a booking');
   d1.getElementById('finish-btn').click();
   await sleep(150);
   const doneText = d1.body.textContent;
   ok(/Your blueprint is ready/.test(doneText), 'the done screen says the truth when no email was sent: ready to download');
+  ok(/requested/.test(doneText), 'the done screen names the fallback pick as a request');
   ok(/Couldn.t email it/.test(doneText), 'the done screen repeats the email result the API reported');
   ok(!/on its way/i.test(doneText), 'a failed email is never described as on its way');
   ok(!!d1.querySelector('#done-download-btn'), 'the download button is on the done screen, email or no email');
@@ -318,18 +348,98 @@ async function reachCall(page, details) {
   ok(!/Couldn.t email it/.test(card2), 'the failure wording is not shown when the API reported a send');
   d2.getElementById('book-btn').click();
   await sleep(200);
+  ok(/Request a time/.test(d2.body.textContent), 'typed journey: the fallback label shows too');
   d2.querySelector('[data-day]').click();
   await sleep(120);
   d2.querySelectorAll('[data-slot]')[1].click();
   await sleep(120);
   d2.getElementById('book-go').click();
   await sleep(120);
+  ok(!/Meeting requested|Meeting booked/.test(d2.body.textContent), 'typed journey: the fallback claims no booking');
   d2.getElementById('finish-btn').click();
   await sleep(120);
   ok(/Your blueprint is on its way/.test(d2.body.textContent), 'the done screen only promises an email because the API confirmed one');
   ok(/Sent to demo@pipelinesync\.ai/.test(d2.body.textContent), 'and it names the address the API reported');
   ok(!!d2.querySelector('#done-download-btn'), 'the download button is available on the success path too');
   ok(p2.errors.length === 0, 'no runtime errors across the typed journey' + (p2.errors.length ? ': ' + p2.errors[0] : ''));
+
+  console.log('\nScenario 3: HubSpot Meetings embed (scheduler link set)');
+  const srv2 = await startServer(8094, { SCHEDULER_LINK: 'https://meetings.hubspot.com/test-team/consultation' });
+  process.on('exit', () => srv2.stop());
+  const p3 = boot(false, srv2.base);
+  await passGate(p3, { name: 'Irene Cruz', email: 'irene@example.ph' });
+  // Wait for the real /api/config round trip, then jump to booking through the UI-only seam.
+  for (let i = 0; i < 30 && !p3.window.__PS_BOOKING__.embedUrl(); i++) await sleep(100);
+  p3.window.__PS_BOOKING__.gotoBooking();
+  await sleep(300);
+  const d3 = p3.document;
+  const iframe = d3.querySelector('#hs-meetings-iframe');
+  ok(!!iframe, 'the meetings iframe renders when the scheduler link is set');
+  const src = iframe ? iframe.getAttribute('src') : '';
+  ok(src.indexOf('https://meetings.hubspot.com/test-team/consultation') === 0, 'the iframe uses the configured scheduler link');
+  ok(/email=irene%40example\.ph/.test(src), 'the lead email is prefilled as a URL parameter');
+  ok(/firstname=Irene/.test(src) && /lastname=Cruz/.test(src), 'firstname and lastname are prefilled as URL parameters');
+  ok(/embed=true/.test(src), 'the embed flag is set');
+  ok(!d3.querySelector('[data-day]'), 'the day picker is not shown when the embed is up');
+  ok(!/Meeting booked/.test(d3.body.textContent), 'nothing claims a booking before the iframe reports one');
+
+  // A booked message from the wrong origin is ignored.
+  fireBookingMessage(p3, 'https://evil.example.com', { meetingBookSucceeded: true });
+  await sleep(250);
+  ok(!/Meeting booked/.test(d3.body.textContent), 'a booked message from the wrong origin is ignored');
+  ok(!(p3.window.__PS_BOOKING__.booking() || {}).booked, 'the wrong-origin message records nothing');
+
+  // The real event from the meetings origin confirms, after /api/lead/booked says ok.
+  fireBookingMessage(p3, 'https://meetings.hubspot.com', { meetingBookSucceeded: true, bookedMeeting: { date: '2026-10-01', startTimeLocalized: '10:00 AM' } });
+  await sleep(900);
+  ok(/Meeting booked/.test(d3.body.textContent), 'the meetings-origin event plus an ok API response shows "Meeting booked"');
+  ok(!!d3.querySelector('#finish-btn'), 'Finish appears only after the confirmed booking');
+
+  // A non-HubSpot link is treated as unset.
+  p3.window.__PS_BOOKING__.setSchedulerLink('https://evil.example.com/book-me');
+  p3.window.__PS_BOOKING__.gotoBooking();
+  await sleep(200);
+  ok(!d3.querySelector('#hs-meetings-iframe'), 'a non-HubSpot URL renders no iframe');
+  ok(/Request a time/.test(d3.body.textContent), 'a non-HubSpot URL falls back to the request picker');
+
+  // Pure checks through the seam: tricks rejected, regional hosts accepted.
+  const seam = p3.window.__PS_BOOKING__;
+  const originCases = [
+    ['https://meetings.hubspot.com', true],
+    ['https://meetings-eu1.hubspot.com', true],
+    ['https://meetings-na2.hubspot.com', true],
+    ['http://meetings.hubspot.com', false],
+    ['https://meetings.hubspot.com.evil.com', false],
+    ['https://evil-meetings.hubspot.com', false],
+    ['https://app.hubspot.com', false],
+    ['https://evil.com', false],
+    ['javascript:alert(1)', false],
+    ['', false]
+  ];
+  for (const [origin, want] of originCases) {
+    ok(seam.meetingsOriginOk(origin) === want, 'origin ' + (origin || '(empty)') + ' is ' + (want ? 'accepted' : 'rejected'));
+  }
+  const linkCases = [
+    ['https://meetings.hubspot.com/team/x', true],
+    ['https://meetings-eu1.hubspot.com/team/x', true],
+    ['https://evil.example.com/x', false],
+    ['http://meetings.hubspot.com/team/x', false],
+    ['javascript:alert(1)', false],
+    ['not a url', false],
+    ['', false],
+    [null, false]
+  ];
+  for (const [link, want] of linkCases) {
+    seam.setSchedulerLink(link);
+    const got = seam.embedUrl();
+    ok((got !== null) === want, 'scheduler link ' + JSON.stringify(link) + ' is ' + (want ? 'accepted' : 'treated as unset'));
+  }
+  seam.setSchedulerLink('https://meetings-eu1.hubspot.com/team/x');
+  const regional = seam.embedUrl() || '';
+  ok(regional.indexOf('https://meetings-eu1.hubspot.com/team/x?') === 0 && /firstname=Irene/.test(regional),
+    'a regional meetings link keeps its host and still prefills the lead');
+  ok(p3.errors.length === 0, 'no runtime errors across the embed journey' + (p3.errors.length ? ': ' + p3.errors[0] : ''));
+  srv2.stop();
 
   console.log('\n' + (failures === 0 ? 'UI SMOKE TEST PASSED' : failures + ' UI FAILURES'));
   process.exit(failures === 0 ? 0 : 1);
