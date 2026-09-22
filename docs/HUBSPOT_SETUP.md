@@ -151,37 +151,51 @@ If `HUBSPOT_ACCESS_TOKEN` is **not set**, the function keeps logging `[hubspot-m
 
 ---
 
-## 6. Custom properties to create (recommended — 2 min each, or we auto-create via API)
+## 6. Properties the code writes (source of truth: `lib/hubspot.js`)
 
-If you skip this, contacts/deals still create, but extra fields land in the deal **description** fallback. Creating them gives you filters, lists, and reporting.
+The names below are what the code actually sends. Types are string because every custom value is written with `String(...)`. If a property does not exist yet, HubSpot returns 400 and we drop **only the rejected names** and retry (we do not strip every custom field). Set `HUBSPOT_AUTO_CREATE_PROPS=true` to `POST /crm/v3/properties/{contacts|deals}` for any missing `pipelinesync_*` property on first run (needs `crm.schemas.contacts.write` and `crm.schemas.deals.write`).
 
-**Create in HubSpot → Settings → Properties → Select object → Create property**
+**Standard contact properties**
 
-**Contacts — group `PipelineSync AI`:**
-
-| Property label | Field name (internal) | Type | Group | Example value |
-|---|---|---|---|---|
-| PipelineSync Industry | `pipelinesync_industry` | Dropdown: `solar`, `medical`, `home_services`, `ecommerce`, `generic` | PipelineSync AI | `solar` |
-| Typical Deal Size | `pipelinesync_deal_size` | Number | PipelineSync AI | `120000` |
-| Monthly Lead Volume | `pipelinesync_monthly_leads` | Number | PipelineSync AI | `45` |
-| Close Rate % | `pipelinesync_close_rate` | Number | PipelineSync AI | `22` |
-| Biggest Headache | `pipelinesync_headache` | Multi-line text | PipelineSync AI | `Leads slip between calls` |
-| Six Month Goal | `pipelinesync_goal` | Multi-line text | PipelineSync AI | `40 deals/mo` |
-| Business Description | `pipelinesync_business_desc` | Multi-line text | PipelineSync AI | `Solar installs...` |
-| Blueprint KB Version | `pipelinesync_kb_version` | Text | PipelineSync AI | `v1` |
-| Blueprint Tier | `pipelinesync_tier` | Text | PipelineSync AI | `Sales Hub Professional` |
-| Consent Given | `pipelinesync_consent` | Boolean | PipelineSync AI | `true` |
-
-**Deals — same group:**
-
-| Property | Field name | Type | Notes |
+| Internal name | Type | Object | When written |
 |---|---|---|---|
-| Blueprint Vertical | `pipelinesync_vertical` | Text | `Solar` / `Medical` etc. |
-| Pipeline Variant | `pipelinesync_pipeline_variant` | Dropdown: `one-call`, `two-call` | drives stage set |
-| Blueprint Link | `pipelinesync_blueprint_link` | Text | URL if you later store PDF in HubSpot File Manager |
-| KB References | `pipelinesync_kb_refs` | Multi-line text | `KB-TIER-01, KB-PIPE-O1...` — audit |
+| `email` | string | contacts | create and update |
+| `firstname` | string | contacts | create and update |
+| `lastname` | string | contacts | create and update |
+| `lifecyclestage` | string (`lead`) | contacts | **create only** - never on update (no lifecycle demotion) |
+| `hs_lead_status` | string (`NEW`) | contacts | **create only** - never on update |
 
-> Internal names must be **lowercase + underscores** — HubSpot enforces this. The code in `deliver.js` will use these exact names.
+**Custom contact properties** (`lib/hubspot.js` → `CONTACT_CUSTOM_PROPERTIES`)
+
+| Label | Internal name | Type / fieldType | Object | Example |
+|---|---|---|---|---|
+| PipelineSync Lead Source | `pipelinesync_source` | string / text | contacts | `pipelinesync_ai` (set at the name+email gate) |
+| PipelineSync Industry | `pipelinesync_industry` | string / text | contacts | `solar` |
+| PipelineSync Typical Deal Size | `pipelinesync_deal_size` | string / text | contacts | `120000` |
+| PipelineSync Monthly Leads | `pipelinesync_monthly_leads` | string / text | contacts | `45` |
+| PipelineSync Close Rate | `pipelinesync_close_rate` | string / text | contacts | `22` |
+| PipelineSync Monthly Deals | `pipelinesync_monthly_deals` | string / text | contacts | `12` |
+| PipelineSync Biggest Headache | `pipelinesync_headache` | string / textarea | contacts | `Leads slip between calls` |
+| PipelineSync Six Month Goal | `pipelinesync_goal` | string / textarea | contacts | `40 deals/mo` |
+| PipelineSync Business Description | `pipelinesync_business_desc` | string / textarea | contacts | `Solar installs...` |
+| PipelineSync KB Version | `pipelinesync_kb_version` | string / text | contacts | `v1` |
+| PipelineSync Recommended Tier | `pipelinesync_tier` | string / text | contacts | `Sales Hub Professional` |
+| PipelineSync Pipeline Variant | `pipelinesync_pipeline_variant` | string / text | contacts | `one-call` / `two-call` |
+| PipelineSync Consent | `pipelinesync_consent` | string / text | contacts | `true` (set at PDF unlock) |
+
+**Custom deal properties** (`lib/hubspot.js` → `DEAL_CUSTOM_PROPERTIES`) plus standard deal fields `dealname`, `description`, `amount`, `closedate`:
+
+| Label | Internal name | Type / fieldType | Object | Example |
+|---|---|---|---|---|
+| PipelineSync Vertical | `pipelinesync_vertical` | string / text | deals | `Solar` |
+| PipelineSync Pipeline Variant | `pipelinesync_pipeline_variant` | string / text | deals | `two-call` |
+| PipelineSync KB References | `pipelinesync_kb_refs` | string / textarea | deals | `KB-TIER-01, KB-PIPE-T2` |
+| PipelineSync KB Version | `pipelinesync_kb_version` | string / text | deals | `v1` |
+| PipelineSync Business Description | `pipelinesync_business_desc` | string / textarea | deals | `Solar installs...` |
+
+**Notes** (best-effort): `hs_note_body`, `hs_timestamp` on the notes object. Note → contact association uses HubSpot type id **202** (not 201).
+
+> Internal names must be **lowercase + underscores**. Do not invent extra properties in HubSpot and expect the code to fill them - add the name in `lib/hubspot.js` first.
 
 **Deal Pipeline (Deals → Pipelines):**
 - Create pipeline: `PipelineSync - Revenue Blueprint`

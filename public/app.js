@@ -129,6 +129,7 @@ const state = {
   delivered: null,       // {contact_id, filename, pdf_url}
   booking: null,         // {day, slot}
   schedulerLink: null, // from /api/config (SCHEDULER_LINK env)
+  hubspot: null,       // {ok, mocked, contactId?} from /api/auth/start
   fieldStatus: {},       // live sidebar state
   voice: null,           // live call state (see newVoiceState in the voice engine)
   showTranscript: false, // transcript panel is collapsed; the call is spoken
@@ -143,6 +144,7 @@ function resetJourney() {
   stopSpeaking(); stopListening();
   state.stage = 'consent'; state.answers = []; state.fields = null;
   state.blueprint = null; state.delivered = null; state.booking = null; state.fieldStatus = {};
+  state.hubspot = null;
   state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
 }
 
@@ -1695,6 +1697,7 @@ function bindStart() {
     api.post('/api/auth/start', { name: cleanName, email: cleanEmail }).then(j => {
       state.token = j.token;
       state.user = j.user;
+      state.hubspot = j.hubspot || { mocked: true, ok: false };
       saveAuth();
       store.set('ps_last_name', cleanName);
       store.set('ps_last_email', cleanEmail);
@@ -2636,9 +2639,17 @@ function blueprintView() {
     '</div>';
 
   if (delivered) {
-    h += '<div class=\"success-card\" role=\"status\"><h3>&#10003; PDF delivered and lead captured</h3>' +
-      '<div class=\"kv\"><span class=\"k\">HubSpot contact ID</span><span class=\"v mono\">' + esc(delivered.contact_id) + '</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">Delivered to</span><span class=\"v\">' + esc(delivered.email) + '</span></div>' +
+    const hs = delivered.hubspot || {};
+    const title = hs.mocked
+      ? 'PDF ready'
+      : (hs.ok && hs.contactId ? 'PDF ready - HubSpot synced' : 'PDF ready - CRM sync pending');
+    h += '<div class=\"success-card\" role=\"status\"><h3>&#10003; ' + title + '</h3>';
+    if (hs.ok && hs.contactId && !hs.mocked) {
+      h += '<div class=\"kv\"><span class=\"k\">HubSpot contact ID</span><span class=\"v mono\">' + esc(hs.contactId) + '</span></div>';
+    } else if (!hs.mocked) {
+      h += '<div class=\"kv\"><span class=\"k\">CRM</span><span class=\"v\">saved - CRM sync pending</span></div>';
+    }
+    h += '<div class=\"kv\"><span class=\"k\">Delivered to</span><span class=\"v\">' + esc(delivered.email) + '</span></div>' +
       '<div class=\"kv\"><span class=\"k\">File</span><span class=\"v\">' + esc(delivered.filename) + '</span></div></div>';
   } else {
     h += '<div id=\"unlock-holder\"></div>';
@@ -2677,7 +2688,8 @@ function bindBlueprint() {
         });
         state.delivered = {
           contact_id: j.contact_id, filename: j.filename,
-          pdf_base64: j.pdf_base64, email: $('#un-email').value.trim().toLowerCase()
+          pdf_base64: j.pdf_base64, email: $('#un-email').value.trim().toLowerCase(),
+          hubspot: j.hubspot || { mocked: true, ok: false }
         };
         render();
         downloadPdf(state.delivered);
@@ -2691,6 +2703,19 @@ function bindBlueprint() {
   const main = $('#main-content');
   if (main) main.focus();
 }
+function hubspotLeadLabel(d) {
+  if (!d) return 'not created';
+  const hs = d.hubspot || {};
+  if (hs.ok && hs.contactId && !hs.mocked) return esc(hs.contactId);
+  if (!hs.mocked) return 'CRM sync pending';
+  return 'not synced';
+}
+function hubspotDownloadToast(d) {
+  const hs = (d && d.hubspot) || {};
+  if (hs.mocked || hs.mocked === undefined && !hs.ok) return 'PDF downloaded.';
+  if (hs.ok && hs.contactId && !hs.mocked) return 'PDF downloaded. HubSpot synced.';
+  return 'PDF downloaded. Saved - CRM sync pending.';
+}
 function downloadPdf(d) {
   if (!d || !d.pdf_base64) return;
   try {
@@ -2703,7 +2728,7 @@ function downloadPdf(d) {
     a.href = u; a.download = d.filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 4000);
-    toast('PDF downloaded. Lead ' + d.contact_id + ' pushed to HubSpot.');
+    toast(hubspotDownloadToast(d));
   } catch (e) {
     toast('Could not auto-download in this browser. Use "Download PDF again".', true);
   }
@@ -3004,7 +3029,7 @@ function doneView() {
     '<div class="done-list">' +
     '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ', ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) : 'not unlocked') + '</span></div>' +
-    '<div class=\"kv\"><span class=\"k\">HubSpot lead</span><span class=\"v mono\">' + (d ? esc(d.contact_id) : 'not created') + '</span></div>' +
+    '<div class=\"kv\"><span class=\"k\">HubSpot lead</span><span class=\"v mono\">' + hubspotLeadLabel(d) + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">Consultation</span><span class=\"v\">' + (b && b.confirmed ? esc(b.day) + ' at ' + esc(b.slot) : 'not scheduled') + '</span></div>' +
     '</div>' +
     '<div class="btn-row btn-row-center">' +
