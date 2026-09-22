@@ -22,6 +22,9 @@ async function startServer(port) {
   });
   delete env.OPENAI_API_KEY;
   delete env.OPENAI_BASE_URL;
+  delete env.HUBSPOT_ACCESS_TOKEN;
+  delete env.HUBSPOT_API_KEY;
+  delete env.HUBSPOT_TOKEN;
 
   const child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     cwd: ROOT,

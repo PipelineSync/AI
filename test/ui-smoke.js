@@ -219,7 +219,8 @@ async function reachCall(page, details) {
   d1.getElementById('un-go').click();
   await sleep(1400);
   ok(!!d1.querySelector('.success-card'), 'delivery success card shown');
-  ok(d1.body.textContent.includes('HubSpot contact ID'), 'hubspot contact id shown');
+  ok(/PDF ready/.test(d1.body.textContent), 'success card reports the PDF is ready');
+  ok(!/pushed to HubSpot/.test(d1.body.textContent), 'mocked deliver does not claim a HubSpot push');
 
   const outboxRaw = await (await fetch(BASE + '/dev/outbox')).text();
   // The outbox JSON is HTML-escaped (hardening), so decode it before asserting on the payload.

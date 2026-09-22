@@ -208,9 +208,14 @@ async function handleApi(req, res, url) {
     try {
       const lead = await leads.createLead(entry.name, entry.email, { env: process.env });
       if (lead) await leads.addEvent(lead.id, 'lead_signed_up', { source: 'pipelinesync_ai' }, { env: process.env });
+      // HubSpot at capture must never fail the entry gate.
+      const hubspotInfo = await hubspot.captureLead({
+        email: entry.email, name: entry.name, env: process.env, fetchImpl: fetch
+      });
       const token = core.signToken({
         email: entry.email, name: entry.name,
         lead_id: lead && lead.id ? lead.id : null,
+        hubspot_contact_id: hubspotInfo && hubspotInfo.contactId ? hubspotInfo.contactId : null,
         exp: Date.now() + core.TOKEN_TTL_MS
       });
       return sendJson(res, 200, {
@@ -219,7 +224,8 @@ async function handleApi(req, res, url) {
           name: entry.name, email: entry.email,
           first_name: core.firstNameOf(entry.name), initials: core.initialsOf(entry.name),
           lead_id: lead && lead.id ? lead.id : null
-        }
+        },
+        hubspot: hubspotInfo
       });
     } catch (e) {
       console.error('[entry] could not create lead:', e.message);
@@ -434,6 +440,7 @@ async function handleApi(req, res, url) {
       try {
         hubspotResult = await hubspot.pushLead({
           email, name: leadName, fields: authBody.fields || null, blueprint: bp, voiceCall: voiceMeta,
+          contactId: payload.hubspot_contact_id || null,
           env: process.env, fetchImpl: fetch
         });
         if (hubspotResult && hubspotResult.contactId) contactId = hubspotResult.contactId;
@@ -462,8 +469,9 @@ async function handleApi(req, res, url) {
       await leads.addEvent(payload.lead_id, 'blueprint_delivered', { filename, hubspot: hubspotResult ? { contactId, dealId: hubspotResult.dealId } : null }, { env: process.env });
     }
     return sendJson(res, 200, {
-      ok: true, contact_id: contactId, lead_pushed: true,
-      hubspot: hubspotResult ? { contactId: hubspotResult.contactId, dealId: hubspotResult.dealId, mocked: !!hubspotResult.mocked } : { mocked: true },
+      ok: true, contact_id: contactId,
+      lead_pushed: !!(hubspotResult && hubspotResult.contactId && !hubspotResult.mocked),
+      hubspot: hubspot.publicHubspot(hubspotResult),
       filename, pdf_base64: buffer.toString('base64')
     });
   }

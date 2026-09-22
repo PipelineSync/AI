@@ -8,6 +8,7 @@
  */
 const core = require('../../lib/core');
 const leads = require('../../lib/supabase-leads');
+const hubspot = require('../../lib/hubspot');
 const { bodyOf, json, checkRateLimit, getClientIp } = require('../../lib/netlify-helpers');
 
 exports.handler = async (event) => {
@@ -28,9 +29,15 @@ exports.handler = async (event) => {
     // With no Supabase variables (local tests/demos), createLead intentionally returns null.
     const lead = await leads.createLead(entry.name, entry.email, { env: process.env });
     if (lead) await leads.addEvent(lead.id, 'lead_signed_up', { source: 'pipelinesync_ai' }, { env: process.env });
+    // HubSpot at capture must never fail the entry gate. Search-or-create the contact and
+    // report the outcome; a missing token is mocked, a live error is returned as hubspot.ok=false.
+    const hubspotInfo = await hubspot.captureLead({
+      email: entry.email, name: entry.name, env: process.env, fetchImpl: globalThis.fetch
+    });
     const token = core.signToken({
       email: entry.email, name: entry.name,
       lead_id: lead && lead.id ? lead.id : null,
+      hubspot_contact_id: hubspotInfo && hubspotInfo.contactId ? hubspotInfo.contactId : null,
       exp: Date.now() + core.TOKEN_TTL_MS
     });
     return json(200, {
@@ -39,7 +46,8 @@ exports.handler = async (event) => {
         name: entry.name, email: entry.email,
         first_name: core.firstNameOf(entry.name), initials: core.initialsOf(entry.name),
         lead_id: lead && lead.id ? lead.id : null
-      }
+      },
+      hubspot: hubspotInfo
     });
   } catch (e) {
     console.error('[entry] could not create lead:', e.message);

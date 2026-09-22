@@ -37,13 +37,15 @@ exports.handler = async (event) => {
   const voiceMeta = clampVoiceMeta(body.voice_meta);
   const mockLead = core.makeLeadPayload(email, leadName, body.fields || null, bp, voiceMeta);
 
-  // Push to HubSpot if configured, otherwise keep mock log so function logs still show the payload.
+  // Enrich the contact captured at start (deal + association + note). Reuse the contactId
+  // signed into the session token when the entry gate already upserted it.
   let hubspotResult = null;
   let contactId = mockLead.contact_id;
   if (hubspot.isEnabled(process.env)) {
     try {
       hubspotResult = await hubspot.pushLead({
         email, name: leadName, fields: body.fields || null, blueprint: bp, voiceCall: voiceMeta,
+        contactId: payload.hubspot_contact_id || null,
         env: process.env, fetchImpl: globalThis.fetch
       });
       if (hubspotResult && hubspotResult.contactId) contactId = hubspotResult.contactId;
@@ -80,8 +82,9 @@ exports.handler = async (event) => {
     statusCode: 200,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY' },
     body: JSON.stringify({
-      ok: true, contact_id: contactId, lead_pushed: true,
-      hubspot: hubspotResult ? { contactId: hubspotResult.contactId, dealId: hubspotResult.dealId, mocked: !!hubspotResult.mocked } : { mocked: true },
+      ok: true, contact_id: contactId,
+      lead_pushed: !!(hubspotResult && hubspotResult.contactId && !hubspotResult.mocked),
+      hubspot: hubspot.publicHubspot(hubspotResult),
       filename: core.pdfFilename(bp), pdf_base64: buffer.toString('base64')
     })
   };
