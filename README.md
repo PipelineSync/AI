@@ -47,6 +47,7 @@ Site configuration → **Environment variables** → **Add a variable**:
 |---|---|---|
 | `PS_TOKEN_SECRET` | any long random string, e.g. the output of `openssl rand -hex 16` | Signs the entry-gate session tokens and the voice call tickets. Without it a built-in dev secret is used (fine for a throwaway test deploy, not for anything shared). |
 | `OPENAI_API_KEY` | your OpenAI key (`sk-...`) | **Switches the discovery call on to live AI voice**: one continuous WebRTC session (OpenAI Realtime) carries the whole call, and the same key drives the step-by-step fallback (wording, speech out, transcription in). Read inside the functions only, never sent to the browser. Without it the call runs on the built-in interviewer and the browser voice, so the demo still works. |
+| `ANTHROPIC_API_KEY` | your Anthropic key (`sk-ant-...`) | **Enables Claude AI for extraction and blueprint generation** (Functions A and B). When set, the extract and generate endpoints use Claude with Prompt B and Prompt A instead of the deterministic mock logic. The key is read server-side only — never sent to the browser. Without it the app falls back to deterministic extraction and generation (the demo still works). |
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
 `OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`, `VOICE_PROVIDER`,
@@ -56,7 +57,7 @@ voice layer is documented in `docs/VOICE_SETUP.md` (all of them are commented ou
 with their defaults).
 
 Later, when the remaining keys arrive, add them here too (they only reach the functions, never the
-browser): `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HUBSPOT_ACCESS_TOKEN`,
+browser): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HUBSPOT_ACCESS_TOKEN`,
 `SCHEDULER_LINK`.
 
 ### 4. Test the deployment
@@ -281,6 +282,7 @@ OPENAI_API_KEY=sk-mock OPENAI_BASE_URL=http://127.0.0.1:8099/v1 PORT=8081 node s
 ```
 pipelinesync/
   server.js              local dev server (zero deps): static + routes + local outbox
+  lib/anthropic.js       Anthropic Claude API client (server-side only, key never reaches browser)
   lib/core.js            shared stateless core: KB v1, extract, generate, PDF writer, tokens
   lib/voice.js           the voice discovery call: intake plan, interviewer policy, capture state,
                          the grounded-capture gate, the FAQ, OpenAI adapters (turns, speech,
@@ -288,9 +290,9 @@ pipelinesync/
   lib/voice-api.js       the seven /api/voice routes (incl. realtime/connect, realtime/tool,
                          realtime/end), their rate limits, shared by the dev server and Netlify
   netlify.toml           publish dir, functions dir, /api/* route mapping incl. /api/voice/*
-  netlify/functions/     start (the name + email gate; login.js is its alias), logout, extract (A),
+  netlify/functions/     start (the name + email gate; login.js is its alias), logout, ai (Claude API),
                          generate (B), deliver (C+D), voice, outbox, health
-  public/index.html      shell (no CDN, works offline)
+  public/index.html      shell (no CDN, works offline; includes pdfmake for client-side PDF)
   public/logo.svg        brand mark as vector (faithful redraw of the logo-only.png artwork),
                          transparent: use it on light backgrounds
   public/logo-on-dark.svg  the same mark on a white rounded plate, for dark backgrounds
