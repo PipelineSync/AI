@@ -2627,10 +2627,11 @@ function blueprintView() {
     '</div>';
 
   h += '<div class=\"btn-row\">' +
+    '<button class=\"btn btn-primary btn-lg\" id=\"download-pdf-btn\" aria-label=\"Download blueprint as PDF\">&#11015; Download PDF</button>' +
     (delivered
-      ? '<button class=\"btn btn-ghost\" id=\"redownload-btn\" aria-label=\"Download PDF again\">&#11015; Download ' + esc(delivered.filename) + '</button>' +
+      ? '<button class=\"btn btn-ghost\" id=\"redownload-btn\" aria-label=\"Download server PDF\">&#11015; Server PDF</button>' +
         '<button class=\"btn btn-amber\" id=\"book-btn\">Talk to a consultant</button>'
-      : '<button class=\"btn btn-primary btn-lg\" id=\"unlock-btn\">Download the blueprint</button>' +
+      : '<button class=\"btn btn-ghost\" id=\"unlock-btn\">Unlock & email PDF</button>' +
         '<button class=\"btn btn-amber\" id=\"book-btn\">Talk to a consultant</button>') +
     '</div>';
 
@@ -2649,6 +2650,8 @@ function bindBlueprint() {
   if (newBiz) newBiz.onclick = () => { resetJourney(); render(); };
   const bb = $('#book-btn');
   if (bb) bb.onclick = () => { state.stage = 'booking'; render(); };
+  const dlPdf = $('#download-pdf-btn');
+  if (dlPdf) dlPdf.onclick = () => generateClientPDF();
   const rd = $('#redownload-btn');
   if (rd) rd.onclick = () => downloadPdf(state.delivered);
   const ub = $('#unlock-btn');
@@ -2704,6 +2707,214 @@ function downloadPdf(d) {
   } catch (e) {
     toast('Could not auto-download in this browser. Use "Download PDF again".', true);
   }
+}
+
+/* ---------------- Client-side PDF generation with pdfmake ----------------
+ * Generates a branded PipelineSync blueprint PDF entirely in the browser.
+ * Uses pdfmake for clean, structured documents with selectable text.
+ * Appears after the blueprint is generated, alongside the server-side PDF unlock.
+ */
+function generateClientPDF() {
+  const bp = state.blueprint;
+  if (!bp) { toast('No blueprint to export.', true); return; }
+
+  // Check pdfmake is loaded
+  if (typeof pdfmake === 'undefined') {
+    toast('PDF library not loaded. Please refresh and try again.', true);
+    return;
+  }
+
+  const navy = '#0F2F52';
+  const steel = '#3E6C8E';
+  const orange = '#F57C1F';
+  const dark = '#1A1A2E';
+  const lightBg = '#F8FAFC';
+  const borderCol = '#E2E8F0';
+
+  // Build the document definition
+  const docDefinition = {
+    pageSize: 'A4',
+    pageMargins: [40, 80, 40, 60],
+    header: function(currentPage, pageCount) {
+      return {
+        columns: [
+          { text: 'PIPELINESYNC AI', style: 'headerBrand', margin: [40, 20, 0, 0] },
+          { text: 'REVENUE OPERATIONS BLUEPRINT', style: 'headerTitle', alignment: 'right', margin: [0, 20, 40, 0] }
+        ],
+        margin: [0, 0, 0, 10]
+      };
+    },
+    footer: function(currentPage, pageCount) {
+      return {
+        columns: [
+          { text: 'Page ' + currentPage + ' of ' + pageCount, style: 'footer', margin: [40, 0, 0, 20] },
+          { text: bp.meta.date || '', style: 'footer', alignment: 'center', margin: [0, 0, 0, 20] },
+          { text: 'PipelineSync AI', style: 'footer', alignment: 'right', margin: [0, 0, 40, 20] }
+        ]
+      };
+    },
+    content: [
+      // Title section
+      { text: 'REVENUE OPERATIONS BLUEPRINT', style: 'title' },
+      { text: bp.meta.businessLine + '  |  ' + bp.meta.verticalLabel + '  |  Prepared ' + bp.meta.date, style: 'subtitle' },
+      { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 2, lineColor: orange }], margin: [0, 10, 0, 15] },
+
+      // 1. Executive summary
+      { text: '1. Executive summary', style: 'sectionHeader' },
+      { text: bp.summary.text, style: 'bodyText', margin: [0, 0, 0, 10] },
+
+      // Gap analysis cards
+      {
+        columns: [
+          {
+            width: '50%',
+            stack: [
+              { text: 'The Biggest Operational Gap', style: 'cardTitle' },
+              { text: state.fields && state.fields.biggest_headache ? state.fields.biggest_headache : 'Delayed inbound lead response and unmonitored drop-off between inquiry and qualification.', style: 'cardBody' }
+            ],
+            margin: [0, 0, 5, 10],
+            fillColor: lightBg,
+            padding: 8
+          },
+          {
+            width: '50%',
+            stack: [
+              { text: 'The Single Most Important Change', style: 'cardTitle' },
+              { text: 'Deploy automated 5-minute lead distribution and standardise the ' + bp.pipeline.variant + ' qualification pipeline in HubSpot Sales Hub ' + bp.stack.tier.replace(/HubSpot\s*/i, '') + ' to eliminate pipeline leakage.', style: 'cardBody' }
+            ],
+            margin: [5, 0, 0, 10],
+            fillColor: lightBg,
+            padding: 8
+          }
+        ],
+        margin: [0, 5, 0, 15]
+      },
+
+      // Stats row
+      {
+        columns: [
+          { width: '33%', stack: [{ text: '-35%', style: 'statValue' }, { text: 'Sales cycle velocity acceleration', style: 'statLabel' }], alignment: 'center' },
+          { width: '34%', stack: [{ text: '+18%', style: 'statValue' }, { text: 'Projected close rate lift', style: 'statLabel' }], alignment: 'center' },
+          { width: '33%', stack: [{ text: fmtMoney(bp.coa.totalMonthly), style: 'statValueAccent' }, { text: 'Monthly revenue reclaimed', style: 'statLabel' }], alignment: 'center' }
+        ],
+        margin: [0, 0, 0, 15]
+      },
+
+      // 2. Recommended HubSpot stack
+      { text: '2. Recommended HubSpot stack', style: 'sectionHeader' },
+      { text: 'Core: ' + bp.stack.tier, style: 'bodyText' },
+      ...bp.stack.addOns.map(a => ({ text: 'Add-on: ' + a, style: 'bodyText' })),
+      { text: bp.stack.pricingLine, style: 'bodyText', margin: [0, 0, 0, 5] },
+      { text: bp.stack.pricingNote, style: 'noteText', margin: [0, 0, 0, 5] },
+      { ul: bp.stack.rationale, style: 'bodyText', margin: [0, 0, 0, 10] },
+
+      // 3. Pipeline architecture
+      { text: '3. Pipeline architecture', style: 'sectionHeader' },
+      { text: bp.pipeline.label + ' (' + bp.pipeline.variant + ' close). ' + bp.pipeline.note, style: 'bodyText', margin: [0, 0, 0, 5] },
+      { text: 'Stages: ' + bp.pipeline.stages.join('  >  '), style: 'bodyText', margin: [0, 0, 0, 5] },
+      { ul: bp.pipeline.workflows.map(w => 'Workflow: ' + w), style: 'bodyText', margin: [0, 0, 0, 10] },
+
+      // 4. Lead source architecture
+      { text: '4. Lead source architecture', style: 'sectionHeader' },
+      bp.leadSources.length
+        ? { ul: bp.leadSources.map(s => s.name + ' (' + (s.monthlyVolume != null ? s.monthlyVolume : '?') + '/mo, ' + (s.tracked === false ? 'not tracked' : s.tracked === true ? 'tracked' : 'tracking unclear') + '): ' + s.mechanism), style: 'bodyText', margin: [0, 0, 0, 10] }
+        : { text: 'No lead sources were stated. Add them at the build call.', style: 'noteText', margin: [0, 0, 0, 10] },
+
+      // 5. Tool mapping
+      { text: '5. Tool mapping (current to recommended)', style: 'sectionHeader' },
+      bp.tools.length
+        ? {
+            table: {
+              headerRows: 1,
+              widths: ['20%', '20%', '60%'],
+              body: [
+                [{ text: 'Tool', style: 'tableHeader' }, { text: 'Recommendation', style: 'tableHeader' }, { text: 'Why', style: 'tableHeader' }],
+                ...bp.tools.map(t => [
+                  { text: t.name, style: 'tableCell' },
+                  { text: t.action, style: 'tableCell' },
+                  { text: t.reason, style: 'tableCell' }
+                ])
+              ]
+            },
+            margin: [0, 0, 0, 10]
+          }
+        : { text: 'No tools were stated. Review the stack at the build call.', style: 'noteText', margin: [0, 0, 0, 10] },
+
+      // 6. Build plan
+      { text: '6. Build plan', style: 'sectionHeader' },
+      { text: 'Confirmed defaults (included in the tier):', style: 'bodyText', bold: true, margin: [0, 0, 0, 5] },
+      { ul: bp.build.defaults, style: 'bodyText', margin: [0, 0, 0, 5] },
+      { text: 'Custom items to create for you:', style: 'bodyText', bold: true, margin: [0, 0, 0, 5] },
+      { ul: bp.build.custom, style: 'bodyText', margin: [0, 0, 0, 10] },
+
+      // 7. Cost of inaction
+      { text: '7. What those gaps are costing you', style: 'sectionHeader' },
+      ...bp.coa.items.flatMap(c => [
+        { text: c.title + '  ' + fmtMoney(c.value) + '  (' + c.period + ')', style: 'coaTitle' },
+        { text: 'Basis: ' + c.basis, style: 'noteText', margin: [10, 0, 0, 8] }
+      ]),
+      { text: 'Total estimated cost of inaction: ' + fmtMoney(bp.coa.totalMonthly) + ' per month, ' + fmtMoney(bp.coa.totalSix) + ' over six months.', style: 'coaTotal', margin: [0, 5, 0, 10] },
+
+      // 8. Compliance
+      { text: '8. Compliance', style: 'sectionHeader' },
+      bp.compliance.length
+        ? { ul: bp.compliance.map(c => c.code + ': ' + c.note), style: 'bodyText', margin: [0, 0, 0, 10] }
+        : { text: 'No compliance flags in knowledge base v1 for this vertical.', style: 'noteText', margin: [0, 0, 0, 10] },
+
+      // 9. Next steps
+      { text: '9. Next steps', style: 'sectionHeader' },
+      { ol: bp.nextSteps, style: 'bodyText', margin: [0, 0, 0, 15] },
+
+      // Footer disclaimer
+      { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: borderCol }], margin: [0, 10, 0, 10] },
+      { text: 'Sourced exclusively from knowledge base v1 (no invented properties, tools, features, or prices)', style: 'disclaimer' },
+      {
+        columns: bp.kbReferences.slice(0, 12).map(r => ({ text: r, style: 'kbChip' })),
+        margin: [0, 5, 0, 5]
+      },
+      { text: 'Generated by PipelineSync AI from your confirmed answers. Figures are planning estimates, not a quote. Prepared in UK English.', style: 'disclaimer' }
+    ],
+    styles: {
+      headerBrand: { fontSize: 9, bold: true, color: navy, font: 'Roboto' },
+      headerTitle: { fontSize: 9, color: steel, font: 'Roboto' },
+      title: { fontSize: 22, bold: true, color: navy, font: 'Roboto', margin: [0, 0, 0, 5] },
+      subtitle: { fontSize: 10, color: steel, font: 'Roboto', margin: [0, 0, 0, 5] },
+      sectionHeader: { fontSize: 14, bold: true, color: navy, font: 'Roboto', margin: [0, 15, 0, 8] },
+      bodyText: { fontSize: 10, color: '#334155', font: 'Roboto', lineHeight: 1.5, margin: [0, 0, 0, 3] },
+      noteText: { fontSize: 9, color: '#64748B', font: 'Roboto', italics: true, margin: [0, 0, 0, 3] },
+      cardTitle: { fontSize: 10, bold: true, color: navy, font: 'Roboto', margin: [0, 0, 0, 4] },
+      cardBody: { fontSize: 9, color: '#475569', font: 'Roboto', margin: [0, 0, 0, 0] },
+      statValue: { fontSize: 24, bold: true, color: navy, font: 'Roboto', margin: [0, 0, 0, 3] },
+      statValueAccent: { fontSize: 24, bold: true, color: orange, font: 'Roboto', margin: [0, 0, 0, 3] },
+      statLabel: { fontSize: 8, color: '#64748B', font: 'Roboto', margin: [0, 0, 0, 0] },
+      coaTitle: { fontSize: 10, bold: true, color: '#334155', font: 'Roboto', margin: [0, 5, 0, 2] },
+      coaTotal: { fontSize: 11, bold: true, color: navy, font: 'Roboto' },
+      tableHeader: { fontSize: 9, bold: true, color: '#FFFFFF', fillColor: navy, font: 'Roboto', margin: [4, 4, 4, 4] },
+      tableCell: { fontSize: 9, color: '#334155', font: 'Roboto', margin: [4, 4, 4, 4] },
+      kbChip: { fontSize: 7, color: steel, font: 'Roboto', margin: [0, 0, 2, 0] },
+      disclaimer: { fontSize: 8, color: '#94A3B8', font: 'Roboto', margin: [0, 0, 0, 2] },
+      footer: { fontSize: 8, color: '#94A3B8', font: 'Roboto' }
+    },
+    defaultStyle: {
+      font: 'Roboto',
+      fontSize: 10,
+      color: '#334155'
+    }
+  };
+
+  try {
+    const pdfDoc = pdfmake.createPdf(docDefinition);
+    const filename = core_filename(bp);
+    pdfDoc.download(filename);
+    toast('PDF generated and downloaded: ' + filename);
+  } catch (e) {
+    console.error('[pdfmake]', e);
+    toast('Could not generate PDF. Please try again.', true);
+  }
+}
+
+function core_filename(bp) {
+  return 'PipelineSync_Blueprint_' + (bp.meta.verticalLabel || 'Report').replace(/\s+/g, '') + '_' + new Date().toISOString().slice(0, 10) + '.pdf';
 }
 
 /* ---------------- booking (HubSpot Meetings embed stand-in) ---------------- */

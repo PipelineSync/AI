@@ -17,5 +17,8 @@
   },
   "devDependencies": {
     "jsdom": "^24.0.0"
+  },
+  "dependencies": {
+    "pdfmake": "^0.3.11"
   }
 }
