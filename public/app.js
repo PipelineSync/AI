@@ -134,7 +134,10 @@ const state = {
   voice: null,           // live call state (see newVoiceState in the voice engine)
   showTranscript: false, // transcript panel is collapsed; the call is spoken
   sideOpen: false,       // mobile: the call progress panel is a drawer
-  fieldError: null       // live capture status problems, surfaced instead of failing silently
+  fieldError: null,      // live capture status problems, surfaced instead of failing silently
+  fieldErrors: null,     // per-field errors returned by the server-side re-validation
+  progress: null,        // real generation progress from /api/generate/status: {label, percent}
+  blueprintSource: null  // 'claude' | 'fallback', as reported by the API
 };
 function saveAuth() {
   store.set('ps_token', state.token || '');
@@ -146,6 +149,7 @@ function resetJourney() {
   state.blueprint = null; state.delivered = null; state.booking = null; state.fieldStatus = {};
   state.hubspot = null;
   state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
+  state.fieldErrors = null; state.progress = null; state.blueprintSource = null;
 }
 
 /* ---------------- api ---------------- */
@@ -156,6 +160,19 @@ const api = {
     if (!r.ok) {
       if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
       throw new Error(j.error || 'HTTP ' + r.status);
+    }
+    return j;
+  },
+  async get(p) {
+    const sep = p.indexOf('?') >= 0 ? '&' : '?';
+    const r = await fetch(p + sep + 'token=' + encodeURIComponent(state.token || ''), { headers: { 'Accept': 'application/json' } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
+      const err = new Error(j.error || 'HTTP ' + r.status);
+      err.status = r.status;
+      err.body = j;
+      throw err;
     }
     return j;
   }
@@ -2174,13 +2191,9 @@ async function startExtraction() {
       ' missing_required=' + JSON.stringify(v.capture.missingRequired || []) + ' audio_retained=false');
   }
   state.stage = 'extracting';
+  // Real state only: the loader reflects the in-flight request, never a timed animation.
+  state.progress = { label: 'Structuring your answers', percent: null };
   render();
-  const stepsEl = document.querySelectorAll('.lstep');
-  for (let i = 0; i < stepsEl.length; i++) {
-    if (stepsEl[i]) stepsEl[i].className = 'lstep active';
-    await sleep(600);
-    if (stepsEl[i]) stepsEl[i].className = 'lstep done';
-  }
   try {
     const j = await api.post('/api/extract', { answers: state.answers });
     state.fields = j.fields;
@@ -2195,20 +2208,23 @@ async function startExtraction() {
 
 /* ---------------- loader ---------------- */
 function loaderView(kind) {
-  const steps = [
-    'Reading your call',
-    'Checking pipeline gaps',
-    'Matching the HubSpot setup',
-    'Estimating the impact'
-  ];
   const title = kind === 'extracting' ? 'Structuring your signals' : 'Building your blueprint';
   const sub = kind === 'extracting' ? 'Turning the call into a verified data set.' : 'Matching your numbers to the right HubSpot system.';
+  const p = state.progress || {};
+  const pct = typeof p.percent === 'number' ? Math.max(0, Math.min(100, p.percent)) : null;
   let h = '<div class="card loader hud-frame">' +
     '<div class="scanline-sweep" aria-hidden="true"></div>' +
     '<div class="loader-orb-wrap">' + voiceOrbHtml('thinking', false) + '</div>' +
     '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>AI ADVISOR SYNTHESIS &bull; ACTIVE</div>' +
-    '<h2>' + title + '</h2><p class="sub">' + sub + '</p>';
-  steps.forEach(s => { h += '<div class="lstep" role="status"><span class="ic" aria-hidden="true"></span>' + esc(s) + '</div>'; });
+    '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' +
+    '<div class="lstep active" id="loader-step" role="status" aria-live="polite">' +
+      '<span class="ic" aria-hidden="true"></span>' + esc(p.label || 'Working') +
+      (pct != null ? ' (' + pct + '%)' : '') +
+    '</div>';
+  if (pct != null) {
+    h += '<div class="progressbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '">' +
+      '<div id="gen-bar" style="width:' + pct + '%"></div></div>';
+  }
   return h + '</div>';
 }
 
@@ -2481,24 +2497,63 @@ function checkRefocus(id) {
 async function startGeneration(fields) {
   state.fields = fields;
   state.stage = 'generating';
+  // Real progress: the server reports the step it is actually on. No timed animation,
+  // and the blueprint screen is only shown when the API says the job is done.
+  state.progress = { label: 'Queued', percent: 0 };
   render();
-  const stepsEl = document.querySelectorAll('.lstep');
-  await sleep(800);
-  for (let i = 0; i < stepsEl.length; i++) {
-    stepsEl[i].className = 'lstep active';
-    await sleep(620);
-    stepsEl[i].className = 'lstep done';
-  }
   try {
-    const j = await api.post('/api/generate', { fields });
-    state.blueprint = j.blueprint;
+    const started = await api.post('/api/generate', { fields });
+    if (!started.jobId) throw new Error('The blueprint job could not be started. Please try again.');
+    const bp = await pollGeneration(started.jobId);
+    state.blueprint = bp.blueprint;
+    state.blueprintSource = bp.source || null;
     state.stage = 'blueprint';
+    state.progress = null;
     render();
   } catch (e) {
     state.stage = 'review';
+    state.progress = null;
     render();
-    toast(e.message, true);
+    if (e.body && e.body.fieldErrors) {
+      state.fieldErrors = e.body.fieldErrors;
+      toast(Object.values(e.body.fieldErrors).join(' '), true);
+    } else {
+      toast(e.message, true);
+    }
   }
+}
+
+/* Poll /api/generate/status every 2s until the job really finishes.
+   Resolves only on status "done" with a blueprint; anything else throws. */
+const GEN_POLL_MS = 2000;
+const GEN_POLL_MAX_MS = 15 * 60 * 1000;
+async function pollGeneration(jobId) {
+  const deadline = Date.now() + GEN_POLL_MAX_MS;
+  let misses = 0;
+  while (Date.now() < deadline) {
+    await sleep(GEN_POLL_MS);
+    let j;
+    try {
+      j = await api.get('/api/generate/status?jobId=' + encodeURIComponent(jobId));
+    } catch (e) {
+      // A 404 straight after dispatch can mean the job record has not landed yet.
+      if (e.status === 404 && ++misses <= 3) continue;
+      throw e;
+    }
+    misses = 0;
+    state.progress = { label: j.label || 'Working', percent: typeof j.progress === 'number' ? j.progress : null };
+    if (state.stage === 'generating') render();
+    if (j.status === 'error') {
+      const err = new Error(j.error || 'We could not generate your blueprint. Please try again.');
+      err.body = j;
+      throw err;
+    }
+    if (j.status === 'done') {
+      if (!j.blueprint) throw new Error('The blueprint came back empty. Please try again.');
+      return j;
+    }
+  }
+  throw new Error('The blueprint is taking longer than expected. Please try again.');
 }
 
 /* ---------------- blueprint ---------------- */
@@ -2787,6 +2842,10 @@ function generateClientPDF() {
       // 1. Executive summary
       { text: '1. Executive summary', style: 'sectionHeader' },
       { text: bp.summary.text, style: 'bodyText', margin: [0, 0, 0, 10] },
+      // Every blueprint field must appear: the headline stats come straight from summary.stats.
+      (bp.summary.stats && bp.summary.stats.length)
+        ? { ul: bp.summary.stats.map(st => st.label + ': ' + st.value), style: 'bodyText', margin: [0, 0, 0, 10] }
+        : { text: '', margin: [0, 0, 0, 0] },
 
       // Gap analysis cards
       {
@@ -2828,6 +2887,7 @@ function generateClientPDF() {
       // 2. Recommended HubSpot stack
       { text: '2. Recommended HubSpot stack', style: 'sectionHeader' },
       { text: 'Core: ' + bp.stack.tier, style: 'bodyText' },
+      { text: 'Enterprise review: ' + (bp.stack.enterprise ? 'yes' : 'no'), style: 'bodyText' },
       ...bp.stack.addOns.map(a => ({ text: 'Add-on: ' + a, style: 'bodyText' })),
       { text: bp.stack.pricingLine, style: 'bodyText', margin: [0, 0, 0, 5] },
       { text: bp.stack.pricingNote, style: 'noteText', margin: [0, 0, 0, 5] },
@@ -2893,10 +2953,9 @@ function generateClientPDF() {
       // Footer disclaimer
       { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: borderCol }], margin: [0, 10, 0, 10] },
       { text: 'Sourced exclusively from knowledge base v1 (no invented properties, tools, features, or prices)', style: 'disclaimer' },
-      {
-        columns: bp.kbReferences.slice(0, 12).map(r => ({ text: r, style: 'kbChip' })),
-        margin: [0, 5, 0, 5]
-      },
+      // All KB ids, wrapped as one flowing line so long lists paginate instead of overflowing.
+      { text: bp.kbReferences.join('  ·  '), style: 'kbChip', margin: [0, 5, 0, 5] },
+      { text: bp.meta.generatedBy, style: 'disclaimer' },
       { text: 'Generated by PipelineSync AI from your confirmed answers. Figures are planning estimates, not a quote. Prepared in UK English.', style: 'disclaimer' }
     ],
     styles: {

@@ -15,7 +15,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
 endobj
 6 0 obj
-<< /Length 3966 >>
+<< /Length 3883 >>
 stream
 0 g
 BT
@@ -23,44 +23,44 @@ BT
 /F1 9 Tf 1 0 0 1 381.0 798 Tm (REVENUE OPERATIONS BLUEPRINT) Tj
 0.97 0.48 0.35 RG 0.8 w 56 790 m 539 790 l S
 /F2 20 Tf 1 0 0 1 56 704.0 Tm (REVENUE OPERATIONS BLUEPRINT) Tj
-/F1 9.5 Tf 1 0 0 1 56 683.8 Tm (We sell single-origin coffee online in the Philippines, mostly subscriptions and hampers.  |  E-commerce  |  Prepared 22 September 2026) Tj
+/F1 9.5 Tf 1 0 0 1 56 683.8 Tm (We sell single-origin coffee online in the Philippines, mostly subscriptions and hampers.  |  E-commerce  |  Prepared 23 September 2026) Tj
 /F2 12.5 Tf 1 0 0 1 56 651.0 Tm (1. Executive summary) Tj
 /F1 9.8 Tf 1 0 0 1 56 633.3 Tm (We sell single-origin coffee online in the Philippines, mostly subscriptions and hampers. You currently bring in) Tj
 /F1 9.8 Tf 1 0 0 1 56 618.6 Tm (about 400 leads a month and close 150 \(38%\), running on no CRM \(manual tracking\) with Mailchimp, Shopify,) Tj
 /F1 9.8 Tf 1 0 0 1 56 603.9 Tm (Google Ads. This blueprint moves you to Sales Hub Professional plus Marketing Hub Professional, installs a) Tj
 /F1 9.8 Tf 1 0 0 1 56 589.2 Tm (single-call pipeline across 3 lead sources, and works towards: 30 percent more revenue in six months.) Tj
 /F1 9.8 Tf 1 0 0 1 56 574.5 Tm (Estimated cost of inaction: PHP 69,000 per month.) Tj
-/F2 12.5 Tf 1 0 0 1 56 547.7 Tm (2. Recommended HubSpot stack) Tj
-/F1 9.8 Tf 1 0 0 1 72 530.0 Tm (-  Core: Sales Hub Professional) Tj
-/F1 9.8 Tf 1 0 0 1 72 515.3 Tm (-  Add-on: Marketing Hub Professional) Tj
-/F1 9.8 Tf 1 0 0 1 72 500.6 Tm (-  2 hub\(s\) x 3 seats x USD 90 per seat per month = approx. USD 540 per month) Tj
-/F1 8.2 Tf 1 0 0 1 56 488.3 Tm (List price, USD per seat per month, from knowledge base v1. Regional and committed pricing varies. Confirm at the build call.) Tj
-/F1 9.8 Tf 1 0 0 1 72 473.6 Tm (-  Sales Hub Professional is the floor: the build requires workflows, and Starter cannot run them.) Tj
-/F2 12.5 Tf 1 0 0 1 56 446.9 Tm (3. Pipeline architecture) Tj
-/F1 9.8 Tf 1 0 0 1 56 429.2 Tm (Single-call pipeline \(one-call close\). Every stage can advance on one conversation. Speed and first-response) Tj
-/F1 9.8 Tf 1 0 0 1 56 414.5 Tm (time are the differentiators.) Tj
-/F1 9.8 Tf 1 0 0 1 72 399.8 Tm (-  Stages: New  >  Contacted  >  Qualified  >  Proposal  >  Closed Won  >  Closed Lost) Tj
-/F1 9.8 Tf 1 0 0 1 72 385.1 Tm (-  Workflow: Abandoned-cart sequence \(2 touches\)) Tj
-/F1 9.8 Tf 1 0 0 1 72 370.4 Tm (-  Workflow: Win-back for customers inactive 60 days) Tj
-/F1 9.8 Tf 1 0 0 1 72 355.7 Tm (-  Workflow: Post-purchase review request) Tj
-/F2 12.5 Tf 1 0 0 1 56 328.9 Tm (4. Lead source architecture) Tj
-/F1 9.8 Tf 1 0 0 1 72 311.2 Tm (-  Instagram \(200/mo, tracked\): Social landing forms with UTM tracking. Point the best posts at a dedicated) Tj
-/F1 9.8 Tf 1 0 0 1 72 296.5 Tm (landing page) Tj
-/F1 9.8 Tf 1 0 0 1 72 281.8 Tm (-  Google \(80/mo, tracked\): HubSpot form with a source field and monthly volume tracking) Tj
-/F1 9.8 Tf 1 0 0 1 72 267.1 Tm (-  Email \(120/mo, tracked\): Import with a source property, then a re-engagement sequence) Tj
-/F2 12.5 Tf 1 0 0 1 56 240.4 Tm (5. Tool mapping \(current -> recommended\)) Tj
-/F1 9.8 Tf 1 0 0 1 72 222.7 Tm (-  Mailchimp  ->  Consolidate. Move lists and email into Marketing Hub to end the double entry.) Tj
-/F1 9.8 Tf 1 0 0 1 72 208.0 Tm (-  Shopify  ->  Keep. Connect orders to HubSpot so revenue sits beside the sales data.) Tj
-/F1 9.8 Tf 1 0 0 1 72 193.3 Tm (-  Google Ads  ->  Keep. Connect to HubSpot Ads for automated tracking and contact-level reporting.) Tj
-/F2 12.5 Tf 1 0 0 1 56 166.5 Tm (6. Build plan) Tj
-/F1 9.8 Tf 1 0 0 1 56 148.8 Tm (Confirmed defaults \(included in the tier\):) Tj
-/F1 9.8 Tf 1 0 0 1 72 134.1 Tm (-  Contact, company, and deal objects) Tj
-/F1 9.8 Tf 1 0 0 1 72 119.4 Tm (-  Email sync for every sales seat) Tj
-/F1 9.8 Tf 1 0 0 1 72 104.7 Tm (-  Pipelines, deal stages, and basic dashboards) Tj
-/F1 9.8 Tf 1 0 0 1 72 90.0 Tm (-  Task management and reminders) Tj
+/F1 9.8 Tf 1 0 0 1 72 559.8 Tm (-  Leads / month: 400) Tj
+/F1 9.8 Tf 1 0 0 1 72 545.1 Tm (-  Closed / month: 150) Tj
+/F1 9.8 Tf 1 0 0 1 72 530.4 Tm (-  Close rate: 38%) Tj
+/F1 9.8 Tf 1 0 0 1 72 515.7 Tm (-  Typical deal: PHP 1,200) Tj
+/F2 12.5 Tf 1 0 0 1 56 488.9 Tm (2. Recommended HubSpot stack) Tj
+/F1 9.8 Tf 1 0 0 1 72 471.2 Tm (-  Core: Sales Hub Professional) Tj
+/F1 9.8 Tf 1 0 0 1 72 456.5 Tm (-  Enterprise review: no) Tj
+/F1 9.8 Tf 1 0 0 1 72 441.8 Tm (-  Add-on: Marketing Hub Professional) Tj
+/F1 9.8 Tf 1 0 0 1 72 427.1 Tm (-  2 hub\(s\) x 3 seats x USD 90 per seat per month = approx. USD 540 per month) Tj
+/F1 8.2 Tf 1 0 0 1 56 414.8 Tm (List price, USD per seat per month, from knowledge base v1. Regional and committed pricing varies. Confirm at the build call.) Tj
+/F1 9.8 Tf 1 0 0 1 72 400.1 Tm (-  Sales Hub Professional is the floor: the build requires workflows, and Starter cannot run them.) Tj
+/F2 12.5 Tf 1 0 0 1 56 373.4 Tm (3. Pipeline architecture) Tj
+/F1 9.8 Tf 1 0 0 1 56 355.7 Tm (Single-call pipeline \(one-call close\). Every stage can advance on one conversation. Speed and first-response) Tj
+/F1 9.8 Tf 1 0 0 1 56 341.0 Tm (time are the differentiators.) Tj
+/F1 9.8 Tf 1 0 0 1 72 326.3 Tm (-  Stages: New  >  Contacted  >  Qualified  >  Proposal  >  Closed Won  >  Closed Lost) Tj
+/F1 9.8 Tf 1 0 0 1 72 311.6 Tm (-  Workflow: Abandoned-cart sequence \(2 touches\)) Tj
+/F1 9.8 Tf 1 0 0 1 72 296.9 Tm (-  Workflow: Win-back for customers inactive 60 days) Tj
+/F1 9.8 Tf 1 0 0 1 72 282.2 Tm (-  Workflow: Post-purchase review request) Tj
+/F2 12.5 Tf 1 0 0 1 56 255.4 Tm (4. Lead source architecture) Tj
+/F1 9.8 Tf 1 0 0 1 72 237.7 Tm (-  Instagram \(200/mo, tracked\): Social landing forms with UTM tracking. Point the best posts at a dedicated) Tj
+/F1 9.8 Tf 1 0 0 1 72 223.0 Tm (landing page) Tj
+/F1 9.8 Tf 1 0 0 1 72 208.3 Tm (-  Google \(80/mo, tracked\): HubSpot form with a source field and monthly volume tracking) Tj
+/F1 9.8 Tf 1 0 0 1 72 193.6 Tm (-  Email \(120/mo, tracked\): Import with a source property, then a re-engagement sequence) Tj
+/F2 12.5 Tf 1 0 0 1 56 166.9 Tm (5. Tool mapping \(current -> recommended\)) Tj
+/F1 9.8 Tf 1 0 0 1 72 149.2 Tm (-  Mailchimp  ->  Consolidate. Move lists and email into Marketing Hub to end the double entry.) Tj
+/F1 9.8 Tf 1 0 0 1 72 134.5 Tm (-  Shopify  ->  Keep. Connect orders to HubSpot so revenue sits beside the sales data.) Tj
+/F1 9.8 Tf 1 0 0 1 72 119.8 Tm (-  Google Ads  ->  Keep. Connect to HubSpot Ads for automated tracking and contact-level reporting.) Tj
+/F2 12.5 Tf 1 0 0 1 56 93.0 Tm (6. Build plan) Tj
 ET
 0.45 g
-BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 1 of 2  |  PipelineSync AI  |  22 September 2026  |  Generated server-side) Tj ET
+BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 1 of 2  |  PipelineSync AI  |  23 September 2026  |  Generated server-side) Tj ET
 0.45 g 0.4 w 56 52 m 539 52 l S
 endstream
 endobj
@@ -68,46 +68,56 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
 endobj
 8 0 obj
-<< /Length 3224 >>
+<< /Length 4086 >>
 stream
 0 g
 BT
 /F2 9 Tf 1 0 0 1 56 798 Tm (PIPELINESYNC AI) Tj
 /F1 9 Tf 1 0 0 1 381.0 798 Tm (REVENUE OPERATIONS BLUEPRINT) Tj
 0.97 0.48 0.35 RG 0.8 w 56 790 m 539 790 l S
-/F1 9.8 Tf 1 0 0 1 72 719.3 Tm (-  Sequences \(included with Professional\)) Tj
-/F1 9.8 Tf 1 0 0 1 56 704.6 Tm (Custom items to create for you:) Tj
-/F1 9.8 Tf 1 0 0 1 72 689.9 Tm (-  Pipeline: e-commerce pipeline with 6 stages, matched to your one-call close pattern) Tj
-/F1 9.8 Tf 1 0 0 1 72 675.2 Tm (-  Custom properties from your answers: product, list price, deal size, fulfilment status, and lead source) Tj
-/F1 9.8 Tf 1 0 0 1 72 660.5 Tm (volume) Tj
-/F1 9.8 Tf 1 0 0 1 72 645.8 Tm (-  Form and tracking for: Instagram) Tj
-/F1 9.8 Tf 1 0 0 1 72 631.1 Tm (-  Form and tracking for: Google) Tj
-/F1 9.8 Tf 1 0 0 1 72 616.4 Tm (-  Form and tracking for: Email) Tj
-/F1 9.8 Tf 1 0 0 1 72 601.7 Tm (-  Workflow: Abandoned-cart sequence \(2 touches\)) Tj
-/F1 9.8 Tf 1 0 0 1 72 587.0 Tm (-  Workflow: Win-back for customers inactive 60 days) Tj
-/F1 9.8 Tf 1 0 0 1 72 572.3 Tm (-  Workflow: Post-purchase review request) Tj
-/F1 9.8 Tf 1 0 0 1 72 557.6 Tm (-  Dashboard: monthly leads, closed deals, close rate, and pipeline value by source) Tj
-/F2 12.5 Tf 1 0 0 1 56 530.8 Tm (7. Cost of inaction \(from your numbers\)) Tj
-/F2 9.8 Tf 1 0 0 1 56 513.1 Tm (Deals lost to slow follow-up  PHP 60,000  \(per month\)) Tj
-/F1 8.2 Tf 1 0 0 1 56 500.8 Tm (Basis: 400 leads in, 150 closed, 250 slipping each month. Assumption: 20% of slipped deals are winnable with faster follow-up.) Tj
-/F1 8.2 Tf 1 0 0 1 56 488.5 Tm (Valued at PHP 1,200 typical deal.) Tj
-/F2 9.8 Tf 1 0 0 1 56 473.8 Tm (Value leaking from unmanaged hand-offs  PHP 9,000  \(per month\)) Tj
-/F1 8.2 Tf 1 0 0 1 56 461.5 Tm (Basis: You close 150 deals a month. Assumption: 5% leak between sales and fulfilment without a system of record. Valued at PHP) Tj
-/F1 8.2 Tf 1 0 0 1 56 449.2 Tm (1,200 typical deal.) Tj
-/F2 9.8 Tf 1 0 0 1 56 434.5 Tm (Closing a 30% growth gap  PHP 324,000  \(over 6 months\)) Tj
-/F1 8.2 Tf 1 0 0 1 56 422.2 Tm (Basis: Your goal states 30% more. That is 45 extra deals a month at PHP 1,200, over six months.) Tj
-/F1 9.8 Tf 1 0 0 1 56 403.5 Tm (Total estimated cost of inaction: PHP 69,000 per month, PHP 738,000 over six months.) Tj
-/F2 12.5 Tf 1 0 0 1 56 376.8 Tm (8. Compliance) Tj
-/F1 9.8 Tf 1 0 0 1 56 359.1 Tm (No compliance flags in knowledge base v1 for this vertical.) Tj
-/F2 12.5 Tf 1 0 0 1 56 332.3 Tm (9. Next steps) Tj
-/F1 9.8 Tf 1 0 0 1 72 314.6 Tm (-  1. Book the 30-minute call to walk through this blueprint \(scheduler below\).) Tj
-/F1 9.8 Tf 1 0 0 1 72 299.9 Tm (-  2. Confirm scope: hubs, seats, and the custom items list in section 6.) Tj
-/F1 9.8 Tf 1 0 0 1 72 285.2 Tm (-  3. Launch in 2 to 3 weeks, then a 30-day tuning review of workflow performance.) Tj
-/F1 8.2 Tf 1 0 0 1 56 258.9 Tm (Generated by PipelineSync AI from your confirmed answers and knowledge base v1 \(rules, tools, prices\). Figures are planning) Tj
-/F1 8.2 Tf 1 0 0 1 56 246.6 Tm (estimates, not a quote. Prepared in UK English.) Tj
+/F1 9.8 Tf 1 0 0 1 56 719.3 Tm (Confirmed defaults \(included in the tier\):) Tj
+/F1 9.8 Tf 1 0 0 1 72 704.6 Tm (-  Contact, company, and deal objects) Tj
+/F1 9.8 Tf 1 0 0 1 72 689.9 Tm (-  Email sync for every sales seat) Tj
+/F1 9.8 Tf 1 0 0 1 72 675.2 Tm (-  Pipelines, deal stages, and basic dashboards) Tj
+/F1 9.8 Tf 1 0 0 1 72 660.5 Tm (-  Task management and reminders) Tj
+/F1 9.8 Tf 1 0 0 1 72 645.8 Tm (-  Sequences \(included with Professional\)) Tj
+/F1 9.8 Tf 1 0 0 1 56 631.1 Tm (Custom items to create for you:) Tj
+/F1 9.8 Tf 1 0 0 1 72 616.4 Tm (-  Pipeline: e-commerce pipeline with 6 stages, matched to your one-call close pattern) Tj
+/F1 9.8 Tf 1 0 0 1 72 601.7 Tm (-  Custom properties from your answers: product, list price, deal size, fulfilment status, and lead source) Tj
+/F1 9.8 Tf 1 0 0 1 72 587.0 Tm (volume) Tj
+/F1 9.8 Tf 1 0 0 1 72 572.3 Tm (-  Form and tracking for: Instagram) Tj
+/F1 9.8 Tf 1 0 0 1 72 557.6 Tm (-  Form and tracking for: Google) Tj
+/F1 9.8 Tf 1 0 0 1 72 542.9 Tm (-  Form and tracking for: Email) Tj
+/F1 9.8 Tf 1 0 0 1 72 528.2 Tm (-  Workflow: Abandoned-cart sequence \(2 touches\)) Tj
+/F1 9.8 Tf 1 0 0 1 72 513.5 Tm (-  Workflow: Win-back for customers inactive 60 days) Tj
+/F1 9.8 Tf 1 0 0 1 72 498.8 Tm (-  Workflow: Post-purchase review request) Tj
+/F1 9.8 Tf 1 0 0 1 72 484.1 Tm (-  Dashboard: monthly leads, closed deals, close rate, and pipeline value by source) Tj
+/F2 12.5 Tf 1 0 0 1 56 457.3 Tm (7. Cost of inaction \(from your numbers\)) Tj
+/F2 9.8 Tf 1 0 0 1 56 439.6 Tm (Deals lost to slow follow-up  PHP 60,000  \(per month\)) Tj
+/F1 8.2 Tf 1 0 0 1 56 427.3 Tm (Basis: 400 leads in, 150 closed, 250 slipping each month. Assumption: 20% of slipped deals are winnable with faster follow-up.) Tj
+/F1 8.2 Tf 1 0 0 1 56 415.0 Tm (Valued at PHP 1,200 typical deal.) Tj
+/F2 9.8 Tf 1 0 0 1 56 400.3 Tm (Value leaking from unmanaged hand-offs  PHP 9,000  \(per month\)) Tj
+/F1 8.2 Tf 1 0 0 1 56 388.0 Tm (Basis: You close 150 deals a month. Assumption: 5% leak between sales and fulfilment without a system of record. Valued at PHP) Tj
+/F1 8.2 Tf 1 0 0 1 56 375.7 Tm (1,200 typical deal.) Tj
+/F2 9.8 Tf 1 0 0 1 56 361.0 Tm (Closing a 30% growth gap  PHP 324,000  \(over 6 months\)) Tj
+/F1 8.2 Tf 1 0 0 1 56 348.7 Tm (Basis: Your goal states 30% more. That is 45 extra deals a month at PHP 1,200, over six months.) Tj
+/F1 9.8 Tf 1 0 0 1 56 330.0 Tm (Total estimated cost of inaction: PHP 69,000 per month, PHP 738,000 over six months.) Tj
+/F2 12.5 Tf 1 0 0 1 56 303.3 Tm (8. Compliance) Tj
+/F1 9.8 Tf 1 0 0 1 56 285.6 Tm (No compliance flags in knowledge base v1 for this vertical.) Tj
+/F2 12.5 Tf 1 0 0 1 56 258.8 Tm (9. Next steps) Tj
+/F1 9.8 Tf 1 0 0 1 72 241.1 Tm (-  1. Book the 30-minute call to walk through this blueprint \(scheduler below\).) Tj
+/F1 9.8 Tf 1 0 0 1 72 226.4 Tm (-  2. Confirm scope: hubs, seats, and the custom items list in section 6.) Tj
+/F1 9.8 Tf 1 0 0 1 72 211.7 Tm (-  3. Launch in 2 to 3 weeks, then a 30-day tuning review of workflow performance.) Tj
+/F2 12.5 Tf 1 0 0 1 56 185.0 Tm (10. Knowledge base references) Tj
+/F1 9.8 Tf 1 0 0 1 56 167.3 Tm (Sourced exclusively from knowledge base v1 \(no invented items\): KB-BUILD-01, KB-PIPE-O1, KB-PRISE-01,) Tj
+/F1 9.8 Tf 1 0 0 1 56 152.6 Tm (KB-SRC-DEF, KB-SRC-EM, KB-SRC-SOC, KB-TIER-01, KB-TIER-03, KB-TOOL-GoogleAds,) Tj
+/F1 9.8 Tf 1 0 0 1 56 137.9 Tm (KB-TOOL-Mailchimp, KB-TOOL-Shopify) Tj
+/F1 8.2 Tf 1 0 0 1 56 125.6 Tm (PipelineSync AI \(Claude, Prompt A\) + knowledge base v1) Tj
+/F1 8.2 Tf 1 0 0 1 56 99.3 Tm (Generated by PipelineSync AI from your confirmed answers and knowledge base v1 \(rules, tools, prices\). Figures are planning) Tj
+/F1 8.2 Tf 1 0 0 1 56 87.0 Tm (estimates, not a quote. Prepared in UK English.) Tj
 ET
 0.45 g
-BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 2 of 2  |  PipelineSync AI  |  22 September 2026  |  Generated server-side) Tj ET
+BT /F1 8 Tf 1 0 0 1 56 40 Tm (Page 2 of 2  |  PipelineSync AI  |  23 September 2026  |  Generated server-side) Tj ET
 0.45 g 0.4 w 56 52 m 539 52 l S
 endstream
 endobj
@@ -120,10 +130,10 @@ xref
 0000000218 00000 n 
 0000000320 00000 n 
 0000000456 00000 n 
-0000004473 00000 n 
-0000004609 00000 n 
+0000004390 00000 n 
+0000004526 00000 n 
 trailer
 << /Size 9 /Root 1 0 R >>
 startxref
-7884
+8663
 %%EOF

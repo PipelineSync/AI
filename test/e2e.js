@@ -2,7 +2,7 @@
    Self-contained: starts its own dedicated server instance via test/harness.js. */
 const fs = require('fs');
 const path = require('path');
-const { startServer } = require('./harness');
+const { startServer, generateBlueprint } = require('./harness');
 let BASE;
 
 const PERSONAS = JSON.parse(fs.readFileSync(path.join(__dirname, 'personas.json'), 'utf8'));
@@ -53,9 +53,10 @@ async function get(p) {
     ok(ex.code === 200, 'extract returns 200');
     console.log('  fields:', JSON.stringify(f, null, 0).slice(0, 1200));
 
-    const gen = await post('/api/generate', { token: T, fields: f });
-    const bp = gen.j.blueprint;
-    ok(gen.code === 200 && bp, 'generate returns blueprint');
+    const gen = await generateBlueprint(BASE, T, f);
+    const bp = gen.blueprint;
+    ok(gen.code === 200 && bp, 'generate job completes and returns a blueprint');
+    ok(gen.j.source === 'fallback', 'no ANTHROPIC_API_KEY: the deterministic path is reported (source=' + gen.j.source + ')');
 
     // QA assertions
     ok(bp.stack.tier.includes('Sales Hub Professional'), 'tier floor is Sales Hub Professional');

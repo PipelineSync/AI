@@ -6,7 +6,7 @@
  * for why the rate limit is relaxed and the OpenAI credentials are stripped in tests).
  */
 let BASE;
-const { startServer } = require('./harness');
+const { startServer, generateBlueprint } = require('./harness');
 const voice = require('../lib/voice');
 const core = require('../lib/core');
 const { clampVoiceMeta } = require('../lib/voice-api');
@@ -239,7 +239,7 @@ async function httpTests() {
 
   // The lead carries the call metadata through to Function D.
   const fields = fieldsFor(fullAnswers());
-  const gen = await (await post('/api/generate', { fields })).json();
+  const gen = (await generateBlueprint(BASE, token, fields)).j;
   const del = await (await post('/api/deliver', {
     email: 'qa@pipelinesync.ai', consent: true, fields, blueprint: gen.blueprint,
     voice_meta: {

@@ -18,6 +18,10 @@ const hubspot = require('./lib/hubspot');
 const voice = require('./lib/voice');
 const { handleVoice, clampVoiceMeta, rateLimitFor } = require('./lib/voice-api');
 const anthropic = require('./lib/anthropic');
+const aiPipeline = require('./lib/ai-pipeline');
+const blueprintSchema = require('./lib/blueprint-schema');
+const jobStore = require('./lib/job-store');
+const generateJob = require('./lib/generate-job');
 
 /* Zero-dependency .env loader: reads KEY=VALUE lines from a .env in the repo root, skipping
    blanks and comment lines, stripping inline " # comments" and surrounding quotes. Real
@@ -257,7 +261,8 @@ async function handleApi(req, res, url) {
 
   // Authenticated routes: token is in the JSON body (client always sends it)
   const authBody = await readBody(req);
-  const payload = core.verifyToken(authBody.token);
+  // GET /api/generate/status carries the token in the query string (the poll loop is a GET).
+  const payload = core.verifyToken(authBody.token || url.searchParams.get('token'));
   if (!payload) return sendJson(res, 401, { error: 'Your session has ended. Enter your name and email to start again.' });
 
   if (method === 'POST' && route === '/api/lead/progress') {
@@ -284,76 +289,10 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true, stored: true });
   }
 
-  /* AI routes: Anthropic Claude API (key is server-side only) */
-  if (method === 'POST' && route.startsWith('/api/ai/')) {
-    const sub = route.slice('/api/ai/'.length);
-    const rl = checkRateLimit('ai:' + sub + ':' + ip, 10, 60 * 1000);
-    if (!rl.allowed) {
-      res.writeHead(429, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(rl.retryAfter) }, securityHeaders()));
-      return res.end(JSON.stringify({ error: 'Too many AI requests. Wait ' + rl.retryAfter + 's and try again.' }));
-    }
-    if (!anthropic.isEnabled(process.env)) {
-      return sendJson(res, 503, { error: 'AI service is not configured. The ANTHROPIC_API_KEY environment variable is missing.', configured: false });
-    }
-    if (sub === 'chat') {
-      const sysPrompt = String(authBody.system_prompt || 'You are a helpful AI assistant.').slice(0, 200000);
-      const msg = String(authBody.message || '').trim();
-      if (!msg) return sendJson(res, 400, { error: 'Please provide a message.' });
-      if (msg.length > 100000) return sendJson(res, 400, { error: 'Message is too long (max 100,000 characters).' });
-      const result = await anthropic.callClaude({ systemPrompt: sysPrompt, userMessage: msg, model: authBody.model, maxTokens: authBody.max_tokens, env: process.env, fetchImpl: fetch });
-      if (!result.ok) return sendJson(res, 502, { error: result.error });
-      return sendJson(res, 200, { ok: true, response: result.text, usage: result.usage });
-    }
-    if (sub === 'extract') {
-      const answers = Array.isArray(authBody.answers) ? authBody.answers : [];
-      if (!answers.length) return sendJson(res, 400, { error: 'No answers provided.' });
-      const answersText = answers.map(a => '[' + a.id + ']: ' + a.text).join('\n');
-      const result = await anthropic.callClaudeJSON({
-        systemPrompt: core.PROMPT_B || 'Extract structured fields from intake answers. Return valid JSON.',
-        userMessage: answersText,
-        env: process.env, fetchImpl: fetch
-      });
-      if (!result.ok) return sendJson(res, 502, { error: result.error });
-      if (result.data && typeof result.data === 'object') {
-        const fields = result.data;
-        const all = Object.keys(fields);
-        const filled = all.filter(k => { const v = fields[k]; return v !== null && v !== '' && !(Array.isArray(v) && !v.length); });
-        return sendJson(res, 200, { ok: true, fields, filledCount: filled.length, totalCount: all.length, source: 'claude' });
-      }
-      // Fall back to deterministic
-      const fields = core.extract(answers);
-      const all = Object.keys(fields);
-      const filled = all.filter(k => JSON.stringify(fields[k]) !== 'null' && JSON.stringify(fields[k]) !== '[]' && JSON.stringify(fields[k]) !== '""');
-      return sendJson(res, 200, { ok: true, fields, filledCount: filled.length, totalCount: all.length, source: 'deterministic' });
-    }
-    if (sub === 'generate') {
-      const fields = authBody.fields || {};
-      try { if (JSON.stringify(fields).length > 100000) return sendJson(res, 400, { error: 'Fields payload too large.' }); } catch (e) {}
-      const result = await anthropic.callClaudeJSON({
-        systemPrompt: core.PROMPT_A || 'Generate a revenue operations blueprint. Return valid JSON.',
-        userMessage: 'Generate the blueprint for these confirmed review fields:\n\n' + JSON.stringify(fields, null, 2),
-        env: process.env, fetchImpl: fetch
-      });
-      if (!result.ok) return sendJson(res, 502, { error: result.error });
-      let bp;
-      if (result.data && typeof result.data === 'object' && result.data.meta) {
-        bp = result.data;
-      } else {
-        bp = core.generate(fields);
-      }
-      if (payload.lead_id && leads.isEnabled(process.env)) {
-        const now = new Date().toISOString();
-        await leads.saveSession(payload.lead_id, { status: 'completed', extracted_fields: fields, completed_at: now }, { env: process.env });
-        await leads.saveBlueprint(payload.lead_id, bp, { generated_at: now }, { env: process.env });
-        await leads.updateLead(payload.lead_id, {
-          status: 'blueprint_generated', blueprint_generated_at: now,
-          industry: fields.industry || null, company: fields.business_description || null
-        }, { env: process.env });
-        await leads.addEvent(payload.lead_id, 'blueprint_generated', {}, { env: process.env });
-      }
-      return sendJson(res, 200, { ok: true, blueprint: bp, source: result.data && result.data.meta ? 'claude' : 'deterministic' });
-    }
-    return sendJson(res, 404, { error: 'Unknown AI action: ' + sub });
+  /* The /api/ai/* arbitrary-prompt passthrough is removed (Phase 2): Claude is only
+     reachable through /api/extract and /api/generate, with server-side prompts. */
+  if (route === '/api/ai' || route.startsWith('/api/ai/')) {
+    return sendJson(res, 404, { error: 'Not found.' });
   }
 
   if (method === 'POST' && route === '/api/extract') {
@@ -363,64 +302,43 @@ async function handleApi(req, res, url) {
       if (!a || typeof a.id !== 'string' || typeof a.text !== 'string') return sendJson(res, 400, { error: 'Invalid answer format.' });
       if (a.id.length > 100 || a.text.length > 5000) return sendJson(res, 400, { error: 'Answer too long (max 5000 chars).' });
     }
-    // Use Claude if available, otherwise deterministic
-    let fields, source = 'deterministic';
-    if (anthropic.isEnabled(process.env)) {
-      const answersText = answers.map(a => '[' + a.id + ']: ' + a.text).join('\n');
-      const aiResult = await anthropic.callClaudeJSON({
-        systemPrompt: core.PROMPT_B || 'Extract structured fields from intake answers. Return valid JSON.',
-        userMessage: answersText,
-        env: process.env, fetchImpl: fetch
-      });
-      if (aiResult.ok && aiResult.data && typeof aiResult.data === 'object') {
-        fields = aiResult.data;
-        source = 'claude';
-      } else {
-        fields = core.extract(answers);
-      }
-    } else {
-      fields = core.extract(answers);
-    }
-    const all = Object.keys(fields);
-    const filled = all.filter(k => {
-      const v = fields[k];
-      if (source === 'claude') return v !== null && v !== '' && !(Array.isArray(v) && !v.length);
-      return JSON.stringify(fields[k]) !== 'null' && JSON.stringify(fields[k]) !== '[]' && JSON.stringify(fields[k]) !== '""';
+    const result = await aiPipeline.runExtract(answers, { env: process.env });
+    return sendJson(res, 200, {
+      ok: true, fields: result.fields,
+      filledCount: result.filledCount, totalCount: result.totalCount, source: result.source
     });
-    return sendJson(res, 200, { ok: true, fields, filledCount: filled.length, totalCount: all.length, source });
   }
 
+  /* Blueprint generation: same job contract as the deployed background function, so the
+     client polls /api/generate/status in both environments. Locally the job runs inline. */
   if (method === 'POST' && route === '/api/generate') {
     const fields = authBody.fields || {};
     try { if (JSON.stringify(fields).length > 100000) return sendJson(res, 400, { error: 'Fields payload too large.' }); } catch (e) {}
-    // Use Claude if available, otherwise deterministic
-    let bp, source = 'deterministic';
-    if (anthropic.isEnabled(process.env)) {
-      const aiResult = await anthropic.callClaudeJSON({
-        systemPrompt: core.PROMPT_A || 'Generate a revenue operations blueprint. Return valid JSON.',
-        userMessage: 'Generate the blueprint for these confirmed review fields:\n\n' + JSON.stringify(fields, null, 2),
-        env: process.env, fetchImpl: fetch
+    const v = blueprintSchema.validateGenerateFields(fields);
+    if (!v.ok) {
+      return sendJson(res, 400, {
+        error: 'Some required answers are missing or invalid. Correct them on the review screen and try again.',
+        fieldErrors: v.fieldErrors
       });
-      if (aiResult.ok && aiResult.data && typeof aiResult.data === 'object' && aiResult.data.meta) {
-        bp = aiResult.data;
-        source = 'claude';
-      } else {
-        bp = core.generate(fields);
-      }
-    } else {
-      bp = core.generate(fields);
     }
-    if (payload.lead_id && leads.isEnabled(process.env)) {
-      const now = new Date().toISOString();
-      await leads.saveSession(payload.lead_id, { status: 'completed', extracted_fields: fields, completed_at: now }, { env: process.env });
-      await leads.saveBlueprint(payload.lead_id, bp, { generated_at: now }, { env: process.env });
-      await leads.updateLead(payload.lead_id, {
-        status: 'blueprint_generated', blueprint_generated_at: now,
-        industry: fields.industry || null, company: fields.business_description || null
-      }, { env: process.env });
-      await leads.addEvent(payload.lead_id, 'blueprint_generated', {}, { env: process.env });
-    }
-    return sendJson(res, 200, { ok: true, blueprint: bp, source });
+    const jobId = jobStore.newJobId();
+    await generateJob.setStep(jobId, 'validating', { source: null }, { env: process.env });
+    generateJob.runJob(jobId, fields, payload, { env: process.env });
+    return sendJson(res, 202, { ok: true, jobId, status: 'accepted', pollUrl: '/api/generate/status?jobId=' + jobId });
+  }
+
+  if ((method === 'GET' || method === 'POST') && route === '/api/generate/status') {
+    const jobId = String(authBody.jobId || url.searchParams.get('jobId') || '');
+    const rec = await jobStore.get(jobId, { env: process.env });
+    if (!rec) return sendJson(res, 404, { error: 'That blueprint job is unknown or has expired. Generate again.' });
+    const out = {
+      ok: true, jobId: rec.jobId, status: rec.status, step: rec.step || null,
+      label: rec.label || null, progress: typeof rec.progress === 'number' ? rec.progress : 0,
+      source: rec.source || null
+    };
+    if (rec.status === 'done') out.blueprint = rec.blueprint;
+    if (rec.status === 'error') { out.error = rec.error || 'Generation failed.'; if (rec.fieldErrors) out.fieldErrors = rec.fieldErrors; }
+    return sendJson(res, 200, out);
   }
 
   if (method === 'POST' && route === '/api/deliver') {
