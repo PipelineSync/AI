@@ -1,91 +1,43 @@
 'use strict';
-/* Netlify functions C + D: /api/deliver
+/* Netlify function: /api/deliver
+ *
  * C: builds the PDF server-side (pure-JS writer) and returns it as base64.
- * D: pushes the lead to HubSpot. When HUBSPOT_ACCESS_TOKEN is set (Private App
- *    token pat-na1-...), the lead is pushed live to HubSpot Contacts + Deals
- *    via lib/hubspot.js. Without it, the payload is logged to the Netlify
- *    function logs as [hubspot-mock] (so demos never break).
+ * Phase 3: emails that PDF to the lead through Resend (raw fetch, no npm dependency). The
+ *          recipient is the address in the HMAC-signed session token, never the request body,
+ *          and an email failure is reported as one: it never blocks the browser download.
+ * D: pushes the lead to HubSpot. When HUBSPOT_ACCESS_TOKEN is set (Private App token
+ *    pat-na1-...), the lead is pushed live to HubSpot Contacts + Deals + a note via
+ *    lib/hubspot.js, and the note records whether the email went out. Without the token the
+ *    payload is logged to the Netlify function logs as [hubspot-mock] (so demos never break).
+ *
+ * The work itself lives in lib/deliver-core.js, which the local dev server mounts too, so the
+ * deployed and local paths cannot drift apart.
  */
-const core = require('../../lib/core');
-const leads = require('../../lib/supabase-leads');
-const hubspot = require('../../lib/hubspot');
-const { bodyOf, json } = require('../../lib/netlify-helpers');
-const { clampVoiceMeta } = require('../../lib/voice-api');
-
-function logLead(lead) {
-  console.log('[hubspot-mock] lead push: ' + JSON.stringify(lead));
-}
+const deliverCore = require('../../lib/deliver-core');
+const { bodyOf, json, getClientIp } = require('../../lib/netlify-helpers');
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
-  const body = bodyOf(event);
-  let payload;
-  try { payload = core.verifyToken(body.token); } catch (e) {
-    return json(500, { error: 'Server misconfigured: missing token secret.' });
-  }
-  if (!payload) return json(401, { error: 'Your session has ended. Enter your name and email to start again.' });
 
-  const bp = body.blueprint;
-  if (!bp || !bp.meta || !bp.meta.verticalLabel) return json(400, { error: 'No blueprint in request. Generate the blueprint before unlocking the PDF.' });
-  const email = String(body.email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(400, { error: 'Enter a valid email to unlock the PDF.' });
-  if (email.length > 254) return json(400, { error: 'Email too long.' });
-  if (body.consent !== true) return json(400, { error: 'Please tick the consent box before we send the PDF.' });
-
-  const buffer = core.buildPdf(bp);
-  const leadName = core.cleanName(payload.name) || core.loginNameFor(payload.email || email);
-  const voiceMeta = clampVoiceMeta(body.voice_meta);
-  const mockLead = core.makeLeadPayload(email, leadName, body.fields || null, bp, voiceMeta);
-
-  // Enrich the contact captured at start (deal + association + note). Reuse the contactId
-  // signed into the session token when the entry gate already upserted it.
-  let hubspotResult = null;
-  let contactId = mockLead.contact_id;
-  if (hubspot.isEnabled(process.env)) {
-    try {
-      hubspotResult = await hubspot.pushLead({
-        email, name: leadName, fields: body.fields || null, blueprint: bp, voiceCall: voiceMeta,
-        contactId: payload.hubspot_contact_id || null,
-        env: process.env, fetchImpl: globalThis.fetch
-      });
-      if (hubspotResult && hubspotResult.contactId) contactId = hubspotResult.contactId;
-      if (hubspotResult && hubspotResult.error) {
-        console.warn('[hubspot] push returned error but PDF still delivered:', hubspotResult.error);
-      } else {
-        console.log('[hubspot] live push ok: contact=' + (hubspotResult && hubspotResult.contactId) + ' deal=' + (hubspotResult && hubspotResult.dealId));
-      }
-    } catch (e) {
-      console.error('[hubspot] live push failed (PDF still delivered):', e.message);
-      // Do not block PDF delivery — fall back to mock id
-    }
-  } else {
-    logLead(mockLead);
+  // Phase 3: 5 unlocks per minute per IP. Each attempt builds a PDF and may send an email.
+  const ip = getClientIp(event);
+  const rl = deliverCore.checkDeliverRateLimit(ip, process.env);
+  if (!rl.allowed) {
+    return {
+      statusCode: 429,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'retry-after': String(rl.retryAfter || 60)
+      },
+      body: JSON.stringify({ error: 'Too many unlock attempts. Please wait ' + (rl.retryAfter || 60) + 's and try again.' })
+    };
   }
 
-  if (payload.lead_id && leads.isEnabled(process.env)) {
-    try {
-      const now = new Date().toISOString();
-      const filename = core.pdfFilename(bp);
-      await leads.saveBlueprint(payload.lead_id, bp, { generated_at: now, delivered_at: now, pdf_filename: filename }, { env: process.env });
-      await leads.updateLead(payload.lead_id, {
-        email, status: 'blueprint_delivered', blueprint_delivered_at: now,
-        consent_given: true, consent_given_at: now
-      }, { env: process.env });
-      await leads.addEvent(payload.lead_id, 'blueprint_delivered', { filename }, { env: process.env });
-    } catch (e) {
-      console.error('[deliver] Supabase persistence failed:', e.message);
-      return json(503, { error: 'The PDF was created, but delivery could not be recorded. Please try again.' });
-    }
-  }
-
-  return {
-    statusCode: 200,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY' },
-    body: JSON.stringify({
-      ok: true, contact_id: contactId,
-      lead_pushed: !!(hubspotResult && hubspotResult.contactId && !hubspotResult.mocked),
-      hubspot: hubspot.publicHubspot(hubspotResult),
-      filename: core.pdfFilename(bp), pdf_base64: buffer.toString('base64')
-    })
-  };
+  const out = await deliverCore.deliver({
+    body: bodyOf(event),
+    env: process.env,
+    fetchImpl: globalThis.fetch
+  });
+  return json(out.statusCode, out.body);
 };

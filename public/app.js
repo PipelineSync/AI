@@ -126,7 +126,7 @@ const state = {
   answers: [],           // [{id, text}] captured on the call (or by typing)
   fields: null,          // Section 7 contract
   blueprint: null,
-  delivered: null,       // {contact_id, filename, pdf_url}
+  delivered: null,       // {contact_id, filename, pdf_base64, email, email_result, hubspot}
   booking: null,         // {day, slot}
   schedulerLink: null, // from /api/config (SCHEDULER_LINK env)
   hubspot: null,       // {ok, mocked, contactId?} from /api/auth/start
@@ -2704,8 +2704,15 @@ function blueprintView() {
     } else if (!hs.mocked) {
       h += '<div class=\"kv\"><span class=\"k\">CRM</span><span class=\"v\">saved - CRM sync pending</span></div>';
     }
+    // Phase 3: the email line reports exactly what the deliver API said, and the reason comes
+    // from the API too, so a failed send is never dressed up as a success.
+    const mail = emailStatusOf(delivered);
     h += '<div class=\"kv\"><span class=\"k\">Delivered to</span><span class=\"v\">' + esc(delivered.email) + '</span></div>' +
+      '<div class=\"kv\"><span class=\"k\">Emailed</span><span class=\"v\">' + esc(mail.text) + '</span></div>' +
       '<div class=\"kv\"><span class=\"k\">File</span><span class=\"v\">' + esc(delivered.filename) + '</span></div></div>';
+    if (mail.known && !mail.sent && mail.error) {
+      h += '<p class=\"small muted mt8\">Email: ' + esc(mail.error) + '</p>';
+    }
   } else {
     h += '<div id=\"unlock-holder\"></div>';
   }
@@ -2726,6 +2733,10 @@ function bindBlueprint() {
     holder.innerHTML = '<div class=\"unlock-panel\"><h3 class="unlock-title">Download your blueprint</h3>' +
       '<div class=\"grid-2\"><div class=\"field\"><label for=\"un-email\">Email for delivery</label><input type=\"email\" id=\"un-email\" value=\"' + esc(state.user.email) + '\" maxlength=\"254\"></div>' +
       '<div class="field field-check"><label class="checkline"><input type=\"checkbox\" id=\"un-consent\"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
+      // Phase 3: the PDF is always emailed to the address the session was opened with (the server
+      // takes the recipient from the signed token), so say so instead of letting the field imply
+      // the address can be chosen here.
+      '<p class=\"small muted mt8\">The PDF is emailed to the address you signed in with: ' + esc(state.user.email) + '. You can download it here as well.</p>' +
       '<button class=\"btn btn-primary\" id=\"un-go\" disabled>Generate and send my PDF</button></div>';
     const cb = $('#un-consent'), go = $('#un-go');
     cb.onchange = () => { go.disabled = !cb.checked; };
@@ -2741,9 +2752,15 @@ function bindBlueprint() {
           blueprint: state.blueprint,
           voice_meta: voiceMeta()
         });
+        const typed = $('#un-email').value.trim().toLowerCase();
+        const emailResult = j.email || null;
         state.delivered = {
           contact_id: j.contact_id, filename: j.filename,
-          pdf_base64: j.pdf_base64, email: $('#un-email').value.trim().toLowerCase(),
+          pdf_base64: j.pdf_base64,
+          // The address shown is the one the API says it emailed (taken from the signed session),
+          // never simply what was typed in the form.
+          email: (emailResult && emailResult.to) || typed,
+          email_result: emailResult,
           hubspot: j.hubspot || { mocked: true, ok: false }
         };
         render();
@@ -2765,11 +2782,25 @@ function hubspotLeadLabel(d) {
   if (!hs.mocked) return 'CRM sync pending';
   return 'not synced';
 }
-function hubspotDownloadToast(d) {
+/* Phase 3: what the deliver API reported about the email, and nothing more. The UI only says the
+   PDF was emailed when the response carried email.sent === true. */
+function emailStatusOf(d) {
+  const er = (d && d.email_result) || null;
+  if (!er) return { known: false, sent: false, text: 'Not attempted', error: '' };
+  if (er.sent) {
+    return { known: true, sent: true, text: 'Sent to ' + (er.to || (d && d.email) || 'your email'), error: '' };
+  }
+  return { known: true, sent: false, text: "Couldn't email it \u2014 download below", error: er.error || '' };
+}
+function deliveryToast(d) {
   const hs = (d && d.hubspot) || {};
-  if (hs.mocked || hs.mocked === undefined && !hs.ok) return 'PDF downloaded.';
-  if (hs.ok && hs.contactId && !hs.mocked) return 'PDF downloaded. HubSpot synced.';
-  return 'PDF downloaded. Saved - CRM sync pending.';
+  const mail = emailStatusOf(d);
+  let base = 'PDF downloaded.';
+  if (hs.ok && hs.contactId && !hs.mocked) base = 'PDF downloaded. HubSpot synced.';
+  else if (!hs.mocked && hs.mocked !== undefined) base = 'PDF downloaded. Saved - CRM sync pending.';
+  if (mail.sent) return base + ' Emailed to ' + mail.text.replace(/^Sent to /, '') + '.';
+  if (mail.known) return base + ' Email not sent.';
+  return base;
 }
 function downloadPdf(d) {
   if (!d || !d.pdf_base64) return;
@@ -2783,7 +2814,7 @@ function downloadPdf(d) {
     a.href = u; a.download = d.filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 4000);
-    toast(hubspotDownloadToast(d));
+    toast(deliveryToast(d));
   } catch (e) {
     toast('Could not auto-download in this browser. Use "Download PDF again".', true);
   }
@@ -3082,22 +3113,41 @@ function doneView() {
   const bp = state.blueprint;
   const d = state.delivered;
   const b = state.booking;
+  const mail = emailStatusOf(d);
+  const hasPdf = !!(d && d.pdf_base64);
+  // Phase 3: the heading only promises an email when the API confirmed one. Otherwise it says
+  // what is true - the blueprint is ready to download - and the button is right there.
+  const heading = mail.sent
+    ? 'Your blueprint is on its way'
+    : (hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready');
   let h = '<div class="card done-card">' +
     '<div class="done-mark">' + logoTile(54) + '</div>' +
-    '<h2>Your blueprint is on its way</h2>' +
+    '<h2>' + esc(heading) + '</h2>' +
     '<div class="done-list">' +
     '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ', ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) : 'not unlocked') + '</span></div>' +
+    '<div class=\"kv\"><span class=\"k\">Emailed</span><span class=\"v\">' + esc(mail.text) + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">HubSpot lead</span><span class=\"v mono\">' + hubspotLeadLabel(d) + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">Consultation</span><span class=\"v\">' + (b && b.confirmed ? esc(b.day) + ' at ' + esc(b.slot) : 'not scheduled') + '</span></div>' +
     '</div>' +
+    (mail.known && !mail.sent && mail.error ? '<p class=\"small muted mt8\">Email: ' + esc(mail.error) + '</p>' : '') +
     '<div class="btn-row btn-row-center">' +
-    '<button class=\"btn btn-primary\" id=\"new-biz2\">Run another business</button>' +
+    '<button class=\"btn btn-primary\" id=\"done-download-btn\">' + (hasPdf ? 'Download the PDF again' : 'Download the PDF') + '</button>' +
+    '<button class=\"btn btn-ghost\" id=\"new-biz2\">Run another business</button>' +
     '</div>' +
     '</div>';
   return h;
 }
 function bindDone() {
+  // The download is always available, whatever the email did: the server PDF when there is one,
+  // otherwise the in-browser export.
+  const dl = $('#done-download-btn');
+  if (dl) {
+    dl.onclick = () => {
+      if (state.delivered && state.delivered.pdf_base64) downloadPdf(state.delivered);
+      else generateClientPDF();
+    };
+  }
   const n = $('#new-biz2');
   if (n) {
     n.onclick = () => { resetJourney(); render(); };

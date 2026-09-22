@@ -13,7 +13,8 @@
     "test:voice-openai": "node test/voice-openai.js",
     "test:voice-realtime": "node test/voice-realtime.js",
     "test:supabase": "node test/supabase-leads.js",
-    "test:all": "node test/supabase-leads.js && node test/voice.js && node test/voice-openai.js && node test/voice-realtime.js && node test/e2e.js && node test/netlify-sim.js && node test/claude-pipeline.js && node test/pdfcheck.js && node test/ui-design.js && node test/ui-smoke.js",
+    "test:email": "node test/pdf-email.js",
+    "test:all": "node test/supabase-leads.js && node test/voice.js && node test/voice-openai.js && node test/voice-realtime.js && node test/e2e.js && node test/pdf-email.js && node test/netlify-sim.js && node test/claude-pipeline.js && node test/pdfcheck.js && node test/ui-design.js && node test/ui-smoke.js",
     "test:claude": "node test/claude-pipeline.js"
   },
   "devDependencies": {

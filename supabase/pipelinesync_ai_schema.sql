@@ -93,6 +93,7 @@ create table if not exists public.pipeline_blueprints (
   delivered_at timestamptz,           -- set when PDF is unlocked
   pdf_filename text,                  -- e.g. PipelineSync_Blueprint_Solar_2026-09-19.pdf (≤255)
   pdf_storage_path text,              -- if you later store PDF in Supabase Storage (≤1000)
+                                      -- (Phase 3 emails the PDF with Resend: no storage bucket needed)
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -112,7 +113,7 @@ create table if not exists public.pipeline_lead_events (
   user_id uuid not null references auth.users(id) on delete cascade,
   lead_id uuid not null references public.pipeline_leads(id) on delete cascade,
   event_type text not null check (char_length(event_type) between 1 and 100), -- lead_signed_up, discovery_started, discovery_completed, blueprint_generated, blueprint_delivered, consultation_requested, etc.
-  event_data jsonb,                   -- {source:'pipelinesync_ai', filename:'...', hubspot:{contactId, dealId}}
+  event_data jsonb,                   -- {source:'pipelinesync_ai', filename:'...', hubspot:{contactId, dealId}, email:{sent, to, id|error}} (Phase 3 email result)
   created_at timestamptz not null default now()
 );
 create index if not exists pipeline_lead_events_lead_idx on public.pipeline_lead_events (lead_id, created_at desc);

@@ -228,6 +228,12 @@ async function reachCall(page, details) {
   ok(!!d1.querySelector('.success-card'), 'delivery success card shown');
   ok(/PDF ready/.test(d1.body.textContent), 'success card reports the PDF is ready');
   ok(!/pushed to HubSpot/.test(d1.body.textContent), 'mocked deliver does not claim a HubSpot push');
+  // Phase 3: this test server has no PDF_EMAIL_API_KEY, so deliver reports email.sent=false and
+  // the screen has to repeat that instead of claiming an email went out.
+  const deliveredCard = d1.querySelector('.success-card').textContent;
+  ok(/Emailed/.test(deliveredCard), 'the delivery card has an email line of its own');
+  ok(/Couldn.t email it/.test(deliveredCard), 'no Resend key: the card says the email did not go out');
+  ok(!/Sent to /.test(deliveredCard), 'the card never claims the PDF was emailed when the API said it was not');
 
   const outboxRaw = await (await fetch(BASE + '/dev/outbox')).text();
   // The outbox JSON is HTML-escaped (hardening), so decode it before asserting on the payload.
@@ -250,7 +256,14 @@ async function reachCall(page, details) {
   ok(d1.body.textContent.includes('Meeting requested'), 'meeting requested state');
   d1.getElementById('finish-btn').click();
   await sleep(150);
-  ok(d1.body.textContent.includes('Your blueprint is on its way'), 'done screen rendered');
+  const doneText = d1.body.textContent;
+  ok(/Your blueprint is ready/.test(doneText), 'the done screen says the truth when no email was sent: ready to download');
+  ok(/Couldn.t email it/.test(doneText), 'the done screen repeats the email result the API reported');
+  ok(!/on its way/i.test(doneText), 'a failed email is never described as on its way');
+  ok(!!d1.querySelector('#done-download-btn'), 'the download button is on the done screen, email or no email');
+  d1.getElementById('done-download-btn').click();
+  await sleep(150);
+  ok(!!d1.querySelector('#done-download-btn') && p1.errors.length === 0, 'downloading from the done screen is wired and throws nothing');
 
   console.log('\nScenario 2: microphone blocked (preview iframe, no speech recognition)');
   const p2 = boot(false);
@@ -278,7 +291,45 @@ async function reachCall(page, details) {
   d2.getElementById('structure-btn').click();
   await sleep(3200);
   ok(!!d2.querySelector('#confirm-fields'), 'typed answers structure into the review screen');
-  ok(p2.errors.length === 0, 'no runtime errors in the typed fallback' + (p2.errors.length ? ': ' + p2.errors[0] : ''));
+
+  // Phase 3: the success wording must be driven by the API, never by hope. This test server has
+  // no Resend key, so the deliver response is stubbed to report email.sent:true and the same
+  // screens are checked again: sent wording only where the API said sent.
+  const realFetch = p2.window.fetch;
+  p2.window.fetch = async (url, init) => {
+    const res = await realFetch(url, init);
+    if (String(url).indexOf('/api/deliver') >= 0) {
+      const j = await res.json();
+      j.email = { sent: true, to: 'demo@pipelinesync.ai', id: 're_ui_stub' };
+      return { ok: res.ok, status: res.status, json: async () => j };
+    }
+    return res;
+  };
+  d2.getElementById('confirm-fields').click();
+  for (let i = 0; i < 60 && !d2.querySelector('.doc'); i++) await sleep(250);
+  ok(!!d2.querySelector('.doc'), 'the typed journey reaches the blueprint');
+  d2.getElementById('unlock-btn').click();
+  await sleep(120);
+  d2.getElementById('un-consent').click();
+  d2.getElementById('un-go').click();
+  await sleep(1400);
+  const card2 = (d2.querySelector('.success-card') || {}).textContent || '';
+  ok(/Sent to demo@pipelinesync\.ai/.test(card2), 'email.sent:true from the API is what makes the card say the PDF was emailed');
+  ok(!/Couldn.t email it/.test(card2), 'the failure wording is not shown when the API reported a send');
+  d2.getElementById('book-btn').click();
+  await sleep(200);
+  d2.querySelector('[data-day]').click();
+  await sleep(120);
+  d2.querySelectorAll('[data-slot]')[1].click();
+  await sleep(120);
+  d2.getElementById('book-go').click();
+  await sleep(120);
+  d2.getElementById('finish-btn').click();
+  await sleep(120);
+  ok(/Your blueprint is on its way/.test(d2.body.textContent), 'the done screen only promises an email because the API confirmed one');
+  ok(/Sent to demo@pipelinesync\.ai/.test(d2.body.textContent), 'and it names the address the API reported');
+  ok(!!d2.querySelector('#done-download-btn'), 'the download button is available on the success path too');
+  ok(p2.errors.length === 0, 'no runtime errors across the typed journey' + (p2.errors.length ? ': ' + p2.errors[0] : ''));
 
   console.log('\n' + (failures === 0 ? 'UI SMOKE TEST PASSED' : failures + ' UI FAILURES'));
   process.exit(failures === 0 ? 0 : 1);
