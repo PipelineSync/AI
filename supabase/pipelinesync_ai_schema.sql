@@ -93,6 +93,7 @@ create table if not exists public.pipeline_blueprints (
   delivered_at timestamptz,           -- set when PDF is unlocked
   pdf_filename text,                  -- e.g. PipelineSync_Blueprint_Solar_2026-09-19.pdf (≤255)
   pdf_storage_path text,              -- if you later store PDF in Supabase Storage (≤1000)
+                                      -- (Phase 3 emails the PDF with Resend: no storage bucket needed)
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -112,7 +113,7 @@ create table if not exists public.pipeline_lead_events (
   user_id uuid not null references auth.users(id) on delete cascade,
   lead_id uuid not null references public.pipeline_leads(id) on delete cascade,
   event_type text not null check (char_length(event_type) between 1 and 100), -- lead_signed_up, discovery_started, discovery_completed, blueprint_generated, blueprint_delivered, consultation_requested, etc.
-  event_data jsonb,                   -- {source:'pipelinesync_ai', filename:'...', hubspot:{contactId, dealId}}
+  event_data jsonb,                   -- {source:'pipelinesync_ai', filename:'...', hubspot:{contactId, dealId}, email:{sent, to, id|error}} (Phase 3 email result)
   created_at timestamptz not null default now()
 );
 create index if not exists pipeline_lead_events_lead_idx on public.pipeline_lead_events (lead_id, created_at desc);
@@ -142,6 +143,32 @@ select
 union all select 'pipeline_lead_sessions', count(*) from public.pipeline_lead_sessions
 union all select 'pipeline_blueprints', count(*) from public.pipeline_blueprints
 union all select 'pipeline_lead_events', count(*) from public.pipeline_lead_events;
+
+-- ============================================================
+-- 7) Phase 3 - verify the emailed PDF (read-only, optional)
+-- deliver stores the email result inside the blueprint_delivered event, so this is
+-- the same truth the visitor was shown on the finish screen.
+-- ============================================================
+-- 7a) One row per delivered blueprint with what the email did
+select l.email,
+       l.status,
+       e.event_data->>'filename' as pdf,
+       e.event_data->'email'->>'sent' as emailed,
+       e.event_data->'email'->>'to' as emailed_to,
+       e.event_data->'email'->>'error' as email_error,
+       e.created_at
+from public.pipeline_lead_events e
+join public.pipeline_leads l on l.id = e.lead_id
+where e.event_type = 'blueprint_delivered'
+order by e.created_at desc
+limit 20;
+
+-- 7b) Send vs no-send tally (a persistent no-send count usually means PDF_EMAIL_FROM is
+--     not on a Resend-verified domain, or PDF_EMAIL_API_KEY is missing on the deploy)
+select count(*) filter (where e.event_data->'email'->>'sent' = 'true')  as emailed,
+       count(*) filter (where e.event_data->'email'->>'sent' = 'false') as not_emailed
+from public.pipeline_lead_events e
+where e.event_type = 'blueprint_delivered';
 
 -- Done. Next steps printed in comments below.
 -- ============================================================

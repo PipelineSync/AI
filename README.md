@@ -53,6 +53,11 @@ Site configuration → **Environment variables** → **Add a variable**:
 | `ANTHROPIC_API_KEY` | your Anthropic key (`sk-ant-...`) | **Enables Claude AI for extraction and blueprint generation** (Functions A and B). When set, the extract and generate endpoints use Claude with Prompt B and Prompt A instead of the deterministic mock logic. The key is read server-side only — never sent to the browser. Without it the app falls back to deterministic extraction and generation (the demo still works). |
 | `HUBSPOT_ACCESS_TOKEN` | Private App token (`pat-na1-...`) | **Live HubSpot contact upsert at the name+email gate**, then deal + note enrichment at PDF unlock. Scopes: `crm.objects.contacts.read/write`, `crm.objects.deals.read/write`. Server-side only. Without it, start/deliver stay mocked and the UI does not claim a CRM push. |
 | `HUBSPOT_AUTO_CREATE_PROPS` | `true` / `false` (default off) | When true, missing `pipelinesync_*` contact and deal properties are created via `POST /crm/v3/properties/{contacts\|deals}` on first run. Needs `crm.schemas.contacts.write` and `crm.schemas.deals.write`. |
+| `PDF_EMAIL_API_KEY` | Resend API key (`re_...`) | **Emails the finished PDF** to the lead as an attachment, with a branded HTML body. Server-side only. Without it the feature is off and `deliver` returns `email:{sent:false,error}`, so the finish screen says to download instead of claiming a send. |
+| `PDF_EMAIL_FROM` | `PipelineSync AI <blueprints@yourdomain.com>` | The From header. **The domain must be verified in Resend (DNS records) before Resend delivers to anyone but the address that owns the account.** Use `onboarding@resend.dev` for testing only - see below. |
+| `PDF_EMAIL_SUBJECT` | optional | Subject template. `{first_name}`, `{name}`, `{vertical}`, `{tier}`, `{date}` are filled in; the default is `Your PipelineSync blueprint is attached`. |
+| `PDF_EMAIL_REPLY_TO` | optional | Reply-To address, so replies reach a real inbox. |
+| `DELIVER_RATE_PER_MIN` | `5` (default) | Unlocks per minute per IP on `/api/deliver`. Each attempt builds a PDF and may send an email, so it is the tightest limit in the app. |
 | `SCHEDULER_LINK` | `https://meetings.hubspot.com/...` | Public Meetings URL. When set, the booking screen embeds the real scheduler. |
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
@@ -80,6 +85,39 @@ Open your `https://<site>.netlify.app` URL:
    Each push appears as a line starting `[hubspot-mock] lead push:` with the full payload
    (email, all answers, blueprint reference). The `/dev/outbox` page on the site explains this too.
 4. Book a call, finish, run a second business. Every `git push` to `main` auto-redeploys.
+
+### 5. Email the PDF (Resend)
+
+`deliver` emails the finished blueprint to the lead as a PDF attachment, with a short branded HTML
+body: a greeting using the first name from the session, three sentences taken only from the
+blueprint (vertical, recommended tier, and the cost of inaction it already computed), "your
+blueprint is attached as ...", and the booking button when `SCHEDULER_LINK` is set. It calls
+Resend's REST API with plain `fetch`, so no npm package is added, and the recipient is **always the
+address in the signed session token, never the address typed in the unlock form**, so the
+attachment cannot be redirected by editing the page.
+
+Set the four variables from the table above (`PDF_EMAIL_API_KEY`, `PDF_EMAIL_FROM`,
+`PDF_EMAIL_SUBJECT`, `PDF_EMAIL_REPLY_TO` are optional apart from the first two).
+
+**A verified sending domain is required before Resend will deliver to anyone.** Add the domain in
+Resend → Domains and publish the SPF/DKIM DNS records it shows; until that verification is done,
+Resend refuses every recipient except the address that owns the Resend account and answers with
+`... The domain is not verified ...`. For a test deploy:
+
+1. Set `PDF_EMAIL_FROM` to Resend's test sender, e.g.
+   `PipelineSync AI <onboarding@resend.dev>` (testing only - mail sent from `resend.dev` is meant
+   for your own address and is more likely to be marked as spam).
+2. Unlock the PDF with the email address that owns the Resend account.
+3. Once the domain verifies, change `PDF_EMAIL_FROM` to an address on that domain and redeploy.
+
+Nothing about a failure is hidden: if the send fails, `deliver` still returns the PDF, the response
+carries `email:{sent:false,error:"<the reason Resend gave>"}`, and the browser shows that as
+"Couldn't email it - download below". A confirmed send is reported as `email:{sent:true,to:...}`
+with the Resend id, and only then does the UI say the PDF was emailed. The HubSpot note written by
+Function D records the same result (`Email: sent to ...` / `Email: NOT sent - ...`).
+
+Free Resend accounts send 100 emails a day at 2 requests a second, and an email may be up to 40MB
+including the base64 attachment (the blueprint PDF is well under 1MB).
 
 ### Important notes for the test deploy
 
@@ -133,9 +171,13 @@ Open your `https://<site>.netlify.app` URL:
    knowledge base v1 (server-side). Every KB item used is tagged with an id (see the chips at the
    bottom of the blueprint) so the "no invented items" QA check is auditable.
 7. **Unlock the PDF** (Function C, real server-side PDF) - gated behind email. A genuine PDF file is
-   generated by a pure-JS PDF writer in `lib/core.js` (no npm packages), inside the function.
+   generated by a pure-JS PDF writer in `lib/core.js` (no npm packages), inside the function, then
+   emailed to the address in the session (Phase 3, Resend). The download never waits on the email:
+   the finish screen shows the status the API reported ("Sent to you@x.com" or "Couldn't email it -
+   download below") and the download button is always there.
 8. **Lead captured** (Function D, mock of the HubSpot private-app-token push) - a lead with all
-   answers and a blueprint reference is logged as `[hubspot-mock] lead push: ...`.
+   answers and a blueprint reference is logged as `[hubspot-mock] lead push: ...`; when HubSpot is
+   live, the contact note also records whether the email went out.
 9. **Book a call** - mock of the embedded HubSpot Meetings scheduler (the real embed uses Allen's
    scheduler link in production).
 
@@ -185,7 +227,7 @@ Design rules that `node test/ui-design.js` enforces:
 | Concern | Local (`node server.js`) | Netlify (GitHub deploy) |
 |---|---|---|
 | Auth | signed token (stateless) | signed token (stateless, same code) |
-| Functions A-D | routes in `server.js` | `netlify/functions/{extract,generate,deliver,...}.js` |
+| Functions A-D + the email | routes in `server.js` (deliver via `lib/deliver-core.js`) | `netlify/functions/{extract,generate,deliver,...}.js` (deliver via the same `lib/deliver-core.js`) |
 | Voice routes (`/api/voice/*`) | `lib/voice-api.js` mounted by `server.js` | `netlify/functions/voice.js` (same handler) |
 | Lead outbox | in-memory, view at `/dev/outbox` | function logs (see `/dev/outbox` page) |
 | Shared core | `lib/core.js` | `lib/core.js` (bundled into each function) |
@@ -250,6 +292,10 @@ Run each demo persona from the intake sidebar, then check the blueprint:
       realtime model/voice/turn detection, turns, probes, captures accepted and rejected,
       missing required figures at the end) and `audio_retained: false`
 - [ ] No keys in the browser; PDF generated server-side; disclaimer + privacy notice before data
+- [ ] The emailed PDF goes to the session address only: typing a different address in the unlock form
+      does not redirect the attachment
+- [ ] When Resend is not configured, or refuses the message, the UI says the email did not go out and
+      still offers the download (it never claims a send the API did not confirm)
 
 Automated checks (nothing needs to be running first: `test/harness.js` starts a dedicated server
 for each test file):
@@ -264,7 +310,11 @@ node test/ui-smoke.js    # drives the real frontend through the voice-first jour
                          # proves the AI speaks before any text input appears, and that a blocked
                          # microphone falls back to typing without losing the journey
 node test/e2e.js         # API end-to-end across all four verticals (QA assertions)
-node test/netlify-sim.js # invokes the Netlify functions with Lambda-style events
+node test/pdf-email.js   # Phase 3: the emailed PDF against a stubbed Resend - success, refusal,
+                         # network error, timeout, recipient taken from the token (never the body),
+                         # the HubSpot note line, and the 5 unlocks/minute/IP limit on both mounts
+node test/netlify-sim.js # invokes the Netlify functions with Lambda-style events (incl. the
+                         # Resend send with a stubbed fetch)
 node test/pdfcheck.js    # validates PDF xref structure of generated samples
 node test/ui-design.js   # design-system checks: the stylesheet parses, every class the app renders
                          # has a rule, the tokens clear WCAG AA, touch targets stay 44px, and the
@@ -273,7 +323,10 @@ npm run test:all         # everything above
 ```
 
 The harness starts each test's server with the per-IP voice rate limit relaxed
-(`VOICE_RATE_PER_MIN=1000`) because one suite run drives about 40 turns a minute from a single IP.
+(`VOICE_RATE_PER_MIN=1000`) and the per-IP deliver limit relaxed the same way
+(`DELIVER_RATE_PER_MIN=1000`) because one suite run drives about 40 turns and several unlocks a
+minute from a single IP. It also strips every OpenAI, HubSpot and Resend credential, so a key in
+your shell can never make a test spend money or send mail.
 The production default in `server.js` is unchanged, so the limiter still protects the deploy.
 
 `test/mock-openai.js` is a stand-in OpenAI endpoint (turns, speech, transcription, and
@@ -291,6 +344,11 @@ OPENAI_API_KEY=sk-mock OPENAI_BASE_URL=http://127.0.0.1:8099/v1 PORT=8081 node s
 pipelinesync/
   server.js              local dev server (zero deps): static + routes + local outbox
   lib/anthropic.js       Anthropic Claude API client (server-side only, key never reaches browser)
+  lib/deliver-core.js    shared /api/deliver logic (PDF + Resend email + HubSpot) for the Netlify
+                         function and the local server, so the two mounts cannot drift
+  lib/pdf-email.js       Phase 3: branded HTML + plain-text email and the Resend REST call, with the
+                         recipient taken from the signed token; never throws, never claims a send
+                         Resend did not confirm
   lib/core.js            shared stateless core: KB v1, extract, generate, PDF writer, tokens
   lib/voice.js           the voice discovery call: intake plan, interviewer policy, capture state,
                          the grounded-capture gate, the FAQ, OpenAI adapters (turns, speech,
@@ -311,8 +369,8 @@ pipelinesync/
   public/styles.css      design system + responsive layout (mobile-first, see below)
   public/app.js          SPA: entry gate, consent, both voice engines (continuous WebRTC call and
                          step-by-step call), review, blueprint, unlock, booking, done
-  test/                  voice, voice-openai, voice-realtime, mock-openai, e2e, netlify-sim,
-                         pdfcheck, ui-smoke, ui-design, personas, sample PDFs
+  test/                  voice, voice-openai, voice-realtime, mock-openai, e2e, pdf-email,
+                         netlify-sim, pdfcheck, ui-smoke, ui-design, personas, sample PDFs
   docs/VOICE_SETUP.md    how to switch the voice layer on, verify it, cost it, fix it
   .env.example           every setting the app understands (copy to .env, which is gitignored)
   README.md              this file

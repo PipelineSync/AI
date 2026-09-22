@@ -145,6 +145,7 @@ Current **mock** payload (`lib/core.js:makeLeadPayload`) is:
 | `industry`, `answers.*`, `blueprint_ref` | **Custom contact/deal properties** (see §6) | `PATCH` after create |
 | `blueprint_ref.tier` / `pipeline` | **Deals** → pipeline `PipelineSync - Revenue Blueprint` (or your existing ID) → stage `New` | `POST /crm/v3/objects/deals` + associate to contact |
 | `voice_call` | **Deal note / Timeline event** (`audio_retained: false` always) | Add note: `Discovery call: openai-realtime, 12 turns, required fields captured` |
+| Email result of the PDF (Phase 3) | **Same contact note** | One extra line: `Email: sent to you@x.com (Resend re_...) with the PDF attached`, or `Email: NOT sent - <reason Resend gave>`. Written even when the send failed, so the CRM shows what the lead was shown |
 | Consent (`consent === true`) | **Contact property** `pipelinesync_consent` + `consent_timestamp` | Required before `buildPdf` — we already enforce `consent !== true` → 400 |
 
 If `HUBSPOT_ACCESS_TOKEN` is **not set**, the function keeps logging `[hubspot-mock] lead push:` to Netlify Functions logs — nothing breaks, you just don't get a real contact.

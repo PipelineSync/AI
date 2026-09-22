@@ -1,7 +1,9 @@
 /*
  * Shared test harness: each test file gets its own dedicated instance of the app on a
- * dedicated port, started with the per-IP voice rate limit relaxed (VOICE_RATE_PER_MIN)
- * and with all OpenAI credentials stripped. That makes `npm run test:all` repeatable:
+ * dedicated port, started with the per-IP voice rate limit relaxed (VOICE_RATE_PER_MIN) and
+ * the per-IP deliver limit relaxed the same way (DELIVER_RATE_PER_MIN; pass extraEnv to
+ * startServer to put either back to its production default), with all OpenAI, HubSpot and
+ * Resend credentials stripped. That makes `npm run test:all` repeatable:
  * a full suite run drives ~40 voice turns per minute from one IP, which would trip the
  * anti-runaway limiter (default 40/min per IP) if the tests shared the developer's
  * server. The production default in server.js is unchanged; the limiter still protects
@@ -14,17 +16,28 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function startServer(port) {
-  const env = Object.assign({}, process.env, {
-    PORT: String(port),
-    VOICE_RATE_PER_MIN: '1000', // test-only: the suite drives more than 40 voice turns/minute from one IP
-    PS_TOKEN_SECRET: 'test-secret',
-  });
+async function startServer(port, extraEnv) {
+  // Start from the shell, then strip every credential a test must never really use, then apply
+  // the explicit test values (extraEnv last, so a test can deliberately configure a server).
+  const env = Object.assign({}, process.env);
   delete env.OPENAI_API_KEY;
   delete env.OPENAI_BASE_URL;
   delete env.HUBSPOT_ACCESS_TOKEN;
   delete env.HUBSPOT_API_KEY;
   delete env.HUBSPOT_TOKEN;
+  // No Resend credentials either: a real PDF_EMAIL_API_KEY in the shell must never make a test
+  // send a real email. Tests that exercise the send stub fetch itself.
+  delete env.PDF_EMAIL_API_KEY;
+  delete env.PDF_EMAIL_FROM;
+  Object.assign(env, {
+    PORT: String(port),
+    VOICE_RATE_PER_MIN: '1000', // test-only: the suite drives more than 40 voice turns/minute from one IP
+    // Phase 3: the same idea for /api/deliver (5 unlocks/minute/IP in production). A suite run
+    // does several delivers from one IP; the test that exercises the limit asks for the
+    // production default back through extraEnv.
+    DELIVER_RATE_PER_MIN: '1000',
+    PS_TOKEN_SECRET: 'test-secret',
+  }, extraEnv || {});
 
   const child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     cwd: ROOT,

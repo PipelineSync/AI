@@ -374,6 +374,84 @@ function patchContactCalls(calls) {
     delete process.env.HUBSPOT_AUTO_CREATE_PROPS;
   }
 
+  /* ---- Phase 3: the PDF is emailed through Resend (stubbed: never hits the network) ---- */
+  function resendStub(res) {
+    const calls = [];
+    const impl = async (url, init) => {
+      let body = null;
+      try { body = init && init.body ? JSON.parse(init.body) : null; } catch (e) { body = init && init.body; }
+      calls.push({ url: String(url), method: (init && init.method) || 'GET', headers: (init && init.headers) || {}, body });
+      if (res && res.throw) throw res.throw;
+      return hsRes(res && res.status, res && res.body);
+    };
+    return { calls, fetchImpl: impl };
+  }
+
+  process.env.PDF_EMAIL_API_KEY = 're_sim_key';
+  process.env.PDF_EMAIL_FROM = 'PipelineSync <blueprints@pipelinesync.ai>';
+  process.env.SCHEDULER_LINK = 'https://meetings.hubspot.com/allen';
+  process.env.DELIVER_RATE_PER_MIN = '1000'; // this file makes more than 5 delivers from one address
+  const origFetchPhase3 = globalThis.fetch;
+  try {
+    const sent = resendStub({ status: 200, body: { id: 're_sim_1' } });
+    globalThis.fetch = sent.fetchImpl;
+    // The body names a different address on purpose: the recipient must come from the token.
+    const dvEmail = await deliver({
+      httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '192.0.2.50' },
+      body: JSON.stringify({ token: T, email: 'someone-else@example.com', consent: true, fields, blueprint: bp })
+    });
+    const djEmail = JSON.parse(dvEmail.body);
+    ok(dvEmail.statusCode === 200 && djEmail.email && djEmail.email.sent === true,
+      'deliver emails the PDF and reports email.sent:true');
+    ok(djEmail.email.to === 'allen@pipelinesync.ai', 'the recipient is the signed-in address, not the one in the request body');
+    ok(!!djEmail.pdf_base64, 'the PDF still comes back to the browser');
+    const mailCall = sent.calls[0];
+    ok(!!mailCall && mailCall.url === 'https://api.resend.com/emails' && mailCall.method === 'POST', 'the email goes out as POST https://api.resend.com/emails');
+    ok(mailCall.headers.authorization === 'Bearer re_sim_key', 'the key is read server-side and sent in the Authorization header');
+    ok(mailCall.body.to[0] === 'allen@pipelinesync.ai' && mailCall.body.to[0] !== 'someone-else@example.com', 'Resend is asked to mail the token address');
+    const att = mailCall.body.attachments[0];
+    ok(att.filename === djEmail.filename && Buffer.from(att.content, 'base64').slice(0, 5).toString('latin1') === '%PDF-',
+      'the attachment is the same PDF the browser downloaded');
+    ok(/Hi Allen/.test(mailCall.body.html) && /Book your consultation/.test(mailCall.body.html) && /meetings\.hubspot\.com/.test(mailCall.body.html),
+      'the email body is the branded HTML, greeting the first name, with the SCHEDULER_LINK booking button');
+    ok(!JSON.stringify(djEmail).includes('re_sim_key'), 'no key material in the API response');
+
+    const refused = resendStub({ status: 422, body: { name: 'validation_error', message: 'The domain is not verified. Verify the domain and try again.' } });
+    globalThis.fetch = refused.fetchImpl;
+    const dvFail = await deliver({
+      httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '192.0.2.51' },
+      body: JSON.stringify({ token: T, email: 'allen@pipelinesync.ai', consent: true, fields, blueprint: bp })
+    });
+    const djFail = JSON.parse(dvFail.body);
+    ok(dvFail.statusCode === 200, 'a Resend failure does not fail the request');
+    ok(djFail.email.sent === false && /not verified/.test(djFail.email.error), 'the failure is reported as sent:false with the reason');
+    ok(!!djFail.pdf_base64 && djFail.filename === djEmail.filename, 'the PDF is still returned: email failure never blocks the download');
+
+    // The note on the HubSpot contact records how the email went (Phase 1 note + Phase 3 line).
+    process.env.HUBSPOT_ACCESS_TOKEN = 'pat-na1-test-token-xxxxxxxx';
+    const hsStub = makeHsStub();
+    const hsSent = resendStub({ status: 200, body: { id: 're_sim_note' } });
+    globalThis.fetch = async (url, init) => (String(url).indexOf('api.resend.com') >= 0 ? hsSent.fetchImpl(url, init) : hsStub.fetchImpl(url, init));
+    await deliver({
+      httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '192.0.2.52' },
+      body: JSON.stringify({ token: T, email: 'allen@pipelinesync.ai', consent: true, fields, blueprint: bp, voice_meta: { provider: 'simulated', mode: 'simulated', turns: 12 } })
+    });
+    const notePost = hsStub.calls.filter(c => c.method === 'POST' && c.url.indexOf('/objects/notes') >= 0)[0];
+    const noteBody = notePost && notePost.body && notePost.body.properties && notePost.body.properties.hs_note_body;
+    ok(/Email: sent to allen@pipelinesync\.ai \(Resend re_sim_note\)/.test(noteBody || ''),
+      'the HubSpot note records the email result from Phase 1, with the Resend id');
+    ok(/audio_retained: false/.test(noteBody || ''), 'the note still records that no audio was retained');
+  } finally {
+    globalThis.fetch = origFetchPhase3;
+    delete process.env.PDF_EMAIL_API_KEY;
+    delete process.env.PDF_EMAIL_FROM;
+    delete process.env.SCHEDULER_LINK;
+    delete process.env.DELIVER_RATE_PER_MIN;
+    delete process.env.HUBSPOT_ACCESS_TOKEN;
+    delete process.env.HUBSPOT_API_KEY;
+    delete process.env.HUBSPOT_TOKEN;
+  }
+
   console.log('\n' + (failures === 0 ? 'NETLIFY SIMULATION PASSED' : failures + ' FAILURES'));
   process.exit(failures === 0 ? 0 : 1);
 })().catch(e => { console.error('Sim error:', e); process.exit(1); });
