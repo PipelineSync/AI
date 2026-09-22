@@ -144,6 +144,32 @@ union all select 'pipeline_lead_sessions', count(*) from public.pipeline_lead_se
 union all select 'pipeline_blueprints', count(*) from public.pipeline_blueprints
 union all select 'pipeline_lead_events', count(*) from public.pipeline_lead_events;
 
+-- ============================================================
+-- 7) Phase 3 - verify the emailed PDF (read-only, optional)
+-- deliver stores the email result inside the blueprint_delivered event, so this is
+-- the same truth the visitor was shown on the finish screen.
+-- ============================================================
+-- 7a) One row per delivered blueprint with what the email did
+select l.email,
+       l.status,
+       e.event_data->>'filename' as pdf,
+       e.event_data->'email'->>'sent' as emailed,
+       e.event_data->'email'->>'to' as emailed_to,
+       e.event_data->'email'->>'error' as email_error,
+       e.created_at
+from public.pipeline_lead_events e
+join public.pipeline_leads l on l.id = e.lead_id
+where e.event_type = 'blueprint_delivered'
+order by e.created_at desc
+limit 20;
+
+-- 7b) Send vs no-send tally (a persistent no-send count usually means PDF_EMAIL_FROM is
+--     not on a Resend-verified domain, or PDF_EMAIL_API_KEY is missing on the deploy)
+select count(*) filter (where e.event_data->'email'->>'sent' = 'true')  as emailed,
+       count(*) filter (where e.event_data->'email'->>'sent' = 'false') as not_emailed
+from public.pipeline_lead_events e
+where e.event_type = 'blueprint_delivered';
+
 -- Done. Next steps printed in comments below.
 -- ============================================================
 -- NEXT STEPS (copy/paste checklist)
