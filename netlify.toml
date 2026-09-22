@@ -7,12 +7,17 @@
 
 [functions]
   directory = "netlify/functions"
-  # Blueprint generation is dispatched to generate-background.js, so the synchronous
-  # functions only need headroom for the extract call to Claude (Prompt B + retry).
-  timeout = 26
   # @netlify/blobs is the one allowed runtime dependency in server code (Phase 2):
   # it backs the background job store.
   external_node_modules = ["@netlify/blobs"]
+
+# Per-function settings. A bare `timeout` key directly under [functions] is invalid:
+# Netlify parses bare keys there as function-name scopes, so it must live under a
+# scope like [functions."*"]. Blueprint generation is dispatched to
+# generate-background.js, so the synchronous functions only need headroom for the
+# extract call to Claude (Prompt B + one retry).
+[functions."*"]
+  timeout = 26
 
 # Security headers for all responses (static + functions)
 [[headers]]

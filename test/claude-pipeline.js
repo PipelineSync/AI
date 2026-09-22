@@ -253,7 +253,29 @@ async function runGenerate(token, fields) {
   const toml = fs.readFileSync(path.join(__dirname, '..', 'netlify.toml'), 'utf8');
   ok(!/\/api\/ai/.test(toml), 'the /api/ai/* redirect is removed from netlify.toml');
   ok(/\/api\/generate\/status/.test(toml), 'the status endpoint is routed in netlify.toml');
-  ok(/\[functions\][\s\S]*timeout\s*=/.test(toml), 'a functions timeout is configured');
+  // The timeout must sit under a function scope. A bare `timeout` directly under
+  // [functions] is parsed by Netlify as a function NAMED "timeout" and the deploy is
+  // rejected at config-resolution time, before any build output appears.
+  // Extract the [functions] block by lines, not regex: values contain "[" themselves.
+  const tomlLines = toml.split('\n');
+  const fnStart = tomlLines.findIndex(l => l.trim() === '[functions]');
+  ok(fnStart >= 0, 'netlify.toml declares a [functions] block');
+  const fnBody = [];
+  for (let i = fnStart + 1; i < tomlLines.length; i++) {
+    if (/^\s*\[/.test(tomlLines[i])) break;   // next section header
+    fnBody.push(tomlLines[i]);
+  }
+  const FUNCTIONS_TABLE_KEYS = ['directory', 'node_bundler', 'included_files',
+    'external_node_modules', 'ignored_node_modules', 'deno_import_map'];
+  const bareKeys = fnBody
+    .map(l => (l.match(/^\s*([A-Za-z_]+)\s*=/) || [])[1])
+    .filter(Boolean);
+  const illegal = bareKeys.filter(k => FUNCTIONS_TABLE_KEYS.indexOf(k) < 0);
+  ok(illegal.length === 0,
+    'no invalid bare keys under [functions]' + (illegal.length ? ' (found: ' + illegal.join(', ') + ' - these must live under [functions."*"])' : ''));
+  ok(/\[functions\."\*"\]/.test(toml) && /timeout\s*=\s*\d+/.test(toml.slice(toml.indexOf('[functions."*"]'))),
+    'a functions timeout is configured under the [functions."*"] scope');
+
   const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   ok(!/system_prompt/.test(serverSrc), 'server.js no longer accepts a client-supplied system prompt');
   ok(!fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8').match(/\/api\/ai\//), 'the client never calls /api/ai/');
