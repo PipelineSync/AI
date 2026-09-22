@@ -452,6 +452,48 @@ function patchContactCalls(calls) {
     delete process.env.HUBSPOT_TOKEN;
   }
 
+  /* ---- Phase 4: /api/lead/booked records the scheduler booking ---- */
+  const leadBooked = F('lead-booked.js').handler;
+  const bookedCore = require('../lib/booked-core');
+  const noMethod = await leadBooked({ httpMethod: 'GET', path: '/api/lead/booked' });
+  ok(noMethod.statusCode === 405, 'lead-booked rejects GET');
+  const noTokBooked = await leadBooked({ httpMethod: 'POST', path: '/api/lead/booked', body: JSON.stringify({}) });
+  ok(noTokBooked.statusCode === 401, 'lead-booked rejects a missing token');
+  const forgedBooked = await leadBooked({ httpMethod: 'POST', path: '/api/lead/booked', body: JSON.stringify({ token: 'garbage' }) });
+  ok(forgedBooked.statusCode === 401, 'lead-booked rejects a forged token');
+  const mockedBooked = await leadBooked({ httpMethod: 'POST', path: '/api/lead/booked', body: JSON.stringify({ token: T, meeting: { date: '2026-10-01' } }) });
+  const mockedBj = JSON.parse(mockedBooked.body);
+  ok(mockedBooked.statusCode === 200 && mockedBj.ok === true, 'lead-booked answers ok:true with no backends configured');
+  ok(mockedBj.recorded && mockedBj.recorded.supabase === false && mockedBj.recorded.hubspot.mocked === true,
+    'lead-booked reports supabase:false and hubspot mocked when nothing is configured');
+
+  const clean = bookedCore.sanitizeMeeting({ date: '2026-10-01', duration: 1800000, fn: () => {}, deep: { x: 1 }, big: 'y'.repeat(500) });
+  ok(clean && clean.date === '2026-10-01' && clean.duration === 1800000 && clean.fn == null && clean.deep == null && clean.big == null,
+    'sanitizeMeeting keeps known fields and drops functions, nesting and unknown keys');
+  ok(bookedCore.sanitizeMeeting(null) === null && bookedCore.sanitizeMeeting('x') === null,
+    'sanitizeMeeting returns null for non-objects');
+
+  process.env.HUBSPOT_ACCESS_TOKEN = 'pat-na1-test-token-xxxxxxxx';
+  const origFetchBooked = globalThis.fetch;
+  try {
+    const stub = makeHsStub();
+    globalThis.fetch = stub.fetchImpl;
+    const live = await leadBooked({ httpMethod: 'POST', path: '/api/lead/booked', body: JSON.stringify({ token: T, meeting: { date: '2026-10-01', startTimeLocalized: '10:00 AM' } }) });
+    const liveBj = JSON.parse(live.body);
+    ok(live.statusCode === 200 && liveBj.ok === true && liveBj.recorded.hubspot.ok === true && liveBj.recorded.hubspot.contactId,
+      'lead-booked with HubSpot configured records the booking note');
+    const notePost = stub.calls.filter(c => c.method === 'POST' && c.url.indexOf('/objects/notes') >= 0)[0];
+    const noteBody = notePost && notePost.body && notePost.body.properties && notePost.body.properties.hs_note_body;
+    ok(/Consultation booked/.test(noteBody || '') && /2026-10-01/.test(noteBody || ''),
+      'the booking note names the consultation and the date');
+    const noteAssoc = stub.calls.filter(c => c.method === 'PUT' && /\/notes\/\d+\/associations\/contacts\//.test(c.url));
+    const assocId = noteAssoc[0] && noteAssoc[0].body && noteAssoc[0].body[0] && noteAssoc[0].body[0].associationTypeId;
+    ok(assocId === 202, 'the booking note is associated to the contact with type 202');
+  } finally {
+    globalThis.fetch = origFetchBooked;
+    delete process.env.HUBSPOT_ACCESS_TOKEN;
+  }
+
   console.log('\n' + (failures === 0 ? 'NETLIFY SIMULATION PASSED' : failures + ' FAILURES'));
   process.exit(failures === 0 ? 0 : 1);
 })().catch(e => { console.error('Sim error:', e); process.exit(1); });
