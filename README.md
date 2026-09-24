@@ -70,8 +70,12 @@ else about the voice layer is documented in `docs/VOICE_SETUP.md` (all of them a
 `.env.example` with their defaults).
 
 Later, when the remaining keys arrive, add them here too (they only reach the functions, never the
-browser): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HUBSPOT_ACCESS_TOKEN`,
-`SCHEDULER_LINK`.
+browser): `HUBSPOT_ACCESS_TOKEN`, `SCHEDULER_LINK`, and for durable lead storage
+`SUPABASE_URL`, `SUPABASE_SECRET_KEY` (or the legacy `SUPABASE_SERVICE_ROLE_KEY`),
+`PIPELINESYNC_WORKSPACE_OWNER_ID`. Those three Supabase names are the ones the code reads
+(`lib/supabase-leads.js`); all three are needed together, and leaving them empty simply sends leads
+to the function log and `/dev/outbox` instead. The tables and a ready-to-copy readiness check live in
+`supabase/` (`pipelinesync_ai_schema.sql`, `verify_setup.sql`).
 
 ### 4. Test the deployment
 
