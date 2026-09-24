@@ -35,11 +35,19 @@ replayed between questions, so the client is never cut off mid-answer.
    the exact next question to ask (a question, a probe, or the closing summary). The model words it,
    it does not choose it: it cannot wander off the intake set, cannot skip a question the blueprint
    needs, and cannot invent a figure.
-4. **Alex answers the client's own questions before moving on.** "What is PipelineSync?", "How much
-   does it cost?", "Are you an AI?", "What happens to my data?", "What happens next?" all have a
+4. **A question from the client comes first, and a stop ends the call** (`KB-CALL-01`..`04`).
+   "What is PipelineSync?", "How much does it cost?", "Are you an AI?", "What happens to my data?",
+   "What happens next?", "Can I ask things as we go?", "Can we stop or finish later?" all have a
    scripted answer (`REALTIME_FAQ` in `lib/voice.js`) that is short, honest and invents no number.
-   The rule is answer in one or two sentences, then return to the intake set. The client's question
-   is never captured as an answer, and a question that was answered is not asked again.
+   The rule is answer it in one or two sentences, then carry on: a turn that is all answer is a
+   correct turn, and the client's question is never captured as an answer and never asked again.
+   In the step-by-step path the model reports that turn as `deferred`, and the question it did not
+   get to stays pending and comes back next turn instead of being skipped.
+   When the client says stop, or that they have to go, or that is all for now, the call closes at
+   once: `end_call` reason `lead_asked_to_stop`, or the server's own stop detector on the client's
+   last turn. Missing figures, the counts and the call clock do not get a vote, nothing is asked
+   again, and nothing is chased. A request to pause is not a stop: the AI stops asking and waits,
+   and the question it was on is asked again when the client is ready.
 5. **Every captured value must be grounded in words the client actually said.** The model reports a
    `quote` with each value; the server re-checks it (`validateCaptures`): the field must be real, the
    value must not be filler, every number in the value must have been heard in that turn, and the
@@ -49,7 +57,9 @@ replayed between questions, so the client is never cut off mid-answer.
    question once.
 6. **Three required fields must land:** typical deal size, monthly lead volume, close rate. `end_call`
    is refused while one of them is still missing and unasked; if the client declines or skips, the
-   review screen blocks generation until a human fills them in. Nothing is ever invented.
+   review screen blocks generation until a human fills them in. Nothing is ever invented. The one
+   exception is a stop the client asks for themselves: that closes the call immediately, because the
+   client's word is final (`KB-CALL-02`), and what is still missing is left to the review screen.
 7. **No audio is kept.** The session stores transcripts only; the lead carries
    `"audio_retained": false`.
 
@@ -407,7 +417,7 @@ Optional, to change how it sounds or what it costs:
 | D1 | Open your site **in its own browser tab** (not an embedded preview) | Enter your name and email, tick the disclaimer, agree | The AI speaks immediately, no text box, and the call does not stop between questions |
 | D2 | The call screen | The badge in the "This call" card | **Live AI voice**, not "ChatGPT voice" and not "Simulated voice" |
 | D3 | Same card | Read the model line | the realtime model (`gpt-realtime-2.1`), the voice (`marin`) and the turn detection (`semantic_vad`) |
-| D4 | Mid-call | Ask "Are you an AI?" or "How much does it cost?" | Alex answers honestly in a sentence or two, then returns to the intake question |
+| D4 | Mid-call | Ask "Are you an AI?" or "How much does it cost?" | Otto answers honestly in a sentence or two, then returns to the intake question |
 | D5 | Mid-call | Talk over the AI | It stops and lets you finish (barge-in) |
 | D6 | Finish the call | Answer out loud, then structure the answers | The sidebar captured the fields and the three required numbers are filled |
 | D7 | Netlify -> **Functions** -> `voice` -> **Logs** | Watch the call go past | `[voice] realtime session opened: ...` then one `[voice] realtime tool ...` line per answer |

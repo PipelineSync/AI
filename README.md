@@ -146,9 +146,11 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
    client has finished a thought, so nothing is cut between questions and the client can talk over
    the AI. The model words the questions; the guardrail set in `lib/voice.js` still chooses them, and
    the server re-checks every value the model claims against the words it quotes before it is
-   captured. Alex also answers the client's own questions ("what is PipelineSync?", "how much does it
-   cost?", "are you an AI?", "what happens next?") from a scripted FAQ that invents no number, then
-   returns to the intake set.
+   captured. Otto also answers the client's own questions ("what is PipelineSync?", "how much does it
+   cost?", "are you an AI?", "what happens next?", "can we stop?") from a scripted FAQ that invents no
+   number, and their question comes first: he answers it before returning to the intake set, a turn
+   that is all answer is a correct turn (the question he did not reach stays pending, `deferred`), and
+   when the client says stop the call ends on the spot (`KB-CALL-02`) whatever is still missing.
    It asks the 12-question intake set out loud, and probes once when an answer arrives without its
    figures. The transcript stays collapsed behind a link: the call is spoken. Typing lives behind
    *Type instead* (and turns on automatically if the browser blocks the microphone), and anything the
@@ -181,6 +183,52 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
 9. **Book a call** - mock of the embedded HubSpot Meetings scheduler (the real embed uses Allen's
    scheduler link in production).
 
+## The brand: the logo and Otto
+
+The logo and Otto the mascot are components, in `public/components/brand/`:
+
+| Component | File | Used for |
+|---|---|---|
+| `LogoMark({ variant, size, animated })` | `Logo.js` | the S mark on its own; `animated` adds the flowing dots for loading screens |
+| `Logo({ variant, size })` | `Logo.js` | mark + wordmark lockup |
+| `Otto({ pose, avatar, size })` | `Otto.js` | the mascot, six poses, optional head-only avatar crop |
+| `OttoAvatar({ pose, size, ring })` | `Otto.js` | the head-only figure with an optional orange ring; paints no background of its own |
+
+They are the brand sheet's React components (`components/brand/Logo.tsx`, `components/brand/Otto.tsx`)
+ported to the technology this prototype ships: `public/app.js` is plain HTML/CSS/JS with no build
+step, so the components return markup strings that the app injects with the rest of its markup. The
+SVG geometry, colours, stroke widths, view boxes and the inline animation CSS are the same markup.
+`index.html` loads the two files before `app.js`.
+
+Otto's pose is never a new flag: it is read from state the app already tracks, so the voice flow is
+untouched.
+
+| The app is | Otto is | Where |
+|---|---|---|
+| on the start screen | `hello` (200px) | next to "Start strategy session", with his greeting |
+| reading the disclaimer | `hello`, avatar (96px) | the consent card |
+| speaking a question | `speak`, avatar (104-140px, orange ring) | the live call panel |
+| listening to the answer | `listen`, avatar (104-140px, orange ring) | the live call panel |
+| waiting on the model / building the blueprint | `think` (170-180px) | the loader, with his loading line |
+| on the results | `party` (180-200px) | the top of the blueprint, the done card and the delivery toast |
+| with no captured data yet | `think` (170px) | the empty state: "No pipeline data yet" |
+| after a failed turn | `think`, avatar (56px) | the error line under him |
+| showing the transcript | `sync`, avatar (32px) | the AI's chat bubbles and the call header |
+
+His copy is the brand sheet's five lines (`greeting`, `listening`, `loading`, `success`, `error`),
+read from `window.PSBrand.OTTO_COPY` so the mascot and the app cannot drift apart.
+
+The live call screen puts his avatar on the left with the orange pulsing ring and, on the right, the
+"OTTO · QUESTION X OF Y" label, the question in large type, and the animated waveform (nine bars in a
+`#8FB0D0` → `#FF7A1A` gradient). Every control, the progress track, the captured-signals sidebar and
+the transcript are unchanged.
+
+> **One name, said and seen.** Otto is what the client reads on screen *and* what they hear on the
+> call: the identity line in `lib/voice.js` (`realtimeInstructions()`, `buildMessages()`), the first
+> question's greeting, and `MASTER_INTERVIEW_IDENTITY` in `lib/prompts.js` all say "I am Otto from
+> PipelineSync". Nothing else about the spoken content changed — the 12 questions, the FAQ answers
+> and the call rules are word for word what they were, so the rename is a name and nothing more.
+
 ## UI and responsive design
 
 One stylesheet (`public/styles.css`), no framework and no CDN, so the app still works offline in a
@@ -197,11 +245,15 @@ scaled-down desktop.
 
 Design rules that `node test/ui-design.js` enforces:
 
-- **Colour is the brand mark** - navy `#0F2F52`, steel `#3E6C8E`, orange `#F57C1F`, taken from
-  `public/logo.svg`. Orange is an accent, never a text background: white on `#F57C1F` is 2.7:1, so
-  primary buttons are navy (13.6:1) and brand-coloured text uses `--brand-ink` (5.8:1). The check
-  reads every token back out of the stylesheet and asserts the pairs against WCAG AA (4.5:1, or 3:1
-  for large marks), so a redesign that drops a contrast ratio fails the build.
+- **Colour is the brand mark** - the brand sheet's palette: navy `#0C2B5E` (Otto's head), steel
+  `#3E6892` (his arms), steel-deep `#2E5580`, sync-orange `#FF7A1A` (primary buttons, live
+  indicators), sky `#8FB0D0` (soft accents and the waveform) and mist `#E8EFF7` (the light circle
+  Otto stands on). These are declared as tokens (`--navy-brand`, `--steel-brand`, `--steel-deep`,
+  `--sync-orange`, `--sky`, `--mist`) alongside the design system's own compatibility tokens, not in
+  place of them: the background stays `#0A0E17` (`--bg`, `--void`). Orange is the one fill that
+  carries white text, because the brand sheet specifies it for primary buttons; every other pair is
+  read back out of the stylesheet and asserted against WCAG AA (4.5:1, or 3:1 for large marks), and a
+  redesign that drops a contrast ratio fails the build.
 - **Fluid type**: headings use `clamp()`, so one markup scales from a 320px phone to a wide monitor.
 - **Touch first**: `--tap` is the 44px floor for every button, input, day and slot; the call controls
   are sticky above the on-screen keyboard on phones, and the layout honours
@@ -212,12 +264,25 @@ Design rules that `node test/ui-design.js` enforces:
   a restyle cannot silently drop a style the UI depends on.
 - **Preferences respected**: `prefers-reduced-motion` stops the orb pulse and the spinners,
   `forced-colors` mode gets real borders, and the print stylesheet prints just the blueprint.
-- **The logo always sits on a light plate.** The mark is navy `#0F2F52` and steel `#3E6C8E`, so on
-  the navy entry-gate hero an un-plated mark measures **1.00:1** (navy) and **2.42:1** (steel) and
-  disappears. `logoTile()` in `public/app.js` wraps every mark in `.logo-plate` (white, 13.56:1
-  against the hero) except the one inside the call orb, which passes a mono colour because the orb is
-  its own background. `node test/ui-design.js` asserts this, so a new `logoMark()` call cannot
-  reintroduce it. For decks and slides, use `public/logo-on-dark.svg`.
+- **The logo and Otto are components, not artwork.** `public/components/brand/Logo.js` and
+  `public/components/brand/Otto.js` are the brand sheet's `components/brand/{Logo,Otto}.tsx` ported
+  to this no-build layer: same SVG markup, same geometry, same colours, same six poses, returned as
+  markup strings instead of React elements. Nothing else in the app draws them, and neither is ever
+  redrawn, recoloured or stretched (`logoTile()` fixes the mark's own 440x590 aspect ratio; every
+  Otto figure is sized by `width`/`height` from the same 300x300 view box).
+- **A light mark never sits on a dark surface.** The light variant is navy `#0C2B5E` and steel
+  `#3E6892`, so on the topbar and the entry-gate hero it measures **1.2:1** and **3.4:1** and
+  disappears. Two shapes are allowed and the design check enforces both: the light variant inside a
+  white plate (`.logo-plate`, `logoTile()`, the 160px splash card) or the dark variant (white and
+  sky), which is what the topbar and the call orb use. For decks and slides, `public/logo-on-dark.svg`
+  is the same treatment as a standalone file.
+- **Otto is transparent artwork: nothing paints behind him.** No plate, no circle, no ground
+  shadow - `.otto-fig-card` (and every other figure wrapper) only reserves his space, and
+  `OttoAvatar` draws just the optional orange ring, so the app's own surface shows through on dark,
+  on light and in an export. His pose always comes from state the app already tracks
+  (`ottoPoseNow()` reads the voice status and the stage) - never a new flag. His figures reserve a
+  fixed box, so a pose change cannot shift the layout, and his motion stops under
+  `prefers-reduced-motion`.
 - **Accessibility is in the markup, not bolted on**: skip link, `aria-current="step"` on the rail,
   `aria-live` on the AI line and the call status, `aria-expanded` on both drawers, and visible
   `:focus-visible` rings throughout.
@@ -280,8 +345,11 @@ Run each demo persona from the intake sidebar, then check the blueprint:
       button and no text box
 - [ ] The call is continuous: one WebRTC session and one microphone open for the whole call, no
       record/stop/play cycle between questions, and the client can interrupt the AI
-- [ ] Alex answers the client's own questions (product, price, "are you an AI?", next step) briefly
-      and honestly, then returns to the intake set
+- [ ] Otto answers the client's own questions (product, price, "are you an AI?", next step) briefly
+      and honestly, and their question comes first: a turn that is all answer is fine, and the
+      question he did not get to stays pending ("deferred") instead of being skipped
+- [ ] When the client says stop, or that they have to go, the call ends at once, whatever is still
+      missing; a request to pause makes him wait instead of hanging up
 - [ ] Every one of the 12 questions is asked out loud exactly once, in order, with a probe only when
       an answer arrived without its figures
 - [ ] Nothing is captured that the client did not say: every value carries the exact quoted words,
@@ -316,9 +384,11 @@ node test/pdf-email.js   # Phase 3: the emailed PDF against a stubbed Resend - s
 node test/netlify-sim.js # invokes the Netlify functions with Lambda-style events (incl. the
                          # Resend send with a stubbed fetch)
 node test/pdfcheck.js    # validates PDF xref structure of generated samples
-node test/ui-design.js   # design-system checks: the stylesheet parses, every class the app renders
-                         # has a rule, the tokens clear WCAG AA, touch targets stay 44px, and the
-                         # logo is never rendered bare on a dark surface
+node test/ui-design.js   # design-system checks: the stylesheet parses, every class the app and the
+                         # brand components render has a rule, the tokens clear WCAG AA, touch targets
+                         # stay 44px, the brand tokens and icons are in place, the six Otto poses and
+                         # his five copy lines are intact, the pose map follows the real call state,
+                         # and neither the logo nor Otto is ever rendered bare on a dark surface
 npm run test:all         # everything above
 ```
 
@@ -359,13 +429,21 @@ pipelinesync/
   netlify/functions/     start (the name + email gate; login.js is its alias), logout, ai (Claude API),
                          generate (B), deliver (C+D), voice, outbox, health
   public/index.html      shell (no CDN, works offline; includes pdfmake for client-side PDF)
+  public/components/brand/Logo.js  the logo components: LogoMark (the S mark, with the animated
+                         flowing-dot variant for loading screens) and Logo (mark + wordmark)
+  public/components/brand/Otto.js  Otto the mascot: six poses (sync, hello, listen, speak, think,
+                         party), the avatar crop, his five copy lines and his animation CSS
   public/logo.svg        brand mark as vector (faithful redraw of the logo-only.png artwork),
                          transparent: use it on light backgrounds
   public/logo-on-dark.svg  the same mark on a white rounded plate, for dark backgrounds
-  public/favicon.svg     favicon: mark on a white rounded tile (referenced by index.html)
+  public/favicon.svg     favicon: the light mark on a navy #0C2B5E rounded tile
   public/favicon.ico     multi-size ICO fallback (16/32/48) for legacy browsers
+  public/app-icons.svg   the 512px PWA icon (maskable-safe tile)
+  public/icon-512.png    the same tile at 512px, public/icon-maskable-512.png with more padding
   public/apple-touch-icon.png  180x180 iOS home-screen icon
-  public/manifest.webmanifest  PWA manifest (installable, theme colour, icons)
+  public/manifest.webmanifest  PWA manifest (installable, theme colour #0A0E17, icons)
+  scripts/make-brand-assets.js  regenerates the favicon and app icons from the Logo component's
+                         geometry (npm run brand:icons; needs @resvg/resvg-js, build-time only)
   public/styles.css      design system + responsive layout (mobile-first, see below)
   public/app.js          SPA: entry gate, consent, both voice engines (continuous WebRTC call and
                          step-by-step call), review, blueprint, unlock, booking, done

@@ -164,9 +164,19 @@ function configTests() {
   ok(record.parameters.properties.answer_quality.enum.indexOf('off_topic') >= 0, 'the model can mark a turn as having nothing to do with the question');
 
   const instructions = cfg.instructions;
+  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(instructions), 'the live session knows the interviewer is called Otto');
+  ok(/say you are Otto, an AI interviewer from PipelineSync/.test(instructions), 'and the opening line the model is told to say says Otto');
+  ok(!/\bAlex\b/.test(instructions), 'nothing in the live session instructions still calls him Alex');
   ok(/THE CALL IS CONTINUOUS/.test(instructions), 'the instructions say the call is continuous');
   ok(/never say "please wait"/i.test(instructions), 'the instructions forbid the dead-air phrases that make a call feel cut');
-  ok(/ANSWER THEIR QUESTIONS/.test(instructions), 'the instructions make Alex answer the lead, not dodge them');
+  ok(/THEIR QUESTION COMES FIRST/.test(instructions), 'the instructions make Otto answer the lead before anything else');
+  ok(/it is fine to spend a whole turn answering and ask nothing/.test(instructions), 'an all-answer turn is allowed, so the lead is never rushed');
+  ok(/WHEN THEY SAY STOP, YOU STOP/.test(instructions), 'the instructions carry the stop rule');
+  ok(/never negotiate a stop/i.test(instructions) && /never sound disappointed/i.test(instructions), 'a stop is not negotiated or mourned');
+  ok(/can we come back to this/i.test(instructions), 'a pause is described as waiting, not hanging up');
+  const endTool = cfg.tools.find(t => t.name === 'end_call');
+  ok(endTool.parameters.properties.reason.enum.indexOf('lead_asked_to_stop') >= 0, 'end_call can say the lead asked to stop');
+  ok(/lead_asked_to_stop/.test(instructions), 'the model is told to use that reason when the lead stops');
   ok(/what does it cost/i.test(instructions) && /we do not quote prices on this call/i.test(instructions), 'the price question has a real answer that invents nothing');
   ok(/are you a real person/i.test(instructions) && /I am an AI interviewer/i.test(instructions), 'the AI disclosure is scripted');
   ok(voice.INTAKE_PLAN.every(q => instructions.indexOf(q.id) >= 0 && instructions.indexOf(q.ask) >= 0), 'all twelve guardrail questions are in the session instructions');
@@ -241,10 +251,26 @@ function groundingTests() {
 
   const endMissing = voice.runRealtimeTool({
     env, email: 'a@b.c',
-    body: { call_id: 'c-end', name: 'end_call', arguments: { reason: 'they want to stop' }, answers: [{ id: 'business', text: 'We install solar.' }], asked: ['business'], probes: {}, skipped: [], voice_captures: [], end_attempts: 0 }
+    body: { call_id: 'c-end', name: 'end_call', arguments: { reason: 'other' }, answers: [{ id: 'business', text: 'We install solar.' }], asked: ['business'], probes: {}, skipped: [], voice_captures: [], end_attempts: 0 }
   });
   ok(endMissing.output.close === false, 'the call does not close while a required figure is missing and unasked');
   ok(/still have to come from them/i.test(endMissing.output.instruction), 'the model is told to ask for the missing figure once');
+
+  /* The lead's own stop closes the call on the spot, missing figures and all. Two ways in: the
+     model says why it is ending, or the lead's last words read as a stop on their own. */
+  const endStop = voice.runRealtimeTool({
+    env, email: 'a@b.c',
+    body: { call_id: 'c-stop', name: 'end_call', arguments: { reason: 'lead_asked_to_stop' }, user_turn: 'I have to go now, sorry.', answers: [{ id: 'business', text: 'We install solar.' }], asked: ['business'], probes: {}, skipped: [], voice_captures: [], end_attempts: 0 }
+  });
+  ok(endStop.output.close === true && endStop.output.stop_requested === true, 'a lead who asks to stop closes the call even with a required figure missing');
+  ok(/ask nothing at all/i.test(endStop.output.instruction) && !/Not yet/i.test(endStop.output.instruction), 'nothing is asked and nothing is chased after a stop');
+  ok(endStop.state.capture.missingRequired.length > 0, 'the figures already captured stay in the contract');
+
+  const endHeard = voice.runRealtimeTool({
+    env, email: 'a@b.c',
+    body: { call_id: 'c-stop2', name: 'end_call', arguments: { reason: 'other' }, user_turn: 'Can we stop here, please?', answers: [{ id: 'business', text: 'We install solar.' }], asked: ['business'], probes: {}, skipped: [], voice_captures: [], end_attempts: 0 }
+  });
+  ok(endHeard.output.close === true, 'the server hears the stop too, even when the model labels the end differently');
 
   const endOk = voice.runRealtimeTool({
     env, email: 'a@b.c',
@@ -393,7 +419,8 @@ async function routeTests(token) {
   ok(/multipart\/form-data/.test(rtReq[0].contentType || ''), 'the session is opened as a multipart form (sdp + session)');
   const sentSession = rtReq[0].session;
   ok(sentSession && sentSession.type === 'realtime' && Array.isArray(sentSession.tools), 'the server, not the browser, owns the session config and its tools');
-  ok(sentSession && /ANSWER THEIR QUESTIONS/.test(sentSession.instructions || ''), 'the session the server sent carries the answering rules');
+  ok(sentSession && /THEIR QUESTION COMES FIRST/.test(sentSession.instructions || '') && /WHEN THEY SAY STOP, YOU STOP/.test(sentSession.instructions || ''),
+    'the session the server sent carries the answering and stopping rules');
   ok(sentSession && sentSession.audio.input.turn_detection.type === 'semantic_vad', 'the session the server sent uses semantic turn detection');
 
   const tool = await (await post('/api/voice/realtime/tool', {
@@ -428,6 +455,12 @@ async function routeTests(token) {
 const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8')
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+
+/* index.html loads the brand components (the logo and Otto) before app.js. jsdom does not run the
+   document's own scripts, so they are evaluated here in the same order: without them app.js has no
+   markup for the logo or the mascot. */
+const brandJs = ['Logo.js', 'Otto.js'].map(f =>
+  fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 
 /* opts.hold          the fake model asks its question and then waits, so the call stays live and the
                       controls can be exercised instead of running to the end on their own
@@ -618,6 +651,7 @@ function bootBrowser(plan, opts) {
     if (!closing && !opts.hold) answer(askedNow);
   };
 
+  brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
   return {
     window, document, sent, calls, errors, spokenLines, micTracks, fetched, audio,
@@ -730,18 +764,31 @@ async function controlsTests() {
   ok(page.micCalls() === 1, 'the level meter reused the call\'s microphone stream: no second permission prompt');
   for (let i = 0; i < 40 && page.audio.frames < 3; i++) await sleep(25);
   ok(page.audio.frames >= 3, 'the analyser is reading the microphone (' + page.audio.frames + ' frames)');
-  const wave = document.querySelector('#orb .wave');
-  ok(!!wave && /level/.test(wave.className), 'the waveform hands its bars over to the measured level');
+  /* render() rebuilds the orb whenever the call's state changes, and the level meter repaints it on
+     the next animation frame. So the bars are followed with a deadline instead of sampled at one
+     instant: a meter that never moves still fails, a meter caught mid-repaint does not. */
   const barHeight = () => {
     const w = document.querySelector('#orb .wave');
     const bars = w ? w.querySelectorAll('span') : [];
     return bars.length >= 3 ? parseFloat(bars[2].style.height || '0') : 0;
   };
-  const loud = barHeight();
+  const waitBar = async (isDone, ms) => {
+    const until = Date.now() + ms;
+    let h = barHeight();
+    while (!isDone(h) && Date.now() < until) { await sleep(50); h = barHeight(); }
+    return h;
+  };
+  let wave = null;
+  for (let i = 0; i < 20; i++) {
+    wave = document.querySelector('#orb .wave');
+    if (wave && /level/.test(wave.className)) break;
+    await sleep(50);
+  }
+  ok(!!wave && /level/.test(wave.className), 'the waveform hands its bars over to the measured level');
+  const loud = await waitBar(h => h > 5, 1500);
   ok(loud > 5, 'a loud microphone moves the bars (' + loud.toFixed(1) + 'px)');
   page.audio.loud = false;
-  await sleep(400);
-  const quiet = barHeight();
+  const quiet = await waitBar(h => h < loud - 2, 1500);
   ok(quiet < loud - 2, 'silence brings the bars back down (' + quiet.toFixed(1) + 'px)');
   page.audio.loud = true;
 
@@ -880,6 +927,7 @@ async function fallbackTests() {
   };
   // A browser with no WebRTC at all: the client must fall back rather than fail.
   delete window.RTCPeerConnection;
+  brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
   await sleep(150);
   document.getElementById('demo-btn').click();

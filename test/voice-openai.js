@@ -36,6 +36,12 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
+/* index.html loads the brand components (the logo and Otto) before app.js. jsdom does not run the
+   document's own scripts, so they are evaluated here in the same order: without them app.js has no
+   markup for the logo or the mascot. */
+const brandJs = ['Logo.js', 'Otto.js'].map(f =>
+  fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
+
 function bootBrowser() {
   const dom = new JSDOM(html, { url: APP + '/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
@@ -80,6 +86,7 @@ function bootBrowser() {
     value: { getUserMedia: () => Promise.resolve({ getTracks: () => [{ stop() {} }] }) },
     configurable: true
   });
+  brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
   return { window, document, played, spoken, errors };
 }

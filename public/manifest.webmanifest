@@ -1,14 +1,41 @@
 {
   "name": "PipelineSync AI",
   "short_name": "PipelineSync",
-  "description": "Talk through your business with the AI interviewer and get a HubSpot revenue operations blueprint.",
+  "description": "Talk through your business with Otto, the AI interviewer, and get a HubSpot revenue operations blueprint.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F4F6F9",
-  "theme_color": "#0F2F52",
+  "background_color": "#0A0E17",
+  "theme_color": "#0A0E17",
   "lang": "en-GB",
   "icons": [
-    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icons.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
   ]
 }

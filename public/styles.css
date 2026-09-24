@@ -72,6 +72,20 @@
   --steel: #3E6C8E;
   --steel-soft: #EAF0FA;
 
+  /* PipelineSync AI brand tokens (brand sheet, section 1). These are the brand's own values and
+     do not change with the theme: navy is Otto's head, steel his arms, sync-orange the accent used
+     for primary buttons and live indicators, sky the waveform, mist the light circle Otto always
+     stands on when the surface is dark. void is the app background and stays exactly as it was. */
+  --navy-brand: #0C2B5E;
+  --navy-2: #2E5580;          /* alias of steel-deep, for older callers */
+  --steel-brand: #3E6892;
+  --steel-deep: #2E5580;
+  --sync-orange: #FF7A1A;
+  --sync-orange-hover: #E8660A;
+  --sky: #8FB0D0;
+  --mist: #E8EFF7;
+  --void: #0A0E17;
+
   /* Typography */
   --font-display: var(--display);
   --font: var(--body);
@@ -786,19 +800,22 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
   box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.25);
 }
 
-/* Primary Button (UI Kit: Cyan to Violet with glowing drop shadow) */
+/* Primary Button — the brand's control: #FF7A1A with white text, hover #E8660A (brand sheet 1).
+   The brand's orange is deliberately the only fill in the UI that carries white text; every other
+   control keeps the design system's own colours. */
 .btn-primary {
-  background: linear-gradient(135deg, var(--cyan), var(--violet));
-  color: #04121a !important;
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 8px 26px rgba(34, 211, 238, .28);
+  background: var(--sync-orange);
+  color: #FFFFFF !important;
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 8px 26px rgba(255, 122, 26, .30);
   font-weight: 700;
   position: relative;
   overflow: hidden;
 }
 .btn-primary:hover {
+  background: var(--sync-orange-hover);
   transform: translateY(-2px);
-  box-shadow: 0 12px 34px rgba(34, 211, 238, .42);
+  box-shadow: 0 12px 34px rgba(255, 122, 26, .42);
 }
 .btn-primary:active {
   transform: translateY(0);
@@ -1440,6 +1457,8 @@ input:-webkit-autofill:focus {
   font-size: 0.9375rem;
   color: var(--ink);
 }
+/* The call head shows Otto himself, the same bare head as the transcript bubbles. */
+.who-otto { display: inline-flex; flex: 0 0 auto; }
 .call-head-right {
   display: flex;
   align-items: center;
@@ -1448,7 +1467,7 @@ input:-webkit-autofill:focus {
 .progress {
   font-family: var(--mono);
   font-size: 0.8125rem;
-  color: var(--cyan);
+  color: var(--sync-orange);
   font-weight: 500;
 }
 .progressbar {
@@ -1459,8 +1478,8 @@ input:-webkit-autofill:focus {
 }
 .progressbar > div {
   height: 100%;
-  background: linear-gradient(90deg, var(--cyan), var(--violet));
-  box-shadow: 0 0 10px var(--cyan);
+  background: linear-gradient(90deg, var(--sky), var(--sync-orange));
+  box-shadow: 0 0 10px rgba(255, 122, 26, 0.55);
   transition: width 0.3s ease;
 }
 
@@ -1879,15 +1898,16 @@ input:-webkit-autofill:focus {
 }
 .orb.complete .ring-cyan, .orb.complete .ring-amber { border-color: var(--emerald); }
 
+/* A live indicator, so it wears the brand's orange (brand sheet 1). */
 .call-status {
   font-family: var(--mono);
   font-size: 0.8125rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--cyan);
+  color: var(--sync-orange);
   padding: 4px 12px;
-  background: rgba(34, 211, 238, 0.08);
-  border: 1px solid rgba(34, 211, 238, 0.22);
+  background: rgba(255, 122, 26, 0.10);
+  border: 1px solid rgba(255, 122, 26, 0.30);
   border-radius: var(--r-pill);
 }
 
@@ -2116,7 +2136,12 @@ input:-webkit-autofill:focus {
   font-size: 0.8125rem;
   line-height: 1.45;
   max-width: 90%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
 }
+.bubble-av { flex: 0 0 auto; display: inline-flex; }
+.bubble-txt { min-width: 0; overflow-wrap: anywhere; }
 .bubble.ai {
   align-self: flex-start;
   background: rgba(34, 211, 238, 0.08);
@@ -4215,6 +4240,17 @@ body[data-theme="light"] {
   --navy-600: #086F85;
   --steel: #3E6C8E;
   --steel-soft: #F0F6FA;
+
+  /* Brand tokens are theme-independent: the brand sheet's values apply in light mode too. */
+  --navy-brand: #0C2B5E;
+  --navy-2: #2E5580;
+  --steel-brand: #3E6892;
+  --steel-deep: #2E5580;
+  --sync-orange: #FF7A1A;
+  --sync-orange-hover: #E8660A;
+  --sky: #8FB0D0;
+  --mist: #E8EFF7;
+  --void: #0A0E17;
   color-scheme: light;
   background-color: var(--bg);
   background-image: radial-gradient(circle at 50% 0%, rgba(7, 122, 149, 0.09) 0%, transparent 45%), radial-gradient(circle at 85% 20%, rgba(79, 70, 229, 0.08) 0%, transparent 40%), radial-gradient(circle at 15% 75%, rgba(194, 65, 12, 0.06) 0%, transparent 45%);
@@ -4512,4 +4548,253 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   body.app-screen .brand-text {
     display: none;
   }
+}
+
+/* =============================================================================
+   PipelineSync AI brand: the logo lockup and Otto
+   -----------------------------------------------------------------------------
+   Everything the two brand components need to sit correctly on this dark theme.
+   Rules that come from the brand sheet and are enforced here, not just intended:
+
+     * Otto is never drawn straight onto a dark surface. A full-body figure goes
+       straight on the app's own surface: he is transparent artwork with no
+       plate, circle or shadow of his own (.otto-fig-card paints nothing and
+       OttoAvatar draws only the optional orange ring).
+     * Neither the logo nor Otto is ever recoloured or stretched: the components
+       fix their own aspect ratio, and these rules only set the room they take.
+     * Every figure reserves its space at a fixed size, so a pose change cannot
+       move anything else on the screen.
+     * Motion is decorative only and stops under prefers-reduced-motion.
+   ========================================================================== */
+
+/* --- Utilities the ported components use in their own markup --------------- */
+.relative { position: relative; }
+.inline-block { display: inline-block; }
+.inline-flex { display: inline-flex; }
+.items-center { align-items: center; }
+.gap-2 { gap: 0.5rem; }
+.rounded-full { border-radius: 999px; }
+.overflow-hidden { overflow: hidden; }
+.select-none { user-select: none; -webkit-user-select: none; }
+
+/* --- Header lockup --------------------------------------------------------- */
+.brand-logo { display: inline-flex; align-items: center; min-width: 0; }
+.brand-logo > span { min-width: 0; }
+
+/* --- Otto's space: he paints nothing, so these rules only size him --------- */
+.otto-fig-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* The wrapper the app sized decides the figure's width, so the wrapper and the svg inside it can
+     never grow past it, and the svg keeps its own aspect ratio as it scales down. It paints nothing:
+     Otto is transparent artwork and stands straight on the app's own surface. */
+  width: 100%;
+  max-width: 100%;
+}
+.otto-fig-card > svg { display: block; width: 100%; height: auto; max-width: 100%; }
+
+/* --- Otto's line of copy (the five messages he says) ----------------------- */
+.otto-copy {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.otto-copy-load, .otto-copy-win { color: var(--ink-2); }
+.otto-copy-err { color: var(--red); }
+.otto-copy-hello { color: var(--ink-2); font-size: 0.875rem; }
+
+/* --- Start screen: Otto greets, next to the button that starts the call ---- */
+.otto-hello {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0 0 1.25rem;
+}
+.otto-hello-fig { flex: 0 0 auto; width: clamp(104px, 26vw, 190px); }
+
+/* --- Consent and loading: the same figure, waiting to start --------------- */
+.otto-wait { display: flex; align-items: center; justify-content: center; gap: 0.9rem; }
+.otto-wait-consent { margin: 0 0 1.25rem; }
+.otto-wait-fig { flex: 0 0 auto; width: clamp(84px, 18vw, 160px); }
+.otto-wait-consent .otto-wait-fig { width: clamp(56px, 12vw, 96px); }
+
+/* --- Live call: Otto on the left, the question and waveform on the right --- */
+.otto-live {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(0.9rem, 2.5vw, 1.75rem);
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  text-align: left;
+}
+.otto-live-fig { flex: 0 0 auto; display: inline-flex; }
+.otto-label {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sync-orange);
+}
+.otto-live-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.otto-question {
+  font-family: var(--font-display);
+  font-size: clamp(1.05rem, 2.3vw, 1.5rem);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.otto-live-main .line.you { width: auto; max-width: 100%; font-size: 0.875rem; padding: 0.6rem 0.85rem; }
+
+/* The active-speaker ring: the 3px brand ring, with a halo that pulses. */
+.otto-ringing > span { animation: ottoRing 1.9s ease-out infinite; }
+@keyframes ottoRing {
+  0%   { box-shadow: 0 0 0 3px var(--sync-orange), 0 0 0 3px rgba(255, 122, 26, 0.55); }
+  70%  { box-shadow: 0 0 0 3px var(--sync-orange), 0 0 0 16px rgba(255, 122, 26, 0); }
+  100% { box-shadow: 0 0 0 3px var(--sync-orange), 0 0 0 3px rgba(255, 122, 26, 0); }
+}
+
+/* The waveform under the question: #8FB0D0 -> #FF7A1A bars. */
+.otto-wave {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 32px;
+  margin-top: 0.15rem;
+}
+.otto-wave-bar {
+  display: block;
+  width: 3px;
+  border-radius: 99px;
+  background: linear-gradient(180deg, var(--sky) 0%, var(--sync-orange) 100%);
+  transform-origin: 50% 100%;
+  animation: ottoWave 1.1s ease-in-out infinite alternate;
+}
+@keyframes ottoWave {
+  from { transform: scaleY(0.28); }
+  to   { transform: scaleY(1); }
+}
+/* With nothing being said the bars rest instead of dancing. */
+.call:not(.otto-wave-live) .otto-wave-bar { animation: none; transform: scaleY(0.45); opacity: 0.6; }
+
+/* The call orb is the secondary presence meter now that Otto leads the panel. */
+.otto-stepper { display: flex; justify-content: center; }
+
+/* --- Otto's error state --------------------------------------------------- */
+.otto-error {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  text-align: left;
+  max-width: 620px;
+}
+.otto-error-fig { flex: 0 0 auto; display: inline-flex; }
+
+/* --- Loading: the animated mark on its white card, then Otto thinking ----- */
+.otto-splash { display: flex; justify-content: center; margin: 0 0 1.25rem; }
+.otto-splash-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 160px;
+  height: 160px;
+  background: #FFFFFF;
+  border-radius: var(--r-xl);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(143, 176, 208, 0.35);
+}
+.loader .otto-wait { margin: 0 0 1.5rem; flex-direction: column; text-align: center; }
+.loader .otto-wait-fig { width: clamp(120px, 26vw, 180px); }
+
+/* --- Results: Otto celebrates --------------------------------------------- */
+.otto-party { display: flex; align-items: center; gap: 1rem; margin: 0 0 1.25rem; }
+.otto-party-fig { flex: 0 0 auto; width: clamp(120px, 22vw, 200px); }
+.otto-party-done { justify-content: center; flex-direction: column; text-align: center; }
+.otto-party-done .otto-party-fig { width: clamp(110px, 30vw, 170px); }
+/* The confetti reads as celebration, so the card's own shadow gains a hairline of brand orange. */
+.doc.otto-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), var(--sh-2), 0 0 0 1px rgba(255, 122, 26, 0.28); }
+
+/* --- Empty state ---------------------------------------------------------- */
+.otto-empty {
+  max-width: 560px;
+  margin: clamp(1.5rem, 4vw, 3rem) auto;
+  text-align: center;
+}
+.otto-empty-fig { display: inline-block; width: clamp(120px, 30vw, 170px); }
+.otto-empty h2 { margin: 0.5rem 0 0.35rem; }
+.otto-empty .otto-copy { color: var(--ink-2); margin-bottom: 1.25rem; }
+
+/* --- Toast: Otto joins the delivery confirmation -------------------------- */
+.toast.has-otto {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 1.1rem 0.7rem 0.7rem;
+}
+.toast-av { flex: 0 0 auto; display: inline-flex; }
+.toast-txt { min-width: 0; }
+
+/* --- The live call panel on a phone --------------------------------------- */
+@media (max-width: 899px) {
+  .otto-live { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 0.85rem; }
+  .otto-live-main { align-items: center; text-align: center; }
+  .otto-wave { justify-content: center; min-height: 32px; }
+  .otto-live-main .line.you { text-align: left; }
+  .otto-error { flex-direction: column; text-align: center; }
+  /* Keep the call screen inside a phone viewport: the orb steps back to make room for Otto. */
+  .otto-stepper .voice-orb-container { width: 122px; height: 122px; margin: 0 auto; }
+  .otto-stepper .orb { width: 92px; height: 92px; }
+  .otto-hello { gap: 0.6rem; }
+  .otto-wait { gap: 0.6rem; }
+}
+
+/* Very short screens: the entry gate is locked to one viewport, so the greeting figure yields
+   rather than pushing the form below the fold. Otto is still on the screen, smaller. */
+@media (max-height: 700px) and (max-width: 899px) {
+  .otto-hello-fig { width: 84px; }
+  .otto-copy-hello { font-size: 0.78rem; }
+}
+@media (max-height: 620px), (max-width: 379px) {
+  body.entry-screen .otto-hello-fig { width: 0; }
+  body.entry-screen .otto-copy-hello { display: none; }
+}
+
+/* --- Narrow headers: the wordmark yields to the mark ----------------------
+   The colour-mode switch is absolutely centred in the topbar, so the lockup on the left has to
+   stay clear of it. The wordmark truncates on a narrow phone (the mark always survives) and the
+   entry gate, which has the width, is left alone. */
+@media (max-width: 479px) {
+  body.app-screen .topbar .brand .brand-logo { max-width: 124px; overflow: hidden; }
+  body.app-screen .topbar .brand .brand-logo > span > span:last-child {
+    min-width: 0;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+@media (max-width: 379px) {
+  /* The wordmark is the last thing to go: the mark still carries the brand. */
+  body.app-screen .topbar .brand .brand-logo > span > span:last-child { display: none; }
+}
+
+/* --- Light theme ---------------------------------------------------------- */
+body[data-theme="light"] .otto-question { color: #0C2B5E; }
+body[data-theme="light"] .otto-splash-card { box-shadow: 0 12px 36px rgba(15, 47, 82, 0.22), 0 0 0 1px rgba(62, 104, 146, 0.2); }
+body[data-theme="light"] .toast.has-otto { background: #FFFFFF; }
+body[data-theme="light"] .doc.otto-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--sh-2), 0 0 0 1px rgba(232, 102, 10, 0.35); }
+
+/* --- Reduced motion: no pulsing ring, no dancing bars ---------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .otto-ringing > span { animation: none; }
+  .otto-wave-bar { animation: none; transform: scaleY(0.6); }
 }

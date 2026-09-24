@@ -163,6 +163,114 @@ function noKeyTests() {
 
   const forced = voice.mode({ OPENAI_API_KEY: 'sk-x', VOICE_PROVIDER: 'simulated' });
   ok(forced.mode === 'simulated', 'VOICE_PROVIDER=simulated forces the built-in interviewer even with a key');
+
+  // The built-in engine has no model to notice a question, so it matches the lead's words against
+  // the same scripted FAQ and answers first, leaving the assigned question for the next turn.
+  ok(/free/i.test((voice.faqAnswerFor('What does this cost me?') || {}).say || ''), 'the built-in engine answers a price question from the scripted FAQ');
+  ok(/AI interviewer/i.test((voice.faqAnswerFor('Am I talking to a robot?') || {}).say || ''), 'the built-in engine discloses what it is');
+  ok(voice.faqAnswerFor('Twelve closed installs a month') === null, 'an ordinary answer is not mistaken for a question');
+}
+
+async function builtinInteractiveTests() {
+  section('built-in engine: answer first, stop on request (no API key)');
+  const turn = await voice.runTurn({
+    env: {}, email: 'owner@example.com',
+    body: { answers: [{ id: 'business', text: 'We install solar.' }], asked: ['business'], probes: {}, last_answer: 'What does this cost me?', call_id: 'call-sim', with_audio: false }
+  });
+  ok(/free/i.test(turn.say) && turn.deferred === true, 'the built-in engine answers the lead');
+  ok(turn.ask.id === 'products' && turn.ask.kind === 'deferred', 'the question it did not reach stays pending, not spent');
+  ok(/Simulated voice/.test(turn.say) === false, 'the FAQ answer is spoken as an answer, without the opening note');
+
+  const next = await voice.runTurn({
+    env: {}, email: 'owner@example.com',
+    body: { answers: [{ id: 'business', text: 'We install solar.' }], asked: ['business'], probes: {}, last_answer: null, call_id: 'call-sim2', with_audio: false }
+  });
+  ok(next.ask.id === 'products' && next.done === false, 'the deferred question comes back on the next turn');
+
+  const stopped = await voice.runTurn({
+    env: {}, email: 'owner@example.com',
+    body: { answers: [{ id: 'business', text: 'We install solar.' }], asked: ['business'], probes: {}, last_answer: 'Can we stop here, please?', call_id: 'call-sim3', with_audio: false }
+  });
+  ok(stopped.done === true && stopped.stop_requested === true && stopped.ask.id === null, 'a stop ends the built-in call too, with the figures still open');
+}
+
+async function interactiveTests() {
+  section('interactive: their question first, and a stop ends the call');
+
+  /* The server's own pair of ears. It has to be narrow: a stray "stop" inside an answer must never
+     end a call, and a real request must never be missed. */
+  const ends = ['Can we stop here?', 'I have to go', 'let us stop for now', 'stop the call', 'that is all for today', 'I am done for now'];
+  const holds = ['hold on a second', 'can we pause', 'not right now, later today', 'give me a moment'];
+  const neither = ['we stop losing deals at the survey stage', 'our own crew does the installs', 'that is all of our lead sources', 'twenty closed installs a month', 'can we stop losing leads?'];
+  ok(ends.every(t => voice.stopIntent(t) === 'end'), 'an explicit stop reads as a stop (' + ends.filter(t => voice.stopIntent(t) !== 'end').join(' | ') + ')');
+  ok(holds.every(t => voice.stopIntent(t) === 'hold'), 'a request to wait reads as a pause, not a stop');
+  ok(neither.every(t => voice.stopIntent(t) === null), 'an answer that merely contains the word stop never ends a call');
+
+  /* A stop ends the call even though a required figure is still missing: the capture stays, the
+     question does not. */
+  const partial = answersUpTo(4);              // deal size and the volumes are still open
+  const asked = PLAN_ORDER.slice(0, 4);
+  const stopTurn = await voice.runTurn({
+    env: {}, email: 'owner@example.com',
+    body: { answers: partial, asked, probes: {}, last_answer: 'I have to go, sorry', call_id: 'call-stop', with_audio: false }
+  });
+  ok(stopTurn.done === true && stopTurn.stop_requested === true, 'a stop from the lead ends the call');
+  ok(stopTurn.ask.id === null && stopTurn.ask.kind === 'done', 'no question is left pending after a stop');
+  ok(!/\?/.test(stopTurn.say), 'the closing line asks nothing (' + JSON.stringify(stopTurn.say) + ')');
+  ok(/stop here|saved|pick this up/i.test(stopTurn.say), 'the closing line says the work is kept and can be resumed');
+
+  /* A turn that is all answer: the model reports it, and the question it never asked is not spent. */
+  const deferred = await voice.runTurn({
+    env: { OPENAI_API_KEY: 'sk-test' }, email: 'owner@example.com', fetchImpl: () => Promise.resolve({
+      ok: true, status: 200,
+      text: () => Promise.resolve(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ say: 'It is free, and nothing is for sale today. Take your time.', ask_question_id: null, answered_their_question: true, deferred: true, stop_requested: false, answer_quality: 'none', captured: [] }) } }]
+      }))
+    }),
+    body: { answers: [], asked: [], probes: {}, last_answer: 'What does this cost me?', call_id: 'call-defer', with_audio: false }
+  });
+  ok(deferred.deferred === true && deferred.done === false, 'an all-answer turn is reported as deferred');
+  ok(deferred.ask.id === 'business' && deferred.ask.kind === 'deferred', 'the assigned question stays pending instead of being spent');
+  ok(/free/i.test(deferred.say), 'the answer is what gets spoken');
+
+  const after = await voice.runTurn({
+    env: {}, email: 'owner@example.com',
+    body: { answers: [], asked: [], probes: {}, last_answer: null, call_id: 'call-defer2', with_audio: false }
+  });
+  ok(after.ask.id === 'business' && after.ask.kind === 'opening', 'the pending question comes back on the next turn');
+
+  /* The model asking a question back instead of answering is not a deferral: normal turns keep the
+     guardrail order. */
+  const normal = await voice.runTurn({
+    env: {}, email: 'owner@example.com',
+    body: { answers: answersUpTo(2), asked: PLAN_ORDER.slice(0, 2), probes: {}, last_answer: 'We sell solar panels.', call_id: 'call-normal', with_audio: false }
+  });
+  ok(normal.deferred === undefined && normal.ask.id === 'deal' && normal.done === false, 'an ordinary turn carries on in plan order');
+
+  /* The document is the source of truth and the two code copies are meant to be the same prompts, so
+     the FAQ and the guardrail set are compared rather than trusted. */
+  const prompts = require('../lib/prompts');
+  ok(JSON.stringify(prompts.REALTIME_FAQ) === JSON.stringify(voice.REALTIME_FAQ), 'the production FAQ copy matches the one the server runs');
+  ok(JSON.stringify(prompts.INTAKE_PLAN) === JSON.stringify(voice.INTAKE_PLAN), 'the production intake plan matches the one the server runs');
+  ok(/THEIR QUESTION COMES FIRST/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE) && /WHEN THEY SAY STOP, YOU STOP/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE),
+    'the production realtime template carries the answer-first and stop rules');
+  ok(/deferred: true/.test(prompts.STEP_BY_STEP_TEMPLATE) && /stop_requested: true/.test(prompts.STEP_BY_STEP_TEMPLATE),
+    'the production step-by-step template carries both flags');
+
+  /* One name everywhere: the client hears the same name they read on screen. */
+  const fs = require('fs');
+  const voiceSrc = fs.readFileSync(require.resolve('../lib/voice.js'), 'utf8');
+  const promptsSrc = fs.readFileSync(require.resolve('../lib/prompts.js'), 'utf8');
+  ok(/I am Otto from PipelineSync/.test(voice.INTAKE_PLAN[0].ask), 'the opening line introduces Otto by name');
+  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Otto on both voice paths');
+  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Otto');
+  ok(/say you are Otto, an AI interviewer from PipelineSync/.test(voiceSrc), 'the realtime opening instruction says Otto');
+  ok(!/\bAlex\b/.test(voiceSrc) && !/\bAlex\b/.test(promptsSrc), 'the interviewer is never called anything else in the voice layer');
+
+  const schema = voice.turnSchema().schema;
+  ok(schema.required.indexOf('deferred') >= 0 && schema.required.indexOf('stop_requested') >= 0, 'the turn schema asks the model for both flags');
+  ok(voice.buildMessages({ step: voice.nextStep({ answers: [], asked: [], probes: {} }), asked: [], answers: [], transcript: [], lastAnswer: null, capture: voice.captureState([], []), clientName: '' })[0].content.indexOf('stop_requested') >= 0,
+    'the step-by-step prompt documents stop_requested');
 }
 
 function clampTests() {
@@ -262,6 +370,8 @@ async function httpTests() {
   noKeyTests();
   clampTests();
   await adapterTests();
+  await interactiveTests();
+  await builtinInteractiveTests();
   await httpTests();
   console.log('\n' + (failures === 0 ? 'VOICE TESTS PASSED' : failures + ' VOICE FAILURES'));
   process.exit(failures === 0 ? 0 : 1);

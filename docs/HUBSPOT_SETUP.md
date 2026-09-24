@@ -45,7 +45,8 @@ Any paid HubSpot CRM with contacts + deals works for the *test* push. Workflows 
 
 ### Step 2 — Name it
 - **Name:** `PipelineSync AI`
-- **Logo:** upload `public/logo.svg` (optional)
+- **Logo:** upload `public/icon-512.png` (optional; the navy brand tile, or `public/favicon.svg`
+  for a vector version)
 - **Description:** `PipelineSync AI — server-side lead push (contacts + deals + timeline) and blueprint delivery`
 
 ### Step 3 — Set Scopes (Scopes tab)
