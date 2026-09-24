@@ -257,6 +257,16 @@ async function interactiveTests() {
   ok(/deferred: true/.test(prompts.STEP_BY_STEP_TEMPLATE) && /stop_requested: true/.test(prompts.STEP_BY_STEP_TEMPLATE),
     'the production step-by-step template carries both flags');
 
+  /* One name everywhere: the client hears the same name they read on screen. */
+  const fs = require('fs');
+  const voiceSrc = fs.readFileSync(require.resolve('../lib/voice.js'), 'utf8');
+  const promptsSrc = fs.readFileSync(require.resolve('../lib/prompts.js'), 'utf8');
+  ok(/I am Otto from PipelineSync/.test(voice.INTAKE_PLAN[0].ask), 'the opening line introduces Otto by name');
+  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Otto on both voice paths');
+  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Otto');
+  ok(/say you are Otto, an AI interviewer from PipelineSync/.test(voiceSrc), 'the realtime opening instruction says Otto');
+  ok(!/\bAlex\b/.test(voiceSrc) && !/\bAlex\b/.test(promptsSrc), 'the interviewer is never called anything else in the voice layer');
+
   const schema = voice.turnSchema().schema;
   ok(schema.required.indexOf('deferred') >= 0 && schema.required.indexOf('stop_requested') >= 0, 'the turn schema asks the model for both flags');
   ok(voice.buildMessages({ step: voice.nextStep({ answers: [], asked: [], probes: {} }), asked: [], answers: [], transcript: [], lastAnswer: null, capture: voice.captureState([], []), clientName: '' })[0].content.indexOf('stop_requested') >= 0,

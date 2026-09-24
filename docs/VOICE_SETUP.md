@@ -417,7 +417,7 @@ Optional, to change how it sounds or what it costs:
 | D1 | Open your site **in its own browser tab** (not an embedded preview) | Enter your name and email, tick the disclaimer, agree | The AI speaks immediately, no text box, and the call does not stop between questions |
 | D2 | The call screen | The badge in the "This call" card | **Live AI voice**, not "ChatGPT voice" and not "Simulated voice" |
 | D3 | Same card | Read the model line | the realtime model (`gpt-realtime-2.1`), the voice (`marin`) and the turn detection (`semantic_vad`) |
-| D4 | Mid-call | Ask "Are you an AI?" or "How much does it cost?" | Alex answers honestly in a sentence or two, then returns to the intake question |
+| D4 | Mid-call | Ask "Are you an AI?" or "How much does it cost?" | Otto answers honestly in a sentence or two, then returns to the intake question |
 | D5 | Mid-call | Talk over the AI | It stops and lets you finish (barge-in) |
 | D6 | Finish the call | Answer out loud, then structure the answers | The sidebar captured the fields and the three required numbers are filled |
 | D7 | Netlify -> **Functions** -> `voice` -> **Logs** | Watch the call go past | `[voice] realtime session opened: ...` then one `[voice] realtime tool ...` line per answer |

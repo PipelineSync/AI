@@ -146,7 +146,7 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
    client has finished a thought, so nothing is cut between questions and the client can talk over
    the AI. The model words the questions; the guardrail set in `lib/voice.js` still chooses them, and
    the server re-checks every value the model claims against the words it quotes before it is
-   captured. Alex (Otto on screen) also answers the client's own questions ("what is PipelineSync?", "how much does it
+   captured. Otto also answers the client's own questions ("what is PipelineSync?", "how much does it
    cost?", "are you an AI?", "what happens next?", "can we stop?") from a scripted FAQ that invents no
    number, and their question comes first: he answers it before returning to the intake set, a turn
    that is all answer is a correct turn (the question he did not reach stays pending, `deferred`), and
@@ -223,12 +223,11 @@ The live call screen puts his avatar on the left with the orange pulsing ring an
 `#8FB0D0` → `#FF7A1A` gradient). Every control, the progress track, the captured-signals sidebar and
 the transcript are unchanged.
 
-> **One naming note.** The rename to Otto covers the UI. The spoken identity inside the voice prompts
-> (`lib/voice.js`, `lib/prompts.js`: "I am Alex ...") was left exactly as it was, because the brief for
-> this change says not to touch the spoken question content. The AI therefore introduces itself as
-> Alex out loud while the screen calls it Otto. Changing `MASTER_INTERVIEW_IDENTITY` in
-> `lib/prompts.js` and the two `realtimeInstructions()` greetings in `lib/voice.js` is all it takes,
-> but that rewrites what the client hears on the call, so it is a separate decision.
+> **One name, said and seen.** Otto is what the client reads on screen *and* what they hear on the
+> call: the identity line in `lib/voice.js` (`realtimeInstructions()`, `buildMessages()`), the first
+> question's greeting, and `MASTER_INTERVIEW_IDENTITY` in `lib/prompts.js` all say "I am Otto from
+> PipelineSync". Nothing else about the spoken content changed — the 12 questions, the FAQ answers
+> and the call rules are word for word what they were, so the rename is a name and nothing more.
 
 ## UI and responsive design
 
@@ -346,7 +345,7 @@ Run each demo persona from the intake sidebar, then check the blueprint:
       button and no text box
 - [ ] The call is continuous: one WebRTC session and one microphone open for the whole call, no
       record/stop/play cycle between questions, and the client can interrupt the AI
-- [ ] Alex answers the client's own questions (product, price, "are you an AI?", next step) briefly
+- [ ] Otto answers the client's own questions (product, price, "are you an AI?", next step) briefly
       and honestly, and their question comes first: a turn that is all answer is fine, and the
       question he did not get to stays pending ("deferred") instead of being skipped
 - [ ] When the client says stop, or that they have to go, the call ends at once, whatever is still

@@ -54,7 +54,7 @@ function createMock(port) {
     const q = turn.if_the_answer_is_thin_ask_this_instead || turn.the_question_to_ask;
     const last = state.last_answer ? String(state.last_answer).slice(0, 60) : '';
     const say = q
-      ? (last ? 'Right, thank you. ' : 'Hello, this is Alex from PipelineSync. ') + q
+      ? (last ? 'Right, thank you. ' : 'Hello, this is Otto from PipelineSync. ') + q
       : 'That is everything I need. Review what we captured and I will build the blueprint.';
     const captured = [];
     const m = String(state.last_answer || '').match(/(\d[\d,]*)\s+leads a month/i);

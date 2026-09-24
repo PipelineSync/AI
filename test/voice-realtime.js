@@ -164,9 +164,12 @@ function configTests() {
   ok(record.parameters.properties.answer_quality.enum.indexOf('off_topic') >= 0, 'the model can mark a turn as having nothing to do with the question');
 
   const instructions = cfg.instructions;
+  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(instructions), 'the live session knows the interviewer is called Otto');
+  ok(/say you are Otto, an AI interviewer from PipelineSync/.test(instructions), 'and the opening line the model is told to say says Otto');
+  ok(!/\bAlex\b/.test(instructions), 'nothing in the live session instructions still calls him Alex');
   ok(/THE CALL IS CONTINUOUS/.test(instructions), 'the instructions say the call is continuous');
   ok(/never say "please wait"/i.test(instructions), 'the instructions forbid the dead-air phrases that make a call feel cut');
-  ok(/THEIR QUESTION COMES FIRST/.test(instructions), 'the instructions make Alex answer the lead before anything else');
+  ok(/THEIR QUESTION COMES FIRST/.test(instructions), 'the instructions make Otto answer the lead before anything else');
   ok(/it is fine to spend a whole turn answering and ask nothing/.test(instructions), 'an all-answer turn is allowed, so the lead is never rushed');
   ok(/WHEN THEY SAY STOP, YOU STOP/.test(instructions), 'the instructions carry the stop rule');
   ok(/never negotiate a stop/i.test(instructions) && /never sound disappointed/i.test(instructions), 'a stop is not negotiated or mourned');

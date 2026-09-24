@@ -4,9 +4,10 @@
 AI may know and every instruction it operates under. Edit this file, then the changes get ported
 back into the code.
 
-**Version:** v1.1  
-**Last synced:** 2026-09-25 (v1.1: interactive-first call rules KB-CALL-01..04 — answer their question
-first, stop when they say stop)  
+**Version:** v1.2  
+**Last synced:** 2026-09-25 (v1.2: the interviewer is Otto in speech as well as on screen —
+one name everywhere; v1.1: interactive-first call rules KB-CALL-01..04 — answer their question first,
+stop when they say stop)  
 **Sync status:** ✅ Code matches MD — verified by `npm run test:all` (e2e, voice, voice-realtime, voice-openai, ui-smoke, pdfcheck, ui-design, netlify-sim)
 
 | What | Lives in code | Machine-readable copy |
@@ -14,7 +15,7 @@ first, stop when they say stop)
 | Knowledge base v1 (KB) | `lib/core.js` → `const KB` (top of file) | `docs/KB.json` (Supabase seed) |
 | **Prompt A** — blueprint generation (Function B) | mocked by `generate()` in `lib/core.js` + `lib/prompts.js` → `PROMPT_A` | `lib/prompts.js` |
 | **Prompt B** — extraction / structuring (Function A) | mocked by `extract()` in `lib/core.js` + `lib/prompts.js` → `PROMPT_B` | `lib/prompts.js` |
-| **Master interview prompt** — "Alex" voice discovery call | `lib/voice.js` → `realtimeInstructions()`, `buildMessages()`, `INTAKE_PLAN`, `REALTIME_FAQ` | `lib/prompts.js` → `MASTER_INTERVIEW_IDENTITY`, `REALTIME_FAQ`, `INTAKE_PLAN`, `REALTIME_INSTRUCTIONS_TEMPLATE`, `STEP_BY_STEP_TEMPLATE`, `TRANSCRIPTION_PROMPT` |
+| **Master interview prompt** — "Otto" voice discovery call | `lib/voice.js` → `realtimeInstructions()`, `buildMessages()`, `INTAKE_PLAN`, `REALTIME_FAQ` | `lib/prompts.js` → `MASTER_INTERVIEW_IDENTITY`, `REALTIME_FAQ`, `INTAKE_PLAN`, `REALTIME_INSTRUCTIONS_TEMPLATE`, `STEP_BY_STEP_TEMPLATE`, `TRANSCRIPTION_PROMPT` |
 
 Hard rules that never change: the KB and all prompts stay **server-side** (`lib/`), the AI may
 **only pick from the KB** (no invented properties, tools, features, or prices), every KB item used
@@ -200,11 +201,11 @@ for numeric fields only — everything shown back to the client keeps their own 
 
 ---
 
-## 4. Master interview prompt — "Alex", the AI discovery caller (`lib/voice.js`)
+## 4. Master interview prompt — "Otto", the AI discovery caller (`lib/voice.js`)
 
 ### 4.1 Identity (shared by both voice paths)
 
-> You are Alex, the PipelineSync AI discovery interviewer, on a live voice call with a business
+> You are Otto, the PipelineSync AI discovery interviewer, on a live voice call with a business
 > owner in the Philippines. PipelineSync turns the call into a HubSpot revenue operations
 > blueprint, so the call exists to capture facts: numbers, prices, tools, sources, process.
 > You are an AI, and you say so once, in your opening line. You never sell, never pitch and
@@ -218,7 +219,7 @@ style. Fields map to the Section 7 contract.
 
 | # | id | Ask (verbatim) | Probe if thin | Fills fields |
 |---|---|---|---|---|
-| 1 | `business` | "Hi, I am Alex from PipelineSync. Let us get to know your business. What do you do, and who do you sell to?" | — | business_description, industry |
+| 1 | `business` | "Hi, I am Otto from PipelineSync. Let us get to know your business. What do you do, and who do you sell to?" | — | business_description, industry |
 | 2 | `products` | "What are the main products or services you sell, and what do they cost? If a sale needs something first, like a survey or an evaluation, tell me." | "Just so I get the figures right, what does a typical one of those cost, and does anything need to happen before the sale?" | products |
 | 3 | `deal` | "Roughly, how big is a typical deal? And how many people take sales calls?" | "About how much is a typical deal worth, and how many people take those calls?" | typical_deal_size, sales_reps_on_calls |
 | 4 | `fulfilment` | "How many people handle fulfilment, and how do you deliver once a sale is made?" | — | fulfilment_headcount, fulfilment_method |
@@ -255,7 +256,7 @@ their words · 12 what a win looks like in six months.
 
 Assembled fresh each turn with live state. Template (placeholders in `{braces}`):
 
-> You are Alex, the PipelineSync AI discovery interviewer, on a live continuous voice call with
+> You are Otto, the PipelineSync AI discovery interviewer, on a live continuous voice call with
 > {name — "…, a business owner"} in the Philippines. You are an AI, and you say so once, in your
 > opening line.
 > The call exists to capture facts about their business: numbers, prices, tools, lead sources and
@@ -309,7 +310,7 @@ Assembled fresh each turn with live state. Template (placeholders in `{braces}`)
 > - Keep the call to about twelve minutes. If they want to stop early, call end_call with reason "lead_asked_to_stop" and no argument.
 >
 > **STATE RIGHT NOW:** asked so far: {ids}. Captured: {field labels}. Required and still missing: {labels or "none"}.
-> Open the call now: greet them{", use their first name"}, say you are Alex, an AI interviewer from PipelineSync, say the call takes a few minutes and that they can stop any time, then ask question 1.
+> Open the call now: greet them{", use their first name"}, say you are Otto, an AI interviewer from PipelineSync, say the call takes a few minutes and that they can stop any time, then ask question 1.
 
 **Tool contract — `record_answer`** `{question_id (enum of the 12 ids), answer_text, answer_quality
 (complete|thin|declined|off_topic), captured: [{field (enum of the 23), value, quote}]}` — the
@@ -323,7 +324,7 @@ detector, so a stop the model missed still ends the call.
 
 ### 4.5 Step-by-step fallback turn prompt (no WebRTC — `buildMessages()`)
 
-> You are Alex, the PipelineSync AI discovery interviewer, on a live VOICE call with a business owner in the Philippines.
+> You are Otto, the PipelineSync AI discovery interviewer, on a live VOICE call with a business owner in the Philippines.
 > PipelineSync turns the call into a HubSpot revenue operations blueprint, so the call exists to capture facts: numbers, prices, tools, sources, process.
 >
 > How you speak:
@@ -409,7 +410,18 @@ After porting, run `npm test` — `test/e2e.js` asserts the brief's QA checklist
 tagged references, required fields, PDF, lead push) and the four demo personas cover the four
 vertical recipes.
 
-### 5.1 Sync verification (2026-09-25, v1.1 — interactive call)
+### 5.1 Sync verification (2026-09-25, v1.2 — one name: Otto)
+
+- ✅ The interviewer is **Otto** in every spoken line as well as on screen: `lib/voice.js`
+  `realtimeInstructions()` (both greetings), `buildMessages()`, `INTAKE_PLAN[0].ask`, and
+  `lib/prompts.js` `MASTER_INTERVIEW_IDENTITY`, `REALTIME_INSTRUCTIONS_TEMPLATE`,
+  `STEP_BY_STEP_TEMPLATE`, `INTAKE_PLAN` all say Otto; no "Alex" remains as an identity in `lib/`, and
+  the test suites assert its absence
+- ✅ Nothing else in the spoken content changed: the 12 questions, the FAQ answers and the call rules
+  are word for word what v1.1 shipped (the realtime instruction block is still 10524 chars)
+- ✅ `test/voice.js` asserts the identity says Otto and that "Alex" appears nowhere in the voice layer
+
+### 5.1a Sync verification (2026-09-25, v1.1 — interactive call)
 
 - ✅ `lib/core.js` `KB.callRules` carries KB-CALL-01..04 verbatim (Section 1.7); `docs/KB.json` `callRules` matches
 - ✅ `lib/voice.js` `realtimeInstructions()` carries "THEIR QUESTION COMES FIRST" + "WHEN THEY SAY STOP, YOU STOP"; `end_call` reason enum and the instant-close path match Section 4.4
@@ -422,7 +434,7 @@ vertical recipes.
   (a lead question is answered first and does not consume the on-screen question; a lead stop ends the
   call and keeps the answers)
 
-### 5.1a Sync verification (2026-09-18, v1)
+### 5.1b Sync verification (2026-09-18, v1)
 
 - ✅ `lib/core.js` KB object matches Section 1 tables (tiers, pipelines, source mechanisms, tool catalogue, verticals, compliance)
 - ✅ `lib/voice.js` INTAKE_PLAN matches Section 4.2 (12 questions verbatim), REALTIME_FAQ matches 4.3, realtimeInstructions matches 4.4 template, buildMessages matches 4.5
@@ -430,7 +442,14 @@ vertical recipes.
 - ✅ `docs/KB.json` created — JSON seed for future Supabase tables (rules, tools, prices, vertical recipes)
 - ✅ All test suites pass: `npm run test:all` (voice, voice-openai, voice-realtime, e2e, netlify-sim, pdfcheck, ui-design, ui-smoke)
 
-### 5.2 Files changed in this sync (2026-09-25, v1.1)
+### 5.2 Files changed in this sync (2026-09-25, v1.2)
+
+- `lib/voice.js`, `lib/prompts.js` — the interviewer introduces himself as Otto (identity, both
+  realtime greetings, the step-by-step identity, question 1)
+- `test/mock-openai.js`, `test/voice-realtime.js` — the stubbed greeting and the assertion wording
+- `README.md`, `docs/VOICE_SETUP.md` — the naming note and the D4 walkthrough now say Otto
+
+### 5.2a Files changed in the v1.1 sync (2026-09-25)
 
 - `lib/core.js` — `KB.callRules` (KB-CALL-01..04)
 - `lib/voice.js` — `stopIntent()` + `stopLine()`, `realtimeInstructions()`, `buildMessages()`,
@@ -446,7 +465,7 @@ vertical recipes.
 - `docs/KB.json` — `callRules`
 - `docs/KB_AND_MASTER_PROMPT.md` — Sections 1.7, 4.4, 4.5, 4.7, 5
 
-### 5.2a Files changed in the v1 sync (2026-09-18)
+### 5.2b Files changed in the v1 sync (2026-09-18)
 
 - `lib/prompts.js` — NEW — master prompts extracted from MD
 - `docs/KB.json` — NEW — machine-readable KB
