@@ -47,31 +47,64 @@ ok(/body\.entry-screen \.gate\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh
 ok(/classList\.toggle\(['"]entry-screen['"]/.test(appJs),
   'the one-screen lock is scoped to the entry instead of trapping long blueprint content');
 
+/* The brand components (the logo and Otto) render markup into the same screens, so they are part
+   of the check. Their animation classes ship inside the components' own inline <style> (the brand
+   sheet specifies the components as written), so a class is covered if the stylesheet has a rule
+   for it or the component's own CSS defines it. */
+const brandSrcs = ['Logo.js', 'Otto.js'].map(f =>
+  fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
+const brandCss = brandSrcs.join('\n');
+const sources = [appJs].concat(brandSrcs);
+
 // Every class the app renders must have at least one rule, or the redesign dropped a style.
 const used = new Set();
 const classRe = /class=(?:\\?"|\\?')([^"'\\]+)/g;
 let m;
-while ((m = classRe.exec(appJs))) {
-  m[1].split(/\s+/).forEach(c => { if (c && !/[+'"']/.test(c)) used.add(c); });
+for (const src of sources) {
+  classRe.lastIndex = 0;
+  while ((m = classRe.exec(src))) {
+    m[1].split(/\s+/).forEach(c => { if (c && !/[+'"']/.test(c)) used.add(c); });
+  }
 }
 // Classes JS adds at runtime rather than writing into the markup.
 ['active', 'done', 'filled', 'null', 'pending', 'speaking', 'listening', 'thinking', 'error', 'complete',
  'ready', 'live', 'sel', 'show', 'err', 'side-open', 'is-null', 'review-full', 'won', 'lost'].forEach(c => used.add(c));
 const selectorBlob = selectors.join(' ');
-const missing = [...used].filter(c => !new RegExp('\\.' + c.replace(/-/g, '\\-') + '(?![\\w-])').test(selectorBlob));
-ok(missing.length === 0, 'all ' + used.size + ' classes rendered by app.js have a rule' + (missing.length ? ': missing ' + missing.join(', ') : ''));
+const defined = c => new RegExp('\\.' + c.replace(/-/g, '\\-') + '(?![\\w-])').test(selectorBlob) ||
+  new RegExp('\\.' + c.replace(/-/g, '\\-') + '\\s*[{,]').test(brandCss);   // the component's own CSS
+const missing = [...used].filter(c => !defined(c));
+ok(missing.length === 0, 'all ' + used.size + ' classes rendered by the app and the brand components have a rule' + (missing.length ? ': missing ' + missing.join(', ') : ''));
 
-// And no rule may put white text on the brand fill: white on #F57C1F is 2.7:1.
+/* White text on a brand fill. The brand sheet sets the primary button to #FF7A1A with white text
+   (2.55:1, the same order as the #F57C1F this design system already shipped), so that one control
+   is deliberate and is pinned below. Everything else must still keep white off a brand fill. */
 const whiteOnBrand = [];
 (function walk2(list) {
   for (const r of list) {
     if (r.cssRules) walk2(r.cssRules);
     if (!r.style) continue;
     const bg = (r.style.background || '') + (r.style.backgroundColor || '');
-    if (/var\(--brand\)/.test(bg) && /(#fff\b|#ffffff|white)/i.test(r.style.color || '')) whiteOnBrand.push(r.selectorText);
+    if (!/var\(--brand\)|var\(--sync-orange\)/.test(bg)) continue;
+    if (!/(#fff\b|#ffffff|white)/i.test(r.style.color || '')) continue;
+    (r.selectorText || '').split(',').forEach(sel => whiteOnBrand.push(sel.trim()));
   }
 })(sheet.cssRules);
-ok(whiteOnBrand.length === 0, 'no white text sits on the brand fill (white on #F57C1F is 2.7:1)' + (whiteOnBrand.length ? ': ' + whiteOnBrand.join(', ') : ''));
+const brandWhite = whiteOnBrand.filter(sel => sel !== '.btn-primary' && sel !== '.btn-primary:hover');
+ok(brandWhite.length === 0, 'white text sits only on the primary button, which the brand sheet colours #FF7A1A' +
+  (brandWhite.length ? ': ' + brandWhite.join(', ') : ''));
+const primaryRule = [...selectors].find(t => t.trim() === '.btn-primary');
+const primaryFill = (function find(list) {
+  for (const r of list) {
+    if (r.cssRules) { const f = find(r.cssRules); if (f) return f; continue; }
+    if (r.selectorText && r.selectorText.trim() === '.btn-primary' && r.style.background) return r.style.background;
+  }
+  return '';
+})(sheet.cssRules);
+ok(/var\(--sync-orange\)|#FF7A1A/i.test(primaryFill),
+  'the primary button is the brand orange #FF7A1A (' + (primaryFill || 'no fill found') + ')');
+ok(/--sync-orange:\s*#FF7A1A/i.test(css) && /--sky:\s*#8FB0D0/i.test(css) && /--mist:\s*#E8EFF7/i.test(css) && /--void:\s*#0A0E17/i.test(css),
+  'the brand sheet tokens are declared (sync-orange, sky, mist, void)');
+ok(/--bg:\s*#0A0E17/i.test(css), 'the app background is still #0A0E17');
 
 /* ------------------------------------------------------------------ */
 section('design tokens clear WCAG AA');
@@ -121,19 +154,110 @@ for (const [label, fg, bg, min] of PAIRS) {
 /* ------------------------------------------------------------------ */
 section('the brand mark is never bare on a dark surface');
 
-/* logoMark() draws navy #0F2F52 and steel #3E6C8E strokes. Against the entry-gate hero (a navy
-   gradient) those measure 1.00:1 and 2.42:1, so an un-plated mark vanishes. Every call must either
-   pass a mono colour - the call orb, which is its own background - or go through logoTile(). */
-const bareMarks = (appJs.match(/logoMark\([^)]*\)/g) || [])
-  .filter(c => !/'#[0-9A-Fa-f]{6}'/.test(c))   // a mono call paints itself for its own background
-  .filter(c => !/mono/.test(c));               // ...and skip the function definition itself
-ok(bareMarks.length === 1 && /logoMark\(h\)/.test(bareMarks[0]),
-  'the only bare logoMark() call is the one inside logoTile() (' + bareMarks.length + ' found)');
+/* The logo now comes from components/brand/Logo.js. Its light variant draws navy #0C2B5E and steel
+   #3E6892 strokes: on the dark topbar or the entry-gate hero those measure 1.2:1 and 3.4:1, so a
+   light mark put straight on dark disappears. Two shapes are allowed:
+     - the light variant inside a light plate (logoTile / the splash card),
+     - the dark variant (white + sky), which is what every dark surface uses.
+   Anything else - a light mark on a dark surface - is what this check exists to stop. */
+ok(!/function logoMark\(/.test(appJs), 'the old inline logoMark() is gone: the brand component draws the mark');
+const lightMarks = (appJs.match(/LogoMark\(\{[^}]*variant:\s*'light'[^}]*\}\)/g) || []);
+const platedLight = lightMarks.filter(c => /logoTile|ottoSplashHtml|Splash/.test(appJs.slice(Math.max(0, appJs.indexOf(c) - 400), appJs.indexOf(c))));
+ok(lightMarks.length > 0 && platedLight.length === lightMarks.length,
+  'every light-variant mark is inside a light plate or the splash card (' + platedLight.length + '/' + lightMarks.length + ')');
+ok(/LogoMark\(\{ variant: 'dark', size: 24 \}\)/.test(appJs), 'the call orb carries the dark variant, not the light one');
+ok(/Logo\(\{ variant: 'dark', size: 30 \}\)/.test(appJs), 'the header lockup uses the dark variant on the dark topbar');
 const platedMarks = (appJs.match(/logoTile\(\d+\)/g) || []).length;
-ok(platedMarks >= 3, 'the header, the entry-gate hero and the done card all render the mark on a plate (' + platedMarks + ' plates)');
+ok(platedMarks >= 1, 'the done card still renders the mark on a plate (' + platedMarks + ' plates)');
 ok(/\.logo-plate\s*{[^}]*background:\s*#FFFFFF/i.test(css), '.logo-plate has a light background of its own');
 ok(/\.gate-brand \.logo-plate/.test(css), 'the plate gets extra separation on the dark hero');
 ok(fs.existsSync(path.join(__dirname, '..', 'public', 'logo-on-dark.svg')), 'public/logo-on-dark.svg ships for dark decks and slides');
+
+/* The favicon and the app icon: the static light mark on a navy #0C2B5E rounded tile. */
+const faviconSvg = fs.readFileSync(path.join(__dirname, '..', 'public', 'favicon.svg'), 'utf8');
+const appIconSvg = fs.readFileSync(path.join(__dirname, '..', 'public', 'app-icons.svg'), 'utf8');
+ok(/fill="#0C2B5E"/.test(faviconSvg) && /#FF7A1A/.test(faviconSvg), 'favicon.svg is the brand tile (navy fill, brand orange dot)');
+ok(/viewBox="0 0 512 512"/.test(appIconSvg) && /rx="/.test(appIconSvg), 'app-icons.svg is a 512px rounded-square app tile');
+
+/* A browser decodes a linked .svg icon as strict XML: one unbalanced tag and the icon silently
+   disappears. The generator is the only thing that writes these files, so both are parsed here. */
+const svgParser = new JSDOM('').window.DOMParser;
+for (const f of ['favicon.svg', 'app-icons.svg']) {
+  const doc = new svgParser().parseFromString(fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8'), 'image/svg+xml');
+  ok(!doc.querySelector('parsererror'), 'public/' + f + ' is well-formed XML, so a browser can decode it');
+}
+for (const f of ['icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png']) {
+  ok(fs.existsSync(path.join(__dirname, '..', 'public', f)), 'public/' + f + ' ships');
+}
+const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'manifest.webmanifest'), 'utf8'));
+ok(manifest.theme_color === '#0A0E17' && manifest.background_color === '#0A0E17', 'the manifest theme colour stays #0A0E17');
+ok(manifest.icons.some(i => /512/.test(i.sizes)), 'the manifest carries the 512px app icon');
+
+/* ------------------------------------------------------------------ */
+section('the brand components and Otto');
+
+/* The components are the brand sheet's React components ported to this no-build layer, so the file
+   that ships them is checked here: the six poses, the two views, the unchanged SVG markup and the
+   rules that must not drift. */
+const logoJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Logo.js'), 'utf8');
+const ottoJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Otto.js'), 'utf8');
+
+ok(/viewBox="20 20 440 590"/.test(logoJs) && /stroke-width="55"/.test(logoJs) && /<rect[^>]*fill="#FF7A1A"/.test(logoJs),
+  'Logo.js keeps the brand sheet geometry (the 440x590 mark, 55px strokes, the orange dot)');
+ok(/#0C2B5E/.test(logoJs) && /#3E6892/.test(logoJs) && /#0FFFFFF/i.test(logoJs) === false && /'#FFFFFF'/.test(logoJs),
+  'Logo.js keeps the brand colours (navy head, steel, white on dark)');
+ok(/role="img" aria-label="PipelineSync AI"/.test(logoJs), 'the logo svg keeps role=img and its aria-label');
+ok(/@media \(prefers-reduced-motion:reduce\)/.test(logoJs), 'the animated mark honours reduced motion');
+
+for (const pose of ['sync', 'hello', 'listen', 'speak', 'think', 'party']) {
+  ok(new RegExp(pose + ':\\s*\\{').test(ottoJs), 'Otto.js defines the "' + pose + '" pose');
+}
+ok(/'\+ \(avatar \? '66 36 168 168' : '0 0 300 300'\) \+'|avatar \? '66 36 168 168' : '0 0 300 300'/.test(ottoJs),
+  'Otto keeps both view boxes (the full figure and the head-only avatar crop)');
+/* Otto is transparent artwork: nothing may paint behind him, or the app's own surface (dark, light
+   or an export) stops showing through. */
+ok(!/<circle cx="150" cy="120" r="84"/.test(ottoJs) && !/background:' \+ MIST/.test(ottoJs),
+  'the avatar draws no circle or plate behind the head');
+ok(!/ellipse cx="150" cy="286"/.test(ottoJs), 'the full figure draws no ground shadow');
+ok(/role="img" aria-label="/.test(ottoJs), 'Otto keeps role=img and his aria-label');
+ok(/@media \(prefers-reduced-motion:reduce\)\{\[class\^="otto-"\]/.test(ottoJs), "Otto's animation CSS honours reduced motion");
+ok(/#0C2B5E/.test(ottoJs) && /#3E6892/.test(ottoJs) && /#FF7A1A/.test(ottoJs) && /#8FB0D0/.test(ottoJs) && /#E8EFF7/.test(ottoJs),
+  "Otto's palette is the brand palette and nothing else");
+
+/* Rules from the brand sheet, asserted on the real rendering code. */
+ok(/window.innerWidth[\s\S]{0,80}< 420 \? 104/.test(appJs.slice(appJs.indexOf('function ottoLiveSize'), appJs.indexOf('function ottoLiveSize') + 300)),
+  'the live avatar never drops below 96px on a small phone');
+const poseFn = appJs.slice(appJs.indexOf('function ottoPoseNow'), appJs.indexOf('function ottoPoseNow') + 900);
+ok(/status === 'speaking'[\s\S]*?'speak'/.test(poseFn) && /v.listening[\s\S]*?'listen'/.test(poseFn) && /'thinking'[\s\S]*?'think'/.test(poseFn) && /'blueprint'[\s\S]*?'party'/.test(poseFn),
+  'the pose follows the real state: speaking, listening, thinking, celebrating');
+ok(/stage === 'extracting'|stage === 'generating'/.test(poseFn), 'the loader states think too');
+ok(/\.otto-live-fig \{ flex: 0 0 auto/.test(css) && /\.otto-party-fig \{ flex: 0 0 auto/.test(css) && /\.otto-hello-fig \{ flex: 0 0 auto/.test(css),
+  "Otto's figures reserve their space, so a pose change cannot shift the layout");
+const figCardRule = (css.match(/\.otto-fig-card \{[^}]*\}/) || [''])[0];
+ok(figCardRule && !/background/.test(figCardRule) && !/box-shadow/.test(figCardRule),
+  "Otto's sizing wrapper paints nothing, so the app's surface stays behind him");
+ok(/\.otto-ringing > span \{ animation: ottoRing/.test(css) && /box-shadow: 0 0 0 3px var\(--sync-orange\)/.test(css),
+  'the active-speaker ring is the brand orange');
+ok(/\.otto-wave-bar \{[^}]*linear-gradient\(180deg, var\(--sky\) 0%, var\(--sync-orange\) 100%\)/.test(css),
+  'the waveform is the #8FB0D0 -> #FF7A1A gradient');
+ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,200}\.otto-wave-bar \{ animation: none/.test(css),
+  'the waveform stops under reduced motion');
+ok(/ottoWaveHtml\('otto-wave'\)/.test(appJs) && /<div class="otto-wave"/.test(appJs),
+  'the waveform is rendered under the live question');
+
+/* Otto's copy: the five lines, exactly as the brand sheet words them. */
+ok(/const OTTO_COPY = window\.PSBrand\.OTTO_COPY;/.test(appJs), "the app reads Otto's copy from the brand component");
+for (const line of [
+  "Hi, I'm Otto. Let's map how your deals actually move.",
+  "Take your time. I'm connecting the dots as you talk.",
+  "One sec, I'm linking your pipeline stages together.",
+  "Your blueprint's ready. Eight arms, zero loose ends.",
+  "Hmm, I lost that thread. Mind saying it again?"
+]) {
+  ok(ottoJs.indexOf(JSON.stringify(line).slice(1, -1)) >= 0, 'Otto says: ' + line.slice(0, 42) + '...');
+}
+ok(!/\bAlex\b/.test(appJs), 'the UI no longer calls the interviewer Alex');
+ok(/<b>Otto<\/b>/.test(appJs) && /OTTO &middot; QUESTION/.test(appJs), 'the call screen names Otto and the question count');
 
 /* ------------------------------------------------------------------ */
 section('touch targets on phones');

@@ -29,12 +29,15 @@
   <noscript>
     <div class="noscript">
       <h1>PipelineSync AI needs JavaScript</h1>
-      <p>The discovery call runs in your browser: the AI interviewer speaks each question and listens
-      while you answer out loud. Please enable JavaScript and reload this page to start the call.</p>
+      <p>The discovery call runs in your browser: Otto, the AI interviewer, speaks each question and
+      listens while you answer out loud. Please enable JavaScript and reload this page to start the call.</p>
     </div>
   </noscript>
   <script src="pdfmake.min.js"></script>
   <script src="vfs_fonts.js"></script>
+  <!-- Brand components (the logo and Otto). They must load before app.js, which renders them. -->
+  <script src="components/brand/Logo.js"></script>
+  <script src="components/brand/Otto.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -12,6 +12,12 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
+/* index.html loads the brand components (the logo and Otto) before app.js. jsdom does not run the
+   document's own scripts, so they are evaluated here in the same order: without them app.js has no
+   markup for the logo or the mascot. */
+const brandJs = ['Logo.js', 'Otto.js'].map(f =>
+  fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let failures = 0;
 const ok = (cond, msg) => { console.log((cond ? '  PASS  ' : '  FAIL  ') + msg); if (!cond) failures++; };
@@ -66,6 +72,9 @@ function boot(withMic, baseOverride) {
   // Faked microphone: answers whatever the AI just asked, then goes quiet.
   let lastKey = 'business';
   const answerNow = () => {
+    /* A scenario can put one line in the lead's mouth instead of the demo answer, so the tests can
+       cover a lead who asks something back. */
+    if (window.__askOnce) { const once = window.__askOnce; window.__askOnce = null; return once; }
     const line = ((document.getElementById('ai-line') || {}).textContent || '').toLowerCase();
     for (const [frag, key] of QMAP) if (line.includes(frag)) { lastKey = key; break; }
     return SOLAR[lastKey];
@@ -85,6 +94,7 @@ function boot(withMic, baseOverride) {
     delete window.MediaRecorder;
     Object.defineProperty(window.navigator, 'mediaDevices', { value: undefined, configurable: true });
   }
+  brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
   return { window, document, spoken, errors, speechTimes };
 }
@@ -120,6 +130,11 @@ async function passGate(page, details) {
   ok(!/\bLog in\b/.test(document.body.textContent), 'nothing on the gate says "Log in"');
   ok(/voice call/i.test(document.body.textContent), 'the gate says the next step is the AI voice call');
   ok(!!document.querySelector('#start-form button[type=submit]'), 'the gate has one submit action');
+  // Brand: the lockup in the hero and Otto greeting next to the button that starts the call.
+  ok(!!document.querySelector('.gate-brand .brand-logo svg[aria-label="PipelineSync AI"]'), 'the entry gate carries the brand lockup');
+  ok(!!document.querySelector('.gate-card .otto-hello svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto greets the visitor on the start screen');
+  ok(/Hi, I'm Otto\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
+    'and he says his greeting line');
   const themeToggle = document.querySelector('#theme-toggle');
   const initialTheme = document.body.dataset.theme;
   ok(!!themeToggle && themeToggle.getAttribute('aria-label'), 'the colour-mode switch is available and labelled');
@@ -196,6 +211,18 @@ async function reachCall(page, details) {
     'the header shows who is on the call after the entry gate');
   const d1 = p1.document;
 
+  // Brand: the header lockup on every screen, and the live call panel the brand sheet specifies.
+  ok(!!d1.querySelector('.topbar .brand-logo svg[aria-label="PipelineSync AI"]'), 'the header carries the logo lockup on the call screen');
+  ok(!!d1.querySelector('.otto-live .otto-live-fig svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto is on the call screen, bare on the panel');
+  ok(/^OTTO \u00b7 QUESTION \d+ OF \d+$/.test((d1.querySelector('.otto-label') || {}).textContent || ''),
+    'the live label names Otto and the question count (' + ((d1.querySelector('.otto-label') || {}).textContent || '') + ')');
+  ok(d1.querySelectorAll('.otto-wave .otto-wave-bar').length === 9, 'the animated waveform sits under the question');
+  // The ring and the waveform follow the live state, which alternates while the call runs, so the
+  // test samples the call rather than reading one instant of it.
+  for (let i = 0; i < 60 && !d1.querySelector('.otto-live .otto-ringing'); i++) await sleep(25);
+  ok(!!d1.querySelector('.otto-live .otto-ringing'), 'the active-speaker ring comes on while Otto is speaking or listening');
+  ok(Array.from(d1.querySelectorAll('.bubble.ai .bubble-av svg')).every(sv => /octopus/.test(sv.getAttribute('aria-label') || '')),
+    "the AI's transcript bubbles carry Otto's avatar");
   ok(!!d1.querySelector('#mic-btn') || !!d1.querySelector('#type-btn'), 'the in-call controls are on screen straight after agreement');
   ok(p1.spoken.length >= 1, 'the AI spoke its first line out loud (' + JSON.stringify((p1.spoken[0] || '').slice(0, 60)) + '...)');
   ok(/what do you do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
@@ -203,7 +230,18 @@ async function reachCall(page, details) {
   ok(/ChatGPT voice|Simulated voice/.test(d1.body ? d1.body.textContent : d1.body.textContent), 'the screen states which voice provider is live');
   ok(!!d1.querySelector('.orb.listening, .orb.speaking, .orb.thinking, .orb.ready'), 'the call UI shows the live call state');
 
-  for (let i = 0; i < 40 && !d1.querySelector('#structure-btn'); i++) await sleep(250);
+  // Brand: with a working microphone the call alternates between Otto speaking and Otto listening,
+  // so both poses must appear as it runs.
+  const micPoses = new Set();
+  // The listener window is short (the faked recogniser answers in ~50ms), so this samples finely.
+  for (let i = 0; i < 400 && !d1.querySelector('#structure-btn'); i++) {
+    const fig = d1.querySelector('.otto-live .otto-live-fig svg');
+    const m = fig && /(speak|listen|think|sync)\)$/.exec(fig.getAttribute('aria-label') || '');
+    if (m) micPoses.add(m[1]);
+    await sleep(25);
+  }
+  ok(micPoses.has('speak') && micPoses.has('listen'),
+    'the pose follows the call: speaking -> listening (' + [...micPoses].join(', ') + ')');
   ok(!!d1.querySelector('#structure-btn'), 'the AI worked through the intake set and closed the call');
   ok(p1.spoken.length >= 12, 'the AI spoke every question (' + p1.spoken.length + ' lines)');
   ok(d1.querySelectorAll('.bubble.user').length >= 12, 'the transcript holds the spoken answers');
@@ -234,6 +272,9 @@ async function reachCall(page, details) {
   await sleep(500);
   const loaderStep = d1.querySelector('#loader-step');
   ok(!!loaderStep, 'the generation loader shows a progress state');
+  ok(!!d1.querySelector('.otto-splash-card svg'), 'the loading screen shows the animated brand mark on its white card');
+  ok(!!d1.querySelector('.loader .otto-fig-card svg[aria-label*="(think)"]'), 'Otto thinks while the blueprint is built');
+  ok(/One sec, I'm linking your pipeline stages together\./.test(d1.querySelector('.loader').textContent), "and he says the loading line");
   ok(!d1.querySelector('.doc'), 'the blueprint is not rendered while the job is still running');
   for (let i = 0; i < 60 && !d1.querySelector('.doc'); i++) await sleep(250);
   
@@ -241,13 +282,29 @@ async function reachCall(page, details) {
   ok(!!d1.querySelector('.coa-item'), 'cost of inaction items rendered');
   ok(d1.querySelectorAll('.chip.kb').length > 5, 'KB reference chips rendered');
   ok(!d1.querySelector('.doc').textContent.includes('\u2014'), 'no em dashes in the blueprint view');
+  ok(!!d1.querySelector('.doc .otto-party svg[aria-label*="(party)"]'), 'Otto celebrates at the top of the results');
+  ok(/Eight arms, zero loose ends\./.test(d1.querySelector('.doc').textContent), "the results carry Otto's success line");
 
   d1.getElementById('unlock-btn').click();
   await sleep(100);
   d1.getElementById('un-consent').click();
+  // jsdom does not implement URL.createObjectURL, which the PDF download uses, so the object-URL
+  // plumbing is faked the way the microphone and the AudioContext already are. That lets the
+  // download finish and the toast it raises be observed on the real path below.
+  if (!p1.window.URL.createObjectURL) {
+    p1.window.URL.createObjectURL = () => 'blob:pipelinesync';
+    p1.window.URL.revokeObjectURL = () => {};
+  }
   d1.getElementById('un-go').click();
   await sleep(1400);
   ok(!!d1.querySelector('.success-card'), 'delivery success card shown');
+  ok(!!d1.querySelector('.doc.otto-celebrate'), 'the delivered blueprint marks the result as the celebration state');
+  // The blueprint-ready toast carries Otto. The delivered blueprint offers the server PDF again, so
+  // that button raises the same download toast and the markup can be read here.
+  d1.getElementById('redownload-btn').click();
+  await sleep(60);
+  ok(!!d1.querySelector('#toast .toast-av svg[aria-label*="(party)"]'), 'the blueprint toast celebrates with Otto');
+  ok(/Eight arms, zero loose ends/.test(d1.querySelector('#toast').textContent), "and it carries his success line");
   ok(/PDF ready/.test(d1.body.textContent), 'success card reports the PDF is ready');
   ok(!/pushed to HubSpot/.test(d1.body.textContent), 'mocked deliver does not claim a HubSpot push');
   // Phase 3: this test server has no PDF_EMAIL_API_KEY, so deliver reports email.sent=false and
@@ -307,6 +364,35 @@ async function reachCall(page, details) {
   ok(p2.spoken.length >= 1, 'the AI still speaks the questions (browser voice)');
   ok(!d2.querySelector('#transcript-wrap').open, 'the transcript is still collapsed');
 
+  // Brand: the pose follows the state the call is really in. The poses are sampled while the call
+  // runs, and his aria-label says which one is in use.
+  const poseSeen = new Set();
+  const notePose = () => {
+    const fig = d2.querySelector('.otto-live .otto-live-fig svg');
+    const m = fig && /(speak|listen|think|sync|hello|party)\)$/.exec(fig.getAttribute('aria-label') || '');
+    if (m) poseSeen.add(m[1]);
+  };
+
+  /* Brand: the error state. The turn API is made to fail for one answer, which is the same thing
+     the visitor sees when a question cannot be sent. Otto's error line appears under his avatar,
+     and Retry clears it on the real path. */
+  const realTurnFetch = p2.window.fetch;
+  p2.window.fetch = (url, init) => /\/api\/voice\/turn/.test(String(url))
+    ? Promise.reject(new Error('network down'))
+    : realTurnFetch(url, init);
+  const errInp = d2.querySelector('#intake-input');
+  ok(!!errInp, 'the blocked-mic call offers the typed route for the error probe');
+  errInp.value = 'Testing the error state';
+  d2.getElementById('send-btn').click();
+  await sleep(400);
+  ok(!!d2.querySelector('.otto-error svg[aria-label*="(think)"]'), "Otto's avatar carries the error state");
+  ok(/Hmm, I lost that thread\. Mind saying it again\?/.test(d2.querySelector('.otto-error').textContent),
+    'and he says his error line under it');
+  p2.window.fetch = realTurnFetch;
+  d2.getElementById('retry-turn').click();
+  await sleep(600);
+  ok(!d2.querySelector('.otto-error'), 'Retry clears the error state');
+
   // Type the answers instead, the way a client with a blocked mic would.
   for (let i = 0; i < 80 && !d2.querySelector('#structure-btn'); i++) {
     const inp = d2.querySelector('#intake-input');
@@ -314,8 +400,11 @@ async function reachCall(page, details) {
       inp.value = p2.window.__answerNow();
       d2.getElementById('send-btn').click();
     }
+    notePose();
     await sleep(300);
   }
+  ok(poseSeen.has('speak') || poseSeen.has('think'),
+    'Otto takes the pose the call is actually in, and changes as it changes (' + [...poseSeen].join(', ') + ')');
   ok(!!d2.querySelector('#structure-btn'), 'the typed journey still reaches the end of the call');
   ok(d2.querySelectorAll('.bubble.user').length >= 12, 'typed answers land in the same transcript');
   d2.getElementById('structure-btn').click();
@@ -362,6 +451,37 @@ async function reachCall(page, details) {
   ok(/Sent to demo@pipelinesync\.ai/.test(d2.body.textContent), 'and it names the address the API reported');
   ok(!!d2.querySelector('#done-download-btn'), 'the download button is available on the success path too');
   ok(p2.errors.length === 0, 'no runtime errors across the typed journey' + (p2.errors.length ? ': ' + p2.errors[0] : ''));
+
+  console.log('\nScenario 4: the lead asks something, then stops the call');
+  const p4 = boot(true);
+  /* The first thing the lead says is a question, not an answer, and the very next thing is a stop.
+     The transcript and the call state keep both, so the assertions do not depend on catching a line
+     while it is being spoken. */
+  p4.window.__askOnce = 'How much does this cost me, all in?';
+  await reachCall(p4, { name: 'Nena Cruz', email: 'nena@example.ph' });
+  const d4 = p4.document;
+  p4.window.__askOnce = 'Can we stop here, please?';
+  const aiBubbles = () => Array.from(d4.querySelectorAll('#transcript-wrap .bubble.ai .bubble-txt')).map(b => b.textContent);
+  let ended = false;
+  for (let i = 0; i < 200 && !ended; i++) {
+    ended = !!d4.getElementById('structure-btn');
+    if (!ended) await sleep(50);
+  }
+  ok(ended, 'a stop from the lead ends the call on the spot');
+  const lines = aiBubbles();
+  const faqLine = lines.filter(t => /free, and there is nothing to buy/i.test(t))[0] || '';
+  ok(!!faqLine, 'a question from the lead is answered from the scripted FAQ (' + (faqLine || lines.slice(-1)[0] || '').slice(0, 60) + '...)');
+  ok(!!faqLine && !/\?/.test(faqLine), 'the answering turn asks nothing back');
+  ok(!!faqLine && !/what do you do, and who do you sell to/i.test(faqLine), 'and it does not smuggle the intake question in behind the answer');
+  ok(lines.some(t => /saved, and you can pick this up/i.test(t)), 'the closing line keeps the lead\'s answers and asks nothing');
+
+  /* Neither the question nor the stop is an answer: the contract holds only what the lead actually
+     answered, so the review screen is never fed "Can we stop here, please?" as a product line. */
+  const vs = p4.window.__PS_VOICE_STATE__();
+  ok(vs.stopped === true && vs.done === true, 'the call records that it ended on the lead\'s stop');
+  const said = vs.answers.map(a => a.text).join(' | ');
+  ok(!/cost me/i.test(said) && !/stop here/i.test(said), 'the question and the stop are not stored as answers (' + said.slice(0, 40) + ')');
+  ok(p4.errors.length === 0, 'no runtime errors across the question-and-stop call' + (p4.errors.length ? ': ' + p4.errors[0] : ''));
 
   console.log('\nScenario 3: HubSpot Meetings embed (scheduler link set)');
   const srv2 = await startServer(8094, { SCHEDULER_LINK: 'https://meetings.hubspot.com/test-team/consultation' });
