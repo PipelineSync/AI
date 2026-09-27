@@ -347,9 +347,10 @@ async function httpTests() {
 
   // The lead carries the call metadata through to Function D.
   const fields = fieldsFor(fullAnswers());
-  const gen = (await generateBlueprint(BASE, token, fields)).j;
+  const genRes = await generateBlueprint(BASE, token, fields);
+  const gen = genRes.j;
   const del = await (await post('/api/deliver', {
-    email: 'qa@pipelinesync.ai', consent: true, fields, blueprint: gen.blueprint,
+    jobId: genRes.jobId, consent: true,
     voice_meta: {
       provider: 'simulated', mode: 'simulated', models: { chat: 'gpt-4o-mini' }, tts_voice: 'browser',
       call_id: 'call-http', started_at: new Date().toISOString(), ended_at: new Date().toISOString(),

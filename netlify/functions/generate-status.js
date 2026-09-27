@@ -40,6 +40,8 @@ exports.handler = async (event) => {
     progress: typeof rec.progress === 'number' ? rec.progress : 0,
     source: rec.source || null
   };
+  if (rec.fields) out.fields = rec.fields;
+  if (rec.email) out.email = rec.email;
   if (rec.status === 'done') out.blueprint = rec.blueprint;
   if (rec.status === 'error') { out.error = rec.error || 'Generation failed.'; if (rec.fieldErrors) out.fieldErrors = rec.fieldErrors; }
   return json(200, out);

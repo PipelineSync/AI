@@ -2,6 +2,7 @@
    Self-contained: starts its own dedicated server instance via test/harness.js. */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { startServer, generateBlueprint } = require('./harness');
 let BASE;
 
@@ -70,16 +71,22 @@ async function get(p) {
     if (key === 'home') ok(bp.pipeline.variant === 'two-call', 'home: two-call pipeline');
     if (key === 'medical') ok(bp.pipeline.variant === 'one-call', 'medical: one-call pipeline');
 
-    const dv = await post('/api/deliver', { token: T, email: 'owner@' + key + '.ph', consent: true, fields: f, blueprint: bp });
+    // New flow: deliver takes jobId, not blueprint. Server-side blueprint only.
+    const dv = await post('/api/deliver', { token: T, jobId: gen.jobId, consent: true });
     ok(dv.code === 200 && dv.j.contact_id, 'deliver returns hubspot contact id: ' + (dv.j.contact_id || ''));
     ok(!!dv.j.pdf_base64 && dv.j.filename.endsWith('.pdf'), 'deliver returns base64 pdf + filename');
     if (key === 'solar') {
       // Phase 3: this server has no PDF_EMAIL_API_KEY, so the API has to say the email did not go
       // out and say why - and still hand back the PDF. The UI is only allowed to repeat this.
+      // With EMAIL_VERIFY=false (harness), it still reports PDF_EMAIL_API_KEY missing.
       ok(dv.j.email && dv.j.email.sent === false, 'no Resend key: deliver reports email.sent=false, never a fake success');
       ok(/PDF_EMAIL_API_KEY is not set/.test((dv.j.email && dv.j.email.error) || ''), 'the email result carries the reason the send did not happen');
-      ok(dv.j.email.to === 'allen@pipelinesync.ai', 'the reported recipient is the session address, not the one in the request body');
+      ok(dv.j.email.to === 'allen@pipelinesync.ai', 'the reported recipient is the session address (token email), not body');
     }
+    // Idempotency: repeat call returns duplicate:true without new deal/email
+    const dv2 = await post('/api/deliver', { token: T, jobId: gen.jobId, consent: true });
+    ok(dv2.code === 200 && dv2.j.duplicate === true, 'repeat deliver returns duplicate:true');
+    ok(!!dv2.j.pdf_base64, 'duplicate still returns PDF');
 
     const buf = Buffer.from(dv.j.pdf_base64 || '', 'base64');
     const head = buf.slice(0, 8).toString('latin1');
@@ -90,7 +97,7 @@ async function get(p) {
     ok(text.includes('REVENUE OPERATIONS BLUEPRINT'), 'pdf contains title');
     ok(text.includes('Cost of inaction'), 'pdf contains cost of inaction section');
     if (key === 'solar') ok(text.includes('TCPA'), 'pdf contains TCPA flag');
-    fs.writeFileSync(path.join(__dirname, 'sample_' + key + '.pdf'), Buffer.from(buf));
+    fs.writeFileSync(path.join(os.tmpdir(), 'pipelinesync-sample_' + key + '.pdf'), Buffer.from(buf));
 
     // extract null-check: an answer-free run must return nulls
     const exNull = await post('/api/extract', { token: T, answers: answers.slice(0, 2) });

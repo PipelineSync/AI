@@ -1,10 +1,14 @@
 # PipelineSync AI - Prototype Build
 
 Runnable prototype of the app described in `PipelineSync_AI_Developer_Brief.pdf`. Built to be
-tested end to end in the browser. External services are simulated and clearly marked, so nothing
-blocks on credentials - with one exception that matters: **the discovery call voice layer is real.**
-ChatGPT words each turn, OpenAI speaks it, and the answers are captured against the Section 7 data
-contract. See `docs/VOICE_SETUP.md` for the one environment variable that switches it on.
+tested end to end in the browser. External services are live when their keys are set (HubSpot when
+`HUBSPOT_ACCESS_TOKEN` is set, otherwise a `[hubspot-mock]` log line; Resend when `PDF_EMAIL_API_KEY`
+is set, otherwise email is skipped; Claude when `ANTHROPIC_API_KEY` is set, otherwise built-in
+deterministic logic) and clearly marked, so nothing blocks on credentials - with one exception that
+matters: **the discovery call voice layer is live when `OPENAI_API_KEY` is set, otherwise the
+built-in interviewer runs.** ChatGPT words each turn when live, OpenAI speaks it, and the answers
+are captured against the Section 7 data contract. See `docs/VOICE_SETUP.md` for the one environment
+variable that switches it on.
 
 Two ways to run it:
 
@@ -50,15 +54,36 @@ Site configuration → **Environment variables** → **Add a variable**:
 | `ANTHROPIC_MODEL` | e.g. `claude-sonnet-4-5-20250929` | Optional. Overrides the pinned default model in `lib/anthropic.js`. Read through `anthropic.resolveModel(env)` — no other file hardcodes a model id. |
 | `NETLIFY_BLOBS_SITE_ID` / `NETLIFY_BLOBS_TOKEN` | Netlify site id + token | Optional. Only needed to reach the blueprint job store (Netlify Blobs) from outside a Netlify deploy context. On Netlify the context is injected automatically. |
 | `GENERATE_INLINE` | `1` | Optional. Makes `/api/generate` run the job inline instead of invoking the background function (handy under `netlify dev`). |
-| `ANTHROPIC_API_KEY` | your Anthropic key (`sk-ant-...`) | **Enables Claude AI for extraction and blueprint generation** (Functions A and B). When set, the extract and generate endpoints use Claude with Prompt B and Prompt A instead of the deterministic mock logic. The key is read server-side only — never sent to the browser. Without it the app falls back to deterministic extraction and generation (the demo still works). |
+| `ANTHROPIC_API_KEY` | your Anthropic key (`sk-ant-...`) | **Enables Claude AI for extraction and blueprint generation** (Functions A and B). When set, the extract and generate endpoints use Claude with Prompt B and Prompt A instead of the built-in deterministic logic. The key is read server-side only — never sent to the browser. Without it the app falls back to deterministic extraction and generation (the demo still works). |
 | `HUBSPOT_ACCESS_TOKEN` | Private App token (`pat-na1-...`) | **Live HubSpot contact upsert at the name+email gate**, then deal + note enrichment at PDF unlock. Scopes: `crm.objects.contacts.read/write`, `crm.objects.deals.read/write`. Server-side only. Without it, start/deliver stay mocked and the UI does not claim a CRM push. |
-| `HUBSPOT_AUTO_CREATE_PROPS` | `true` / `false` (default off) | When true, missing `pipelinesync_*` contact and deal properties are created via `POST /crm/v3/properties/{contacts\|deals}` on first run. Needs `crm.schemas.contacts.write` and `crm.schemas.deals.write`. |
+| `HUBSPOT_AUTO_CREATE_PROPS` | `true` / `false` (default off) | When true, missing `pipelinesync_*` contact and deal properties are created via `POST /crm/v3/properties/{contacts\|deals}` on first run. Needs `crm.schemas.contacts.write` and `crm.schemas.deals.write`. **Preferred:** run `npm run hubspot:setup` once (see `docs/HUBSPOT_SETUP.md`) — auto-create is now only a fallback on 400. |
+| `HUBSPOT_TIMEOUT_MS` | `4000` (default) | Timeout ms for every HubSpot fetch via AbortController. |
+| `HUBSPOT_START_BUDGET_MS` | `3500` (default) | Total budget ms for HubSpot capture at entry gate. If exceeded, responds with `hubspot:{ok:false,pending:true}` and no contact id in token; deliver finds/creates later. |
+| `HUBSPOT_DEAL_AMOUNT` | optional | If set, used as deal `amount`; otherwise amount left empty (typical_deal_size stays only on contact). |
+| `HUBSPOT_DEAL_PIPELINE` | optional | Internal pipeline ID for new deals (sets `pipeline`). |
+| `HUBSPOT_DEAL_STAGE` | optional | Internal stage ID for new deals (sets `dealstage`). |
+| `HUBSPOT_OWNER_ID` | optional | HubSpot owner ID to set as `hubspot_owner_id` on new contacts and deals. |
+| `SUPABASE_URL` | `https://...supabase.co` | Supabase project URL. Server-only. When set with `SUPABASE_SECRET_KEY` and `PIPELINESYNC_WORKSPACE_OWNER_ID`, leads are persisted in `pipeline_leads`, `pipeline_lead_sessions`, `pipeline_blueprints`, `pipeline_lead_events`; otherwise leads live only in function logs and `/dev/outbox`. Partial config fails closed with a JSON 500. |
+| `SUPABASE_SECRET_KEY` | secret | Supabase secret key (or legacy `SUPABASE_SERVICE_ROLE_KEY`). Server-only, never exposed. Required together with `SUPABASE_URL` and `PIPELINESYNC_WORKSPACE_OWNER_ID`. |
+| `PIPELINESYNC_WORKSPACE_OWNER_ID` | UUID | `auth.users.id` of the workspace admin who owns incoming leads. Must be a valid UUID. Required together with Supabase URL and key. |
+| `PRIVACY_POLICY_URL` | `https://...` | Privacy Policy URL, must be https. Returned by `/api/config` as `privacyPolicyUrl` and `consentVersion`. If unset, server logs warning and notice shown without link. **A real policy is required before public launch.** |
 | `PDF_EMAIL_API_KEY` | Resend API key (`re_...`) | **Emails the finished PDF** to the lead as an attachment, with a branded HTML body. Server-side only. Without it the feature is off and `deliver` returns `email:{sent:false,error}`, so the finish screen says to download instead of claiming a send. |
 | `PDF_EMAIL_FROM` | `PipelineSync AI <blueprints@yourdomain.com>` | The From header. **The domain must be verified in Resend (DNS records) before Resend delivers to anyone but the address that owns the account.** Use `onboarding@resend.dev` for testing only - see below. |
 | `PDF_EMAIL_SUBJECT` | optional | Subject template. `{first_name}`, `{name}`, `{vertical}`, `{tier}`, `{date}` are filled in; the default is `Your PipelineSync blueprint is attached`. |
 | `PDF_EMAIL_REPLY_TO` | optional | Reply-To address, so replies reach a real inbox. |
 | `DELIVER_RATE_PER_MIN` | `5` (default) | Unlocks per minute per IP on `/api/deliver`. Each attempt builds a PDF and may send an email, so it is the tightest limit in the app. |
-| `SCHEDULER_LINK` | `https://meetings.hubspot.com/...` | Public Meetings URL. When set, the booking screen embeds the real scheduler. |
+| `DELIVER_PER_EMAIL_DAY` | `3` (default) | Max 3 successful deliveries per email per 24h sliding window. Backed by Netlify Blobs with in-memory fallback. Past the cap, deliver returns 429. Tests set this high via `test/harness.js`. |
+| `PDF_EMAIL_DAILY_MAX` | `80` (default) | Global daily cap on emails sent (to stay under Resend's free 100/day). Backed by Netlify Blobs. Past the cap, deliver still returns the PDF with `email:{sent:false,error:"daily email limit reached"}`. |
+| `TURNSTILE_SITE_KEY` | public site key | **Cloudflare Turnstile at the entry gate, env-gated**. When both site and secret are set, the start view renders the Turnstile widget (loads `https://challenges.cloudflare.com/turnstile/v0/api.js` only in that case) and `start.js` verifies the token via `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` (secret, response, remoteip) BEFORE any Supabase or HubSpot write. Failure → 403. Returned by `/api/config` as `turnstileSiteKey`. When unset, behaviour is unchanged. |
+| `TURNSTILE_SECRET_KEY` | secret key | Server-only secret for Turnstile verification. Never exposed to browser. |
+| `DEMO_MODE` | `true` / `false` (default off) | When `true`, `/api/config` returns `demoMode:true` and the UI shows "Use the demo account" and the persona loader (its handlers exist at `app.js:2211,2236-2240` but no view rendered it before). When off, `start.js` rejects `demo@pipelinesync.ai`. |
+| `SCHEDULER_LINK` | `https://meetings.hubspot.com/...` | Public Meetings URL. When set, the booking screen embeds the real scheduler; otherwise it falls back to "Request a time — we'll confirm by email". |
+| `EMAIL_VERIFY` | `true` / `false` (default `true`) | **Verify email before emailing PDF**. PDF download always immediate. When true, emailing requires 6-digit code via `POST /api/deliver/code` → `POST /api/deliver {jobId, code}`. Code stored hashed in Blobs 10-min expiry, max 3 sends/hour/email and 5 wrong attempts. UI: Email me a copy → code input → status. Tests set `EMAIL_VERIFY=false` via `test/harness.js`. |
+| `EMAIL_VERIFY_CODE_TTL_MIN` | `10` (default) | TTL minutes for verification code. |
+| `EMAIL_VERIFY_MAX_SENDS_HOUR` | `3` (default) | Max code sends per hour per email. |
+| `EMAIL_VERIFY_MAX_ATTEMPTS` | `5` (default) | Max wrong code attempts per code. |
+| `AI_EXTRACT_DEADLINE_MS` | `8000` (default) | Total deadline ms for `runExtract` (extract). Retries must fit inside remaining. Deadline hit → deterministic fallback `reason:"timeout"`. |
+| `AI_GENERATE_DEADLINE_MS` | `60000` (default) | Total deadline ms for `runGenerate` (blueprint generation). |
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
 `OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`,
@@ -69,13 +94,7 @@ Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REAL
 else about the voice layer is documented in `docs/VOICE_SETUP.md` (all of them are commented out in
 `.env.example` with their defaults).
 
-Later, when the remaining keys arrive, add them here too (they only reach the functions, never the
-browser): `HUBSPOT_ACCESS_TOKEN`, `SCHEDULER_LINK`, and for durable lead storage
-`SUPABASE_URL`, `SUPABASE_SECRET_KEY` (or the legacy `SUPABASE_SERVICE_ROLE_KEY`),
-`PIPELINESYNC_WORKSPACE_OWNER_ID`. Those three Supabase names are the ones the code reads
-(`lib/supabase-leads.js`); all three are needed together, and leaving them empty simply sends leads
-to the function log and `/dev/outbox` instead. The tables and a ready-to-copy readiness check live in
-`supabase/` (`pipelinesync_ai_schema.sql`, `verify_setup.sql`).
+The Supabase tables and a ready-to-copy readiness check live in `supabase/` (`pipelinesync_ai_schema.sql`, `verify_setup.sql`).
 
 ### 4. Test the deployment
 
@@ -85,9 +104,7 @@ Open your `https://<site>.netlify.app` URL:
    (solar, medical, home services, e-commerce) → *Load demo answers* → *Structure my answers*.
 2. Review, *Confirm and generate blueprint*, then *Unlock the PDF* - the PDF downloads
    (it is generated server-side inside the `deliver` function).
-3. **Find the lead:** Netlify dashboard → site → **Functions** → `deliver` → **Logs**.
-   Each push appears as a line starting `[hubspot-mock] lead push:` with the full payload
-   (email, all answers, blueprint reference). The `/dev/outbox` page on the site explains this too.
+3. **Find the lead:** When `HUBSPOT_ACCESS_TOKEN` is set, the lead is live in HubSpot (contact + deal + note); when `SUPABASE_URL`, `SUPABASE_SECRET_KEY` and `PIPELINESYNC_WORKSPACE_OWNER_ID` are set, it is also persisted in Supabase. Otherwise, Netlify dashboard → site → **Functions** → `deliver` → **Logs** shows each push as a line starting `[hubspot-mock] lead push:` with the full payload (email, all answers, blueprint reference). The `/dev/outbox` page on the site explains this too and lists leads when Supabase is not configured.
 4. Book a call, finish, run a second business. Every `git push` to `main` auto-redeploys.
 
 ### 5. Email the PDF (Resend)
@@ -130,8 +147,7 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
   internal test link. To lock it down, add Netlify **Password protection** (Site configuration →
   Domain management → Password protection - free, per domain), or switch on Supabase Auth
   (magic link or OTP on the same two fields - the API shape does not change).
-- **Do not collect real business data** in this deployment: without Supabase there is no
-  persistent store, and the lead payloads live only in the function logs.
+- **Do not collect real business data** in this deployment unless you have configured persistence: without Supabase (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `PIPELINESYNC_WORKSPACE_OWNER_ID`) there is no persistent store and leads live only in the function logs and `/dev/outbox`; with Supabase configured they are persisted in `pipeline_leads`, `pipeline_lead_sessions`, `pipeline_blueprints`, and `pipeline_lead_events`. When `HUBSPOT_ACCESS_TOKEN` is set, leads are also pushed live to HubSpot (contacts, deals, notes), otherwise they are logged as `[hubspot-mock]`.
 - Serverless means **no shared memory**: sessions are HMAC-signed tokens (stateless), the
   blueprint travels with the request, and the PDF is returned to the browser as base64. That is
   why the app works across cold starts with zero database.
@@ -167,25 +183,14 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
    QA shortcut: load one of the four demo personas (solar, medical, home services, e-commerce) -
    these are the four verticals in the brain-quality checklist - which fills the same 12 answers
    without needing a microphone.
-4. **Structure the answers** (Function A, mock of Claude + Prompt B) - transcript answers are mapped
-   to the Section 7 data contract. Unstated values come back as `null`; prices and tool names are
-   preserved exactly, not corrected.
+4. **Structure the answers** (Function A, live when `ANTHROPIC_API_KEY` is set, otherwise built-in deterministic logic + Prompt B) - transcript answers are mapped to the Section 7 data contract. Unstated values come back as `null`; prices and tool names are preserved exactly, not corrected.
 5. **Review and correct** - every field is editable on screen. `Not stated` items are flagged amber;
    typical deal size, monthly lead volume, and close rate are required so the blueprint can be
    grounded in the client's own numbers.
-6. **Generate the blueprint** (Function B, mock of Claude + Prompt A) - built strictly from the
-   knowledge base v1 (server-side). Every KB item used is tagged with an id (see the chips at the
-   bottom of the blueprint) so the "no invented items" QA check is auditable.
-7. **Unlock the PDF** (Function C, real server-side PDF) - gated behind email. A genuine PDF file is
-   generated by a pure-JS PDF writer in `lib/core.js` (no npm packages), inside the function, then
-   emailed to the address in the session (Phase 3, Resend). The download never waits on the email:
-   the finish screen shows the status the API reported ("Sent to you@x.com" or "Couldn't email it -
-   download below") and the download button is always there.
-8. **Lead captured** (Function D, mock of the HubSpot private-app-token push) - a lead with all
-   answers and a blueprint reference is logged as `[hubspot-mock] lead push: ...`; when HubSpot is
-   live, the contact note also records whether the email went out.
-9. **Book a call** - mock of the embedded HubSpot Meetings scheduler (the real embed uses Allen's
-   scheduler link in production).
+6. **Generate the blueprint** (Function B, live when `ANTHROPIC_API_KEY` is set, otherwise built-in deterministic logic + Prompt A) - built strictly from the knowledge base v1 (server-side). Every KB item used is tagged with an id (see the chips at the bottom of the blueprint) so the "no invented items" QA check is auditable.
+7. **Unlock the PDF** (Function C, real server-side PDF) - gated behind email. A genuine PDF file is generated by a pure-JS PDF writer in `lib/core.js` (no npm packages), inside the function, then emailed to the address in the session when `PDF_EMAIL_API_KEY` is set (Phase 3, Resend), otherwise email is skipped. The download never waits on the email: the finish screen shows the status the API reported ("Sent to you@x.com" or "Couldn't email it - download below") and the download button is always there.
+8. **Lead captured** (Function D, live when `HUBSPOT_ACCESS_TOKEN` is set, otherwise `[hubspot-mock]` log line) - a lead with all answers and a blueprint reference is pushed to HubSpot when live, otherwise logged as `[hubspot-mock] lead push: ...`; when HubSpot is live, the contact note also records whether the email went out.
+9. **Book a call** - live when `SCHEDULER_LINK` is set, otherwise fallback request picker (the real embed uses the configured HubSpot Meetings scheduler link).
 
 ## The brand: the logo and Otto
 
@@ -305,12 +310,12 @@ Design rules that `node test/ui-design.js` enforces:
 |---|---|
 | Signed tokens from a name + email gate (`/api/auth/start`) | Supabase Auth: magic link or OTP on the same name + email fields |
 | Voice discovery call (`lib/voice.js` + voice engine in `app.js`) | The same code, with `OPENAI_API_KEY` set: a continuous OpenAI Realtime (WebRTC) session carries the whole call, and the step-by-step pipeline (ChatGPT wording, OpenAI speech, OpenAI transcription) is the automatic fallback |
-| `extract` (deterministic parser in `lib/core.js`) | Function A: Claude + Prompt B |
-| `generate` (KB-driven logic) | Function B: Claude + Prompt A |
+| `extract` (built-in deterministic parser in `lib/core.js`, live when `ANTHROPIC_API_KEY` is set) | Function A: Claude + Prompt B |
+| `generate` (KB-driven logic, live when `ANTHROPIC_API_KEY` is set, otherwise built-in) | Function B: Claude + Prompt A |
 | `deliver` (pure-JS PDF writer) | Function C: server-side PDF generator |
-| `[hubspot-mock]` log line in `deliver` | Function D: HubSpot private app token push |
+| `[hubspot-mock]` log line in `deliver` when `HUBSPOT_ACCESS_TOKEN` is unset, otherwise live push | Function D: HubSpot private app token push |
 | `KB` object in `lib/core.js` | Supabase tables: rules, tools, prices, vertical recipes, intake set |
-| Mock scheduler panel in `app.js` | Embedded HubSpot Meetings scheduler |
+| Fallback request picker in `app.js` when `SCHEDULER_LINK` is unset, otherwise embedded Meetings | Embedded HubSpot Meetings scheduler |
 | Vanilla JS SPA in `public/` | React on Netlify (same flow and contract) |
 
 **Security rule honoured:** every key and the entire knowledge base live server-side. Nothing in

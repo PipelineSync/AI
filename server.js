@@ -24,6 +24,7 @@ const jobStore = require('./lib/job-store');
 const generateJob = require('./lib/generate-job');
 const deliverCore = require('./lib/deliver-core');
 const bookedCore = require('./lib/booked-core');
+const turnstile = require('./lib/turnstile');
 
 /* Zero-dependency .env loader: reads KEY=VALUE lines from a .env in the repo root, skipping
    blanks and comment lines, stripping inline " # comments" and surrounding quotes. Real
@@ -69,7 +70,8 @@ function escHtml(s) {
 function securityHeaders() {
   // The voice layer plays OpenAI speech from a blob: or data: URL, so media-src must allow both
   // (default-src 'self' alone would have the browser refuse to play the AI voice).
-  const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.hubspot.com; media-src 'self' blob: data:; connect-src 'self' https://*.hubspot.com; font-src 'self' https://fonts.gstatic.com data:; frame-src 'self' https://meetings.hubspot.com https://app.hubspot.com https://*.hubspot.com; object-src 'none'; base-uri 'self'; " +
+  // Turnstile widget needs script-src and frame-src https://challenges.cloudflare.com when enabled.
+  const csp = "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.hubspot.com; media-src 'self' blob: data:; connect-src 'self' https://*.hubspot.com https://challenges.cloudflare.com; font-src 'self' https://fonts.gstatic.com data:; frame-src 'self' https://meetings.hubspot.com https://app.hubspot.com https://*.hubspot.com https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; " +
     // Production (Netlify) sends frame-ancestors 'none'. The local dev server is embedded in the
     // preview pane, so it must stay framable here; PS_ALLOW_FRAMING=0 restores the strict rule.
     (process.env.PS_ALLOW_FRAMING === '0' ? "frame-ancestors 'none'" : "frame-ancestors *");
@@ -203,7 +205,13 @@ async function handleApi(req, res, url) {
   if (method === 'GET' && route === '/api/config') {
     // Public, safe config for the frontend (scheduler link is public, never the token)
     const link = String(process.env.SCHEDULER_LINK || '').trim();
-    return sendJson(res, 200, { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env), aiEnabled: anthropic.isEnabled(process.env) });
+    const consent = require('./lib/consent');
+    const privacyUrl = consent.getPrivacyPolicyUrl(process.env);
+    const out = { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env), aiEnabled: anthropic.isEnabled(process.env), privacyPolicyUrl: privacyUrl || null, consentVersion: consent.CONSENT_VERSION };
+    const siteKey = turnstile.getSiteKey(process.env);
+    if (siteKey && turnstile.getSecret(process.env)) out.turnstileSiteKey = siteKey;
+    if (turnstile.isDemoModeEnabled(process.env)) out.demoMode = true;
+    return sendJson(res, 200, out);
   }
   if (method === 'GET' && route === '/dev/outbox') return outboxPage(res);
 
@@ -218,17 +226,59 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const entry = core.validateEntry(body);
     if (!entry.ok) return sendJson(res, 400, { error: entry.error });
+
+    // Demo mode gate: when DEMO_MODE is off, reject the demo account address.
+    if (!turnstile.isDemoModeEnabled(process.env) && String(entry.email).toLowerCase() === 'demo@pipelinesync.ai') {
+      return sendJson(res, 403, { error: 'Demo account is not available. Please use your own email.' });
+    }
+
+    // Turnstile verification BEFORE any Supabase or HubSpot write, when env-gated.
+    if (turnstile.isEnabled(process.env)) {
+      const token = String(body.turnstileToken || body['cf-turnstile-response'] || body.turnstile_token || '').trim();
+      const verified = await turnstile.verify(token, { env: process.env, fetchImpl: fetch, remoteIp: ip });
+      if (!verified.ok) {
+        return sendJson(res, 403, { error: verified.error || 'Turnstile verification failed. Please try again.' });
+      }
+    }
+
     try {
       const lead = await leads.createLead(entry.name, entry.email, { env: process.env });
       if (lead) await leads.addEvent(lead.id, 'lead_signed_up', { source: 'pipelinesync_ai' }, { env: process.env });
-      // HubSpot at capture must never fail the entry gate.
-      const hubspotInfo = await hubspot.captureLead({
-        email: entry.email, name: entry.name, env: process.env, fetchImpl: fetch
-      });
+
+      // HubSpot at capture must never fail the entry gate and must respect total budget.
+      const parseBudget = () => {
+        const raw = String(process.env.HUBSPOT_START_BUDGET_MS || '').trim();
+        const n = parseInt(raw, 10);
+        return Number.isFinite(n) && n > 0 ? n : 3500;
+      };
+      const budgetMs = parseBudget();
+      let hubspotInfo;
+      try {
+        const capturePromise = hubspot.captureLead({
+          email: entry.email, name: entry.name, env: process.env, fetchImpl: fetch
+        });
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            const err = new Error('HubSpot start budget exceeded');
+            err.code = 'BUDGET_EXCEEDED';
+            reject(err);
+          }, budgetMs);
+        });
+        hubspotInfo = await Promise.race([capturePromise, timeoutPromise]);
+      } catch (e) {
+        if (e && e.code === 'BUDGET_EXCEEDED') {
+          console.warn('[entry] HubSpot captureLead budget exceeded after ' + budgetMs + 'ms, returning pending');
+          hubspotInfo = { ok: false, mocked: false, pending: true, error: 'HubSpot timeout (budget ' + budgetMs + 'ms)' };
+        } else {
+          console.warn('[entry] HubSpot captureLead failed within budget:', e.message);
+          hubspotInfo = { ok: false, mocked: false, error: e.message };
+        }
+      }
+
       const token = core.signToken({
         email: entry.email, name: entry.name,
         lead_id: lead && lead.id ? lead.id : null,
-        hubspot_contact_id: hubspotInfo && hubspotInfo.contactId ? hubspotInfo.contactId : null,
+        hubspot_contact_id: hubspotInfo && hubspotInfo.contactId && !hubspotInfo.pending ? hubspotInfo.contactId : null,
         exp: Date.now() + core.TOKEN_TTL_MS
       });
       return sendJson(res, 200, {
@@ -294,7 +344,17 @@ async function handleApi(req, res, url) {
         completed_at: status === 'discovery_completed' ? now : undefined
       }, { env: process.env });
     }
-    await leads.addEvent(payload.lead_id, status, {}, { env: process.env });
+    const eventData = {};
+    if (status === 'discovery_started') {
+      if (authBody.consent_at) eventData.consent_at = String(authBody.consent_at).slice(0, 100);
+      if (authBody.consent_version) eventData.consent_version = String(authBody.consent_version).slice(0, 50);
+      if (authBody.privacy_policy_url) eventData.privacy_policy_url = String(authBody.privacy_policy_url).slice(0, 500);
+      if (!eventData.consent_at) eventData.consent_at = now;
+      if (!eventData.consent_version) {
+        try { eventData.consent_version = require('./lib/consent').CONSENT_VERSION; } catch (e) {}
+      }
+    }
+    await leads.addEvent(payload.lead_id, status, eventData, { env: process.env });
     return sendJson(res, 200, { ok: true, stored: true });
   }
 
@@ -339,7 +399,9 @@ async function handleApi(req, res, url) {
       });
     }
     const jobId = jobStore.newJobId();
-    await generateJob.setStep(jobId, 'validating', { source: null }, { env: process.env });
+    const tokenEmail = payload && payload.email ? String(payload.email).trim().toLowerCase() : null;
+    const leadId = payload && (payload.lead_id || payload.leadId) ? (payload.lead_id || payload.leadId) : null;
+    await generateJob.setStep(jobId, 'validating', { source: null, email: tokenEmail, leadId, lead_id: leadId, fields: v.values || fields }, { env: process.env });
     generateJob.runJob(jobId, fields, payload, { env: process.env });
     return sendJson(res, 202, { ok: true, jobId, status: 'accepted', pollUrl: '/api/generate/status?jobId=' + jobId });
   }
@@ -353,9 +415,25 @@ async function handleApi(req, res, url) {
       label: rec.label || null, progress: typeof rec.progress === 'number' ? rec.progress : 0,
       source: rec.source || null
     };
+    if (rec.fields) out.fields = rec.fields;
+    if (rec.email) out.email = rec.email;
     if (rec.status === 'done') out.blueprint = rec.blueprint;
     if (rec.status === 'error') { out.error = rec.error || 'Generation failed.'; if (rec.fieldErrors) out.fieldErrors = rec.fieldErrors; }
     return sendJson(res, 200, out);
+  }
+
+  if (method === 'POST' && route === '/api/deliver/code') {
+    // Email verification code request
+    const deliverCode = require('./netlify/functions/deliver-code.js').handler;
+    const event = {
+      httpMethod: 'POST',
+      path: '/api/deliver/code',
+      headers: { 'x-nf-client-connection-ip': ip, 'x-forwarded-for': ip },
+      body: JSON.stringify(authBody)
+    };
+    const result = await deliverCode(event);
+    res.writeHead(result.statusCode, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, securityHeaders(), result.headers || {}));
+    return res.end(result.body);
   }
 
   if (method === 'POST' && route === '/api/deliver') {

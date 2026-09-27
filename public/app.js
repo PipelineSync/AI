@@ -38,6 +38,54 @@ const store = {
   get: k => { try { return window.localStorage.getItem(k); } catch (e) { return memStore[k] != null ? memStore[k] : null; } },
   set: (k, v) => { try { window.localStorage.setItem(k, v); } catch (e) { memStore[k] = v; } }
 };
+const sessionStore = {
+  get: k => { try { return window.sessionStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { window.sessionStorage.setItem(k, v); } catch (e) {} },
+  remove: k => { try { window.sessionStorage.removeItem(k); } catch (e) {} }
+};
+const KNOWN_STAGES = new Set(['consent','intake','extracting','review','generating','blueprint','booking','done']);
+function saveJourneyState() {
+  if (!state.token) return;
+  try {
+    const data = {
+      stage: state.stage,
+      answers: state.answers,
+      fields: state.fields,
+      jobId: state.jobId
+    };
+    sessionStore.set('ps_journey', JSON.stringify(data));
+  } catch (e) {}
+}
+function restoreJourneyState() {
+  if (!state.token) return false;
+  try {
+    const raw = sessionStore.get('ps_journey');
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') return false;
+    let restored = false;
+    if (data.stage && typeof data.stage === 'string' && KNOWN_STAGES.has(data.stage)) {
+      state.stage = data.stage;
+      restored = true;
+    }
+    if (Array.isArray(data.answers)) {
+      state.answers = data.answers;
+      restored = true;
+    }
+    if (data.fields && typeof data.fields === 'object') {
+      state.fields = data.fields;
+      restored = true;
+    }
+    if (data.jobId && typeof data.jobId === 'string') {
+      state.jobId = data.jobId;
+      restored = true;
+    }
+    return restored;
+  } catch (e) {
+    return false;
+  }
+}
+
 
 /* The 12-question interview plan, the field labels and the three required fields all live in
    lib/voice.js and arrive from /api/voice/session, so the voice layer and the screen cannot drift
@@ -124,11 +172,17 @@ const state = {
   theme: savedTheme === 'light' ? 'light' : 'dark',
   stage: 'start',        // the entry gate: name + email, then straight to the voice call
   answers: [],           // [{id, text}] captured on the call (or by typing)
-  fields: null,          // Section 7 contract
+  fields: null,          // Section 7 contract (from job record now)
   blueprint: null,
-  delivered: null,       // {contact_id, filename, pdf_base64, email, email_result, hubspot}
+  jobId: null,           // server-side job id for blueprint
+  delivered: null,       // {contact_id, filename, pdf_base64, email, email_result, hubspot, duplicate, persistence}
   booking: null,         // {day, slot}
   schedulerLink: null, // from /api/config (SCHEDULER_LINK env)
+  turnstileSiteKey: null, // from /api/config when TURNSTILE_SITE_KEY is set
+  demoMode: false,     // from /api/config when DEMO_MODE=true
+  privacyPolicyUrl: null, // from /api/config when PRIVACY_POLICY_URL is https
+  consentVersion: null, // from /api/config (CONSENT_VERSION)
+  turnstileToken: null,// filled by Turnstile widget callback
   hubspot: null,       // {ok, mocked, contactId?} from /api/auth/start
   fieldStatus: {},       // live sidebar state
   voice: null,           // live call state (see newVoiceState in the voice engine)
@@ -137,7 +191,8 @@ const state = {
   fieldError: null,      // live capture status problems, surfaced instead of failing silently
   fieldErrors: null,     // per-field errors returned by the server-side re-validation
   progress: null,        // real generation progress from /api/generate/status: {label, percent}
-  blueprintSource: null  // 'claude' | 'fallback', as reported by the API
+  blueprintSource: null,  // 'claude' | 'fallback', as reported by the API
+  emailVerify: { code: '', sending: false, sent: false, error: null } // for EMAIL_VERIFY flow
 };
 function saveAuth() {
   store.set('ps_token', state.token || '');
@@ -146,35 +201,74 @@ function saveAuth() {
 function resetJourney() {
   stopSpeaking(); stopListening();
   state.stage = 'consent'; state.answers = []; state.fields = null;
-  state.blueprint = null; state.delivered = null; state.booking = null; state.fieldStatus = {};
+  state.blueprint = null; state.jobId = null; state.delivered = null; state.booking = null; state.fieldStatus = {};
   state.hubspot = null;
   state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
   state.fieldErrors = null; state.progress = null; state.blueprintSource = null;
+  state.emailVerify = { code: '', sending: false, sent: false, error: null };
+  sessionStore.remove('ps_journey');
 }
 
 /* ---------------- api ---------------- */
 const api = {
   async post(p, body) {
-    const r = await fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ token: state.token }, body)) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
-      throw new Error(j.error || 'HTTP ' + r.status);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 25000) : null;
+    try {
+      const r = await fetch(p, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ token: state.token }, body)),
+        signal: controller ? controller.signal : undefined
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
+        const err = new Error(j.error || 'HTTP ' + r.status);
+        err.status = r.status;
+        err.body = j;
+        throw err;
+      }
+      return j;
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        const err = new Error('Request timed out. Please try again.');
+        err.timeout = true;
+        throw err;
+      }
+      throw e;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
-    return j;
   },
   async get(p) {
-    const sep = p.indexOf('?') >= 0 ? '&' : '?';
-    const r = await fetch(p + sep + 'token=' + encodeURIComponent(state.token || ''), { headers: { 'Accept': 'application/json' } });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
-      const err = new Error(j.error || 'HTTP ' + r.status);
-      err.status = r.status;
-      err.body = j;
-      throw err;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 25000) : null;
+    try {
+      const sep = p.indexOf('?') >= 0 ? '&' : '?';
+      const r = await fetch(p + sep + 'token=' + encodeURIComponent(state.token || ''), {
+        headers: { 'Accept': 'application/json' },
+        signal: controller ? controller.signal : undefined
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
+        const err = new Error(j.error || 'HTTP ' + r.status);
+        err.status = r.status;
+        err.body = j;
+        throw err;
+      }
+      return j;
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        const err = new Error('Request timed out. Please try again.');
+        err.timeout = true;
+        throw err;
+      }
+      throw e;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
-    return j;
   }
 };
 
@@ -186,13 +280,38 @@ function trackLeadProgress(status, extra) {
   return api.post('/api/lead/progress', Object.assign({ status }, extra || {}))
     .catch(e => { console.warn('[lead-progress]', e.message); return null; });
 }
-/* Scheduler link (HubSpot Meetings) — public, fetched once on boot so bookingView can embed it */
-function fetchSchedulerLink() {
+/* Public config: scheduler link, Turnstile site key, demo mode — fetched once on boot */
+function fetchConfig() {
   fetch('/api/config', { method: 'GET', headers: { 'Accept': 'application/json' } })
     .then(r => r.json()).then(j => {
-      if (j && j.schedulerLink) { state.schedulerLink = String(j.schedulerLink).trim(); if (state.stage === 'booking') render(); }
+      if (!j) return;
+      let needsRender = false;
+      if (j.schedulerLink) {
+        const link = String(j.schedulerLink).trim();
+        if (link && link !== state.schedulerLink) { state.schedulerLink = link; needsRender = true; }
+      }
+      if (j.turnstileSiteKey) {
+        const key = String(j.turnstileSiteKey).trim();
+        if (key && key !== state.turnstileSiteKey) { state.turnstileSiteKey = key; needsRender = true; }
+      } else {
+        if (state.turnstileSiteKey) { state.turnstileSiteKey = null; needsRender = true; }
+      }
+      const demo = !!j.demoMode;
+      if (demo !== state.demoMode) { state.demoMode = demo; needsRender = true; }
+      if (j.privacyPolicyUrl) {
+        const purl = String(j.privacyPolicyUrl).trim();
+        if (purl && purl !== state.privacyPolicyUrl) { state.privacyPolicyUrl = purl; needsRender = true; }
+      } else {
+        if (state.privacyPolicyUrl) { state.privacyPolicyUrl = null; needsRender = true; }
+      }
+      if (j.consentVersion) {
+        const cv = String(j.consentVersion).trim();
+        if (cv && cv !== state.consentVersion) { state.consentVersion = cv; needsRender = true; }
+      }
+      if (needsRender) render();
     }).catch(() => {});
 }
+function fetchSchedulerLink() { return fetchConfig(); }
 
 /* ---------------- toast ---------------- */
 let toastTimer = null;
@@ -319,9 +438,13 @@ function voiceReady() {
 /* Agreeing to the disclaimer is the gesture that starts the call: the screen changes and the AI
    speaks straight away, picking up the opening line that was prefetched while the notice was read. */
 function beginCall() {
+  const consentAt = new Date().toISOString();
+  const consentVersion = state.consentVersion || 'v1-2026-09-28';
+  state.consent = { at: consentAt, version: consentVersion, privacyPolicyUrl: state.privacyPolicyUrl || null };
+  try { localStorage.setItem('ps_consent', JSON.stringify(state.consent)); } catch (e) {}
   state.stage = 'intake';
   render();
-  trackLeadProgress('discovery_started');
+  trackLeadProgress('discovery_started', { consent_at: consentAt, consent_version: consentVersion, privacy_policy_url: state.privacyPolicyUrl || null });
   startCall();
 }
 
@@ -1313,7 +1436,7 @@ function recordAnswer(id, text, replace) {
   if (!id) return;
   text = String(text == null ? '' : text).slice(0, MAX_CHARS);   // same ceiling the server enforces
   const prev = state.answers.find(a => a.id === id);
-  if (!prev) { state.answers.push({ id, text: text }); return; }
+  if (!prev) { state.answers.push({ id, text: text }); saveJourneyState(); return; }
   if (replace) prev.text = text;
   else prev.text = (String(prev.text || '').trim() + ' ' + String(text || '').trim()).trim();
 }
@@ -1327,7 +1450,7 @@ function unrecordAnswer(id, text) {
   if (!a) return;
   const keep = String(a.text || '').split(String(text)).join(' ').replace(/\s+/g, ' ').trim();
   if (keep) a.text = keep;
-  else state.answers = state.answers.filter(x => x.id !== id);
+  else state.answers = state.answers.filter(x => x.id !== id); saveJourneyState();
 }
 function buildTurnBody(lastAnswer) {
   const v = voiceSync();
@@ -1651,12 +1774,16 @@ function ottoErrorHtml() {
 /* ---------------- rendering ---------------- */
 function render() {
   const app = $('#app');
-  // Keep the signed-in workspace inside a fixed dashboard viewport. Long content is handled by
-  // the active panel rather than making the browser page itself scroll.
   document.body.classList.toggle('entry-screen', !state.token);
   document.body.classList.toggle('app-screen', !!state.token);
   document.body.dataset.theme = state.theme;
   document.documentElement.style.colorScheme = state.theme;
+  // With a valid token, never show blank: unknown stage falls back to consent
+  if (state.token) {
+    if (!KNOWN_STAGES.has(state.stage)) {
+      state.stage = 'consent';
+    }
+  }
   document.body.dataset.stage = state.token ? state.stage : 'start';
   if (!state.token) { app.innerHTML = startView(); return; }
   let h = topbar() + '<main class=\"main\" id=\"main-content\" tabindex=\"-1\">' + steps();
@@ -1669,9 +1796,11 @@ function render() {
     case 'blueprint': h += blueprintView(); break;
     case 'booking': h += bookingView(); break;
     case 'done': h += doneView(); break;
+    default: h += consentView(); break;
   }
   h += '</main>' + footer();
   app.innerHTML = h;
+  saveJourneyState();
   if (state.stage === 'intake') afterCallRender();
   if (state.stage === 'blueprint') animateNumbers();
 }
@@ -1767,6 +1896,20 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 function startView() {
   const lastName = store.get('ps_last_name') || '';
   const lastEmail = store.get('ps_last_email') || '';
+  let turnstileHtml = '';
+  if (state.turnstileSiteKey) {
+    turnstileHtml = '<div class="field"><div id="turnstile-widget"><div class="cf-turnstile" data-sitekey="' + esc(state.turnstileSiteKey) + '" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileError"></div></div><p class="small txt-err" id="turnstile-error" role="alert" hidden></p></div>';
+  }
+  let demoHtml = '';
+  if (state.demoMode) {
+    demoHtml = '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
+      '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use the demo account</button>';
+  }
+  let privacyLink = '';
+  if (state.privacyPolicyUrl) {
+    privacyLink = ' <a href="' + esc(state.privacyPolicyUrl) + '" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.';
+  }
+  const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Otto is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
   return '<div class="gate">' +
     '<div class="gate-theme">' + themeToggleMarkup('theme-switch-gate') + '</div>' +
     '<div class="gate-brand">' +
@@ -1783,8 +1926,6 @@ function startView() {
       '</div>' +
     '</div>' +
     '<div class="gate-side"><div class="gate-card hud-frame specular">' +
-      // Otto greets the visitor on the start screen, next to the button that starts the call. He is
-      // bare on the panel: the mascot carries no background of his own.
       '<div class="otto-hello">' +
         '<span class="otto-hello-fig">' + ottoFigureHtml('hello', 200) + '</span>' +
         ottoCopyLine(OTTO_COPY.greeting, 'otto-copy-hello') +
@@ -1798,15 +1939,42 @@ function startView() {
         '<div class="field"><label for="st-email">Work email <span class="req">Required</span></label>' +
           '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
         '</div>' +
+        entryNotice +
+        turnstileHtml +
         '<p class="form-error" id="start-error" role="alert" hidden></p>' +
         '<button class="btn btn-primary btn-lg btn-block mt16" id="st-btn" type="submit">Start strategy session</button>' +
       '</form>' +
-      '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
-      '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use demo account</button>' +
+      demoHtml +
       '<p class="gate-note">Live transcription. Audio is never stored.</p>' +
     '</div></div>' +
   '</div>';
 }
+/* Turnstile callbacks — global so the widget can call them */
+window.onTurnstileSuccess = function (token) {
+  state.turnstileToken = String(token || '');
+  const el = document.getElementById('turnstile-error');
+  if (el) { el.hidden = true; el.textContent = ''; }
+};
+window.onTurnstileExpired = function () {
+  state.turnstileToken = null;
+  const el = document.getElementById('turnstile-error');
+  if (el) { el.textContent = 'Turnstile expired. Please verify again.'; el.hidden = false; }
+};
+window.onTurnstileError = function () {
+  state.turnstileToken = null;
+  const el = document.getElementById('turnstile-error');
+  if (el) { el.textContent = 'Turnstile could not load. Please refresh and try again.'; el.hidden = false; }
+};
+function ensureTurnstileScript() {
+  if (!state.turnstileSiteKey) return;
+  if (document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]')) return;
+  const s = document.createElement('script');
+  s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+  s.async = true;
+  s.defer = true;
+  document.head.appendChild(s);
+}
+
 function bindStart() {
   const form = $('#start-form');
   const nameEl = $('#st-name');
@@ -1818,7 +1986,7 @@ function bindStart() {
     if (focusEl) { focusEl.setAttribute('aria-invalid', 'true'); focusEl.focus(); }
     if (btn) { btn.disabled = false; btn.textContent = 'Start strategy session'; }
     const demoBtn = $('#demo-btn');
-    if (demoBtn) { demoBtn.disabled = false; demoBtn.textContent = 'Use demo account'; }
+    if (demoBtn) { demoBtn.disabled = false; demoBtn.textContent = 'Use the demo account'; }
     toast(msg, true);
   };
   const clearErrors = () => {
@@ -1832,18 +2000,31 @@ function bindStart() {
     if (!cleanName || cleanName.length < 2) return fail('Enter your name so the AI knows what to call you on the call.', nameEl);
     if (!NAME_RE.test(cleanName)) return fail('Please enter your name using letters.', nameEl);
     if (!EMAIL_RE.test(cleanEmail)) return fail('Enter a valid email address, like you@yourbusiness.ph.', emailEl);
+    if (state.turnstileSiteKey && !state.turnstileToken) {
+      const tErr = document.getElementById('turnstile-error');
+      if (tErr) { tErr.textContent = 'Please complete the Turnstile verification.'; tErr.hidden = false; }
+      return fail('Please complete the Turnstile verification.', null);
+    }
     if (btn) { btn.disabled = true; btn.textContent = 'Connecting you to the AI...'; }
-    api.post('/api/auth/start', { name: cleanName, email: cleanEmail }).then(j => {
-      state.token = j.token;
-      state.user = j.user;
-      state.hubspot = j.hubspot || { mocked: true, ok: false };
-      saveAuth();
-      store.set('ps_last_name', cleanName);
-      store.set('ps_last_email', cleanEmail);
-      state.stage = 'consent';
-      render();
-      toast('Ready when you are, ' + (j.user.first_name || cleanName.split(' ')[0]) + '.');
-    }).catch(e => fail(e.message, nameEl));
+    const payload = { name: cleanName, email: cleanEmail };
+    if (state.turnstileToken) payload.turnstileToken = state.turnstileToken;
+    fetch('/api/auth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(async r => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+        return j;
+      })
+      .then(j => {
+        state.token = j.token;
+        state.user = j.user;
+        state.hubspot = j.hubspot || { mocked: true, ok: false };
+        saveAuth();
+        store.set('ps_last_name', cleanName);
+        store.set('ps_last_email', cleanEmail);
+        state.stage = 'consent';
+        render();
+        toast('Ready when you are, ' + (j.user.first_name || cleanName.split(' ')[0]) + '.');
+      }).catch(e => fail(e.message, nameEl));
   };
   if (form) form.addEventListener('submit', e => { e.preventDefault(); go(nameEl.value, emailEl.value); });
   const demo = $('#demo-btn');
@@ -1854,13 +2035,17 @@ function bindStart() {
     go('Demo Owner', 'demo@pipelinesync.ai');
   };
   [nameEl, emailEl].forEach(el => { if (el) el.addEventListener('input', clearErrors); });
-  // Put the cursor in the first empty field, and keep the keyboard out of the way on phones.
   if (nameEl && !nameEl.value) nameEl.focus();
   else if (emailEl && !emailEl.value) emailEl.focus();
+  if (state.turnstileSiteKey) ensureTurnstileScript();
 }
 
 /* ---------------- consent ---------------- */
 function consentView() {
+  let privacyLink = '';
+  if (state.privacyPolicyUrl) {
+    privacyLink = ' <a href="' + esc(state.privacyPolicyUrl) + '" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.';
+  }
   return '<div class="card consent-card hud-frame specular">' +
     '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>CONSENT</div>' +
     '<div class="otto-wait otto-wait-consent">' +
@@ -1868,9 +2053,10 @@ function consentView() {
       ottoCopyLine(OTTO_COPY.greeting) +
     '</div>' +
     '<h2>Ready to start?</h2>' +
-    '<div class="notice info">' +
+    '<p>You\'ll be speaking with Otto, an AI.</p>' +
+    '<div class="notice info" id="consent-notice">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
-      '<div><b>Privacy</b><br><span>OpenAI for the voice call. Audio is never stored.</span></div>' +
+      '<div>Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div>' +
     '</div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I agree to continue.</label>' +
     '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
@@ -2125,8 +2311,20 @@ function callSidebar() {
   const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
     '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
     '<div class="chat-body" id="chat-body">' + (bubbles || '<p class="small muted">Nothing yet.</p>') + '</div></details></div>';
+  let personaCard = '';
+  if (state.demoMode) {
+    const personaOpts = Object.keys(PERSONAS).map(k => '<option value="' + k + '">' + PERSONAS[k].label + '</option>').join('');
+    const quickBtns = Object.keys(PERSONAS).map(k => '<button class="btn btn-ghost btn-sm" data-persona="' + k + '">' + k + '</button>').join('');
+    personaCard = '<div class="side-card"><h3>Demo data</h3><div class="persona">' +
+      '<label for="persona-sel">QA shortcut: load a demo business</label>' +
+      '<select id="persona-sel"><option value="">Choose a vertical...</option>' + personaOpts + '</select>' +
+      '<button class="btn btn-ghost btn-sm" id="persona-go" style="width:100%">Load demo answers</button>' +
+      '<p class="hint" style="font-size:11.5px;color:var(--faint);margin-top:8px">Runs the four verticals from the QA checklist without a microphone.</p>' +
+      '<div class="persona-quick" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + quickBtns + '</div>' +
+      '</div></div>';
+  }
   return '<aside class="intake-side" id="intake-side" aria-label="Call progress and captured answers">' +
-    modeCard + '<div class="side-card"><h3>Captured signals</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + '</aside>';
+    modeCard + personaCard + '<div class="side-card"><h3>Captured signals</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + '</aside>';
 }
 /* The AI's line grows word by word on a live call, so it is patched in place rather than re-rendered
    (a full render would rebuild the orb and lose the animation mid-sentence). */
@@ -2650,7 +2848,7 @@ function checkRefocus(id) {
   }
 }
 async function startGeneration(fields) {
-  state.fields = fields;
+  state.fields = fields; saveJourneyState();
   state.stage = 'generating';
   // Real progress: the server reports the step it is actually on. No timed animation,
   // and the blueprint screen is only shown when the API says the job is done.
@@ -2659,9 +2857,12 @@ async function startGeneration(fields) {
   try {
     const started = await api.post('/api/generate', { fields });
     if (!started.jobId) throw new Error('The blueprint job could not be started. Please try again.');
+    state.jobId = started.jobId;
     const bp = await pollGeneration(started.jobId);
     state.blueprint = bp.blueprint;
     state.blueprintSource = bp.source || null;
+    // Prefer fields from job record if available (server-side source of truth)
+    if (bp.fields) state.fields = bp.fields;
     state.stage = 'blueprint';
     state.progress = null;
     render();
@@ -2890,46 +3091,131 @@ function bindBlueprint() {
   const ub = $('#unlock-btn');
   if (ub) ub.onclick = () => {
     const holder = $('#unlock-holder');
-    holder.innerHTML = '<div class=\"unlock-panel\"><h3 class="unlock-title">Download your blueprint</h3>' +
-      '<div class=\"grid-2\"><div class=\"field\"><label for=\"un-email\">Email for delivery</label><input type=\"email\" id=\"un-email\" value=\"' + esc(state.user.email) + '\" maxlength=\"254\"></div>' +
-      '<div class="field field-check"><label class="checkline"><input type=\"checkbox\" id=\"un-consent\"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
-      // Phase 3: the PDF is always emailed to the address the session was opened with (the server
-      // takes the recipient from the signed token), so say so instead of letting the field imply
-      // the address can be chosen here.
-      '<p class=\"small muted mt8\">The PDF is emailed to the address you signed in with: ' + esc(state.user.email) + '. You can download it here as well.</p>' +
-      '<button class=\"btn btn-primary\" id=\"un-go\" disabled>Generate and send my PDF</button></div>';
+    holder.innerHTML = '<div class="unlock-panel"><h3 class="unlock-title">Download your blueprint</h3>' +
+      '<div class="grid-2"><div class="field"><label>Email for delivery</label><div class="ro-field" id="un-email-ro">' + esc(state.user.email) + '</div></div>' +
+      '<div class="field field-check"><label class="checkline"><input type="checkbox" id="un-consent"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
+      '<p class="small muted mt8">The PDF is emailed to the address you signed in with: ' + esc(state.user.email) + '. You can download it here as well.</p>' +
+      '<button class="btn btn-primary" id="un-go" disabled>Download PDF</button>' +
+      '<div id="un-tryagain" style="margin-top:8px;display:none"><button class="btn btn-ghost btn-sm" id="un-retry">Try again</button></div>' +
+      '</div>';
     const cb = $('#un-consent'), go = $('#un-go');
+    const tryWrap = $('#un-tryagain'), retryBtn = $('#un-retry');
     cb.onchange = () => { go.disabled = !cb.checked; };
-    const emailInput = $('#un-email');
-    if (emailInput) emailInput.focus();
+    if (retryBtn) retryBtn.onclick = () => { holder.innerHTML = ''; if (ub) ub.click(); };
     go.onclick = async () => {
       go.disabled = true; go.textContent = 'Generating PDF...';
+      if (tryWrap) tryWrap.style.display = 'none';
       try {
         const j = await api.post('/api/deliver', {
-          email: $('#un-email').value,
+          jobId: state.jobId,
           consent: cb.checked,
-          fields: state.fields,
-          blueprint: state.blueprint,
           voice_meta: voiceMeta()
         });
-        const typed = $('#un-email').value.trim().toLowerCase();
         const emailResult = j.email || null;
         state.delivered = {
           contact_id: j.contact_id, filename: j.filename,
           pdf_base64: j.pdf_base64,
-          // The address shown is the one the API says it emailed (taken from the signed session),
-          // never simply what was typed in the form.
-          email: (emailResult && emailResult.to) || typed,
+          email: (emailResult && emailResult.to) || state.user.email,
           email_result: emailResult,
-          hubspot: j.hubspot || { mocked: true, ok: false }
+          hubspot: j.hubspot || { mocked: true, ok: false },
+          duplicate: !!j.duplicate,
+          persistence: j.persistence || { ok: true }
         };
         render();
         downloadPdf(state.delivered);
       } catch (e) {
-        go.disabled = false; go.textContent = 'Generate and send my PDF';
-        toast(e.message, true);
+        go.disabled = false; go.textContent = 'Download PDF';
+        if (e.timeout) {
+          if (tryWrap) tryWrap.style.display = 'block';
+          toast(e.message + ' Tap Try again.', true);
+        } else {
+          toast(e.message, true);
+        }
       }
     };
+  };
+
+  // Email verification UI: "Email me a copy" flow
+  const emailMeBtn = $('#email-me-btn');
+  if (emailMeBtn) emailMeBtn.onclick = async () => {
+    const btn = emailMeBtn;
+    btn.disabled = true; btn.textContent = 'Sending code...';
+    try {
+      const j = await api.post('/api/deliver/code', { jobId: state.jobId });
+      state.emailVerify.sent = true;
+      state.emailVerify.error = null;
+      if (j.devCode) {
+        state.emailVerify.code = j.devCode;
+        console.log('[dev] verification code', j.devCode);
+      }
+      toast('Verification code sent to ' + state.user.email, false);
+      render();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Email me a copy';
+      toast(e.message, true);
+    }
+  };
+  const verifyGo = $('#verify-go');
+  if (verifyGo) verifyGo.onclick = async () => {
+    const codeInput = $('#verify-code');
+    const code = codeInput ? codeInput.value.trim() : '';
+    if (!code) { toast('Enter the 6-digit code.', true); return; }
+    verifyGo.disabled = true; verifyGo.textContent = 'Verifying...';
+    try {
+      const j = await api.post('/api/deliver', {
+        jobId: state.jobId,
+        consent: true,
+        code: code,
+        voice_meta: voiceMeta()
+      });
+      const emailResult = j.email || null;
+      state.delivered = {
+        contact_id: j.contact_id, filename: j.filename,
+        pdf_base64: j.pdf_base64,
+        email: (emailResult && emailResult.to) || state.user.email,
+        email_result: emailResult,
+        hubspot: j.hubspot || { mocked: true, ok: false },
+        duplicate: !!j.duplicate,
+        persistence: j.persistence || { ok: true }
+      };
+      state.emailVerify.code = '';
+      state.emailVerify.error = null;
+      if (emailResult && !emailResult.sent && emailResult.error) {
+        state.emailVerify.error = emailResult.error;
+      }
+      render();
+      toast(emailResult && emailResult.sent ? 'Emailed to ' + (emailResult.to || state.user.email) : (emailResult && emailResult.error ? emailResult.error : 'Verification done'), !!(emailResult && !emailResult.sent));
+    } catch (e) {
+      verifyGo.disabled = false; verifyGo.textContent = 'Verify and email';
+      toast(e.message, true);
+    }
+  };
+  const resendBtn = $('#resend-email-btn');
+  if (resendBtn) resendBtn.onclick = async () => {
+    resendBtn.disabled = true; resendBtn.textContent = 'Sending...';
+    try {
+      const j = await api.post('/api/deliver', {
+        jobId: state.jobId,
+        consent: true,
+        resendEmail: true,
+        voice_meta: voiceMeta()
+      });
+      const emailResult = j.email || null;
+      state.delivered = {
+        contact_id: j.contact_id, filename: j.filename,
+        pdf_base64: j.pdf_base64,
+        email: (emailResult && emailResult.to) || state.user.email,
+        email_result: emailResult,
+        hubspot: j.hubspot || { mocked: true, ok: false },
+        duplicate: !!j.duplicate,
+        persistence: j.persistence || { ok: true }
+      };
+      render();
+      toast(emailResult && emailResult.sent ? 'Resent to ' + (emailResult.to || state.user.email) : 'Resend done', !!(emailResult && !emailResult.sent));
+    } catch (e) {
+      resendBtn.disabled = false; resendBtn.textContent = 'Resend email';
+      toast(e.message, true);
+    }
   };
   // Focus management
   const main = $('#main-content');
@@ -3566,6 +3852,12 @@ function routeBindings() {
 function boot() {
   armPageExitGuard();
   fetchSchedulerLink();
+  if (state.token) {
+    const restored = restoreJourneyState();
+    if (!restored) {
+      state.stage = 'consent';
+    }
+  }
   render();
   routeBindings();
 }

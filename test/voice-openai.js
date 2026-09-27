@@ -25,6 +25,9 @@ process.env.OPENAI_BASE_URL = 'http://127.0.0.1:' + MOCK_PORT + '/v1';
 process.env.PORT = String(APP_PORT);
 process.env.PS_TOKEN_SECRET = 'voice-openai-test-secret';
 process.env.VOICE_STT = 'openai'; // force the MediaRecorder + OpenAI transcription engine
+process.env.DEMO_MODE = 'true';
+process.env.DELIVER_PER_EMAIL_DAY = '1000';
+process.env.PDF_EMAIL_DAILY_MAX = '1000';
 
 const mock = createMock(MOCK_PORT);
 

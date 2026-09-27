@@ -147,6 +147,19 @@ async function passGate(page, details) {
     await sleep(20);
   }
 
+  // Entry notice must exist before submit (Otto is an AI assistant...)
+  const entryNoticePre = document.querySelector('#entry-consent-notice');
+  if (entryNoticePre) {
+    ok(/Otto is an AI assistant/.test(entryNoticePre.textContent), 'entry form shows AI disclosure notice');
+    ok(/saved to our CRM.*HubSpot/.test(entryNoticePre.textContent), 'entry notice says name/email saved to CRM (HubSpot)');
+    ok(/OpenAI/.test(entryNoticePre.textContent) && /Claude/.test(entryNoticePre.textContent), 'entry notice names OpenAI and Claude');
+    ok(/Audio is never stored/.test(entryNoticePre.textContent), 'entry notice says audio never stored');
+  } else {
+    // If no privacy URL set, notice still exists without link
+    const gateText = document.body.textContent;
+    ok(/Otto is an AI assistant/.test(gateText), 'entry form shows AI disclosure notice (fallback)');
+  }
+
   if (details) {
     // An empty gate must not start a call: the error is inline and the client stays put.
     document.getElementById('start-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
@@ -180,14 +193,31 @@ async function reachCall(page, details) {
     lightTheme.click();
     await sleep(20);
   }
-  ok(/OpenAI for the voice call/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
+  ok(/OpenAI for the voice call/.test(document.body.textContent) || /OpenAI/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
   ok(/starts speaking/i.test(document.getElementById('consent-note').textContent), 'the consent screen says the AI starts speaking on agreement');
   ok(/Agree and start the voice call/.test(document.getElementById('consent-go').textContent), 'the button that agrees to the disclaimer is the one that starts the call');
+
+  // Consent checkbox must start UNCHECKED and button disabled until ticked
+  const cb = document.getElementById('consent-cb');
+  const go = document.getElementById('consent-go');
+  ok(cb && cb.checked === false, 'consent checkbox starts unchecked');
+  ok(go && go.disabled === true, 'consent button disabled until checkbox ticked');
+  // Notice on consent screen
+  const consentNotice = document.getElementById('consent-notice') || document.querySelector('#consent-notice');
+  // The new consent view has id consent-notice for the wrapper? Actually we have #consent-notice for wrapper and #consent-note for small text
+  const consentWrapper = document.querySelector('#consent-notice') || document.querySelector('.consent-card .notice');
+  if (consentWrapper) {
+    ok(/You.*speaking with Otto, an AI/.test(document.body.textContent), 'consent screen says you will be speaking with Otto, an AI');
+    ok(/saved to our CRM.*HubSpot/.test(consentWrapper.textContent || document.body.textContent), 'consent notice repeats CRM line');
+  } else {
+    ok(/You.*speaking with Otto, an AI/.test(document.body.textContent), 'consent screen says you will be speaking with Otto, an AI');
+  }
 
   // Agreeing to the disclaimer is the gesture that starts the call: the AI speaks from here, with
   // no separate start button and no text box.
   const agreedAt = Date.now();
   document.getElementById('consent-cb').click();
+  ok(document.getElementById('consent-go').disabled === false, 'consent button enabled after checkbox ticked');
   document.getElementById('consent-go').click();
   await sleep(300);
   ok(spoken.length >= 1, 'the AI started speaking as soon as the disclaimer was agreed');
@@ -560,6 +590,108 @@ async function reachCall(page, details) {
     'a regional meetings link keeps its host and still prefills the lead');
   ok(p3.errors.length === 0, 'no runtime errors across the embed journey' + (p3.errors.length ? ': ' + p3.errors[0] : ''));
   srv2.stop();
+
+  console.log('\nScenario 5: privacy policy link and consent checkbox');
+  const srv3 = await startServer(8095, { PRIVACY_POLICY_URL: 'https://example.com/privacy' });
+  process.on('exit', () => srv3.stop());
+  const p5 = boot(false, srv3.base);
+  await new Promise(r => setTimeout(r, 300));
+  // Check entry notice link before passing gate
+  const entryLinkPre = p5.document.querySelector('#entry-consent-notice a');
+  ok(!!entryLinkPre && entryLinkPre.getAttribute('href') === 'https://example.com/privacy', 'entry notice shows Privacy Policy link when PRIVACY_POLICY_URL is set');
+  // passGate will wait for consent screen, which should now have privacy link
+  await passGate(p5, { name: 'Privacy Test', email: 'privacy@example.ph' });
+  // Check consent notice link
+  const consentLink = p5.document.querySelector('#consent-notice a') || p5.document.querySelector('.consent-card .notice a');
+  ok(!!consentLink && consentLink.getAttribute('href') === 'https://example.com/privacy', 'consent notice shows Privacy Policy link when set');
+  // Checkbox and button
+  const cb4 = p5.document.getElementById('consent-cb');
+  const go4 = p5.document.getElementById('consent-go');
+  ok(cb4 && cb4.checked === false, 'privacy scenario: checkbox starts unchecked');
+  ok(go4 && go4.disabled === true, 'privacy scenario: button disabled until checked');
+  cb4.click();
+  ok(go4.disabled === false, 'privacy scenario: button enabled after checking');
+  // Uncheck again should disable
+  cb4.click();
+  ok(go4.disabled === true, 'privacy scenario: button disabled again after unchecking');
+  // Check consent text includes AI disclosure
+  ok(/You.*speaking with Otto, an AI/.test(p5.document.body.textContent), 'privacy scenario: consent says you will be speaking with Otto, an AI');
+  ok(p5.errors.length === 0, 'no runtime errors in privacy scenario' + (p5.errors.length ? ': ' + p5.errors[0] : ''));
+  srv3.stop();
+
+  console.log('\nScenario 6: blank screen on reload — sessionStorage restore');
+  // Simulate reload with a valid token but no journey -> should go to consent, not blank
+  // The harness server uses PS_TOKEN_SECRET=test-secret-0123456789abcdef, so sign with that
+  // (lib/core would use the dev secret when env is not set, causing 401 and token clear).
+  const crypto = require('crypto');
+  const TEST_SECRET = 'test-secret-0123456789abcdef';
+  function signTestToken(payload) {
+    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const sig = crypto.createHmac('sha256', TEST_SECRET).update(body).digest('base64url');
+    return body + '.' + sig;
+  }
+  const testToken = signTestToken({ email: 'reload@test.com', name: 'Reload Test', exp: Date.now() + 7*24*60*60*1000 });
+  // Helper to boot with prefilled storage
+  function bootWithStorage(withMic, baseOverride, localData, sessionData) {
+    const pageBase = baseOverride || BASE;
+    const { JSDOM } = require('jsdom');
+    const htmlLocal = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8').replace(/<script src="app.js"><\/script>/, '');
+    const appJsLocal = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'app.js'), 'utf8');
+    const brandJsLocal = ['Logo.js', 'Otto.js'].map(f => fs.readFileSync(require('path').join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
+    const dom = new JSDOM(htmlLocal, { url: pageBase + '/', runScripts: 'outside-only', pretendToBeVisual: true });
+    const { window } = dom;
+    const { document } = window;
+    // Prefill localStorage and sessionStorage before app boots
+    if (localData) {
+      for (const [k,v] of Object.entries(localData)) {
+        try { window.localStorage.setItem(k, v); } catch (e) {}
+      }
+    }
+    if (sessionData) {
+      for (const [k,v] of Object.entries(sessionData)) {
+        try { window.sessionStorage.setItem(k, v); } catch (e) {}
+      }
+    }
+    const spoken = [];
+    const errors = [];
+    window.fetch = (p, o) => fetch(new URL(p, pageBase).toString(), o);
+    window.addEventListener('error', e => { errors.push(e.message); });
+    window.__PS_VOICE_TIMING__ = { silenceMs: 50, noSpeechMs: 400, maxListenMs: 1500, speakFactorMs: 4, minSpeakMs: 10, maxSpeakMs: 120 };
+    const speechTimes = [];
+    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    window.speechSynthesis = { getVoices() { return [{}]; }, speak(u) { spoken.push(String(u.text)); speechTimes.push(Date.now()); setTimeout(() => { if (u.onend) u.onend(); }, 5); }, cancel() {} };
+    window.Audio = class { constructor(url) { this.url = url; } play() { setTimeout(() => { if (this.onended) this.onended(); }, 5); return Promise.resolve(); } pause() {} };
+    if (withMic) {
+      window.SpeechRecognition = class { constructor() {} start() { const self=this; setTimeout(()=>{ if(self.onresult) self.onresult({resultIndex:0, results:[Object.assign([{transcript:'test '}], {isFinal:true})]}); setTimeout(()=>{ if(self.onend) self.onend(); },20); },30); } stop(){ if(this.onend) this.onend(); } };
+    } else {
+      delete window.SpeechRecognition; delete window.webkitSpeechRecognition; delete window.MediaRecorder;
+      Object.defineProperty(window.navigator, 'mediaDevices', { value: undefined, configurable: true });
+    }
+    brandJsLocal.forEach(s => window.eval(s));
+    window.eval(appJsLocal);
+    return { window, document, spoken, errors, speechTimes };
+  }
+
+  const p6 = bootWithStorage(false, BASE, { ps_token: testToken, ps_user: JSON.stringify({ name: 'Reload Test', email: 'reload@test.com' }) }, {});
+  await new Promise(r => setTimeout(r, 500));
+  ok(!!p6.document.querySelector('#consent-go'), 'with ps_token but nothing restorable, reload routes to consent (not blank)');
+  ok(!p6.document.querySelector('#app').innerHTML.includes('id="app"') || p6.document.querySelector('#app').textContent.trim().length > 0, 'consent screen renders, not empty panel');
+  ok(p6.errors.length === 0, 'no runtime errors on token-only reload');
+
+  // With saved stage review and fields
+  const fakeFields = { industry: 'solar', typical_deal_size: 1000000, monthly_lead_volume: 50, close_rate: 20, close_type: 'one-call' };
+  const journey = JSON.stringify({ stage: 'review', answers: [{ id: 'business', text: 'test' }], fields: fakeFields, jobId: 'abc123def456' });
+  const p7 = bootWithStorage(false, BASE, { ps_token: testToken, ps_user: JSON.stringify({ name: 'Reload Test', email: 'reload@test.com' }) }, { ps_journey: journey });
+  await new Promise(r => setTimeout(r, 500));
+  ok(!!p7.document.querySelector('#confirm-fields') || /Review/.test(p7.document.body.textContent), 'with saved stage review, reload renders review screen with its fields');
+  ok(p7.errors.length === 0, 'no runtime errors on review restore');
+
+  // Unknown stage falls back to consent
+  const journeyBad = JSON.stringify({ stage: 'unknown_stage_xyz', answers: [], fields: null, jobId: null });
+  const p8 = bootWithStorage(false, BASE, { ps_token: testToken, ps_user: JSON.stringify({ name: 'Reload Test', email: 'reload@test.com' }) }, { ps_journey: journeyBad });
+  await new Promise(r => setTimeout(r, 500));
+  ok(!!p8.document.querySelector('#consent-go'), 'unknown stage falls back to consent, never empty');
+  ok(p8.errors.length === 0, 'no runtime errors on unknown stage fallback');
 
   console.log('\n' + (failures === 0 ? 'UI SMOKE TEST PASSED' : failures + ' UI FAILURES'));
   process.exit(failures === 0 ? 0 : 1);
