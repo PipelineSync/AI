@@ -4793,6 +4793,18 @@ body[data-theme="light"] .otto-splash-card { box-shadow: 0 12px 36px rgba(15, 47
 body[data-theme="light"] .toast.has-otto { background: #FFFFFF; }
 body[data-theme="light"] .doc.otto-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--sh-2), 0 0 0 1px rgba(232, 102, 10, 0.35); }
 
+/* --- Abuse protections: Turnstile widget and demo persona loader (DEMO_MODE) --- */
+.cf-turnstile { margin: 12px 0; min-height: 65px; }
+.cf-turnstile:empty { display: none; }
+.persona { display: flex; flex-direction: column; gap: 8px; }
+.persona label { font-size: 0.8125rem; color: var(--muted); }
+.persona select { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.persona-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+#turnstile-error { font-size: 0.8125rem; color: var(--err); margin-top: 4px; }
+#turnstile-error[hidden] { display: none; }
+.ro-field { display: inline-block; padding: 6px 10px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); color: var(--ink); font-size: 0.9375rem; }
+.cf-turnstile { margin: 8px 0; }
+
 /* --- Reduced motion: no pulsing ring, no dancing bars ---------------------- */
 @media (prefers-reduced-motion: reduce) {
   .otto-ringing > span { animation: none; }

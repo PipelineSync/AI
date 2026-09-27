@@ -56,7 +56,9 @@ exports.handler = async (event) => {
   }
 
   const jobId = jobs.newJobId();
-  await job.setStep(jobId, 'validating', { source: null }, { env: process.env });
+  const tokenEmail = payload && payload.email ? String(payload.email).trim().toLowerCase() : null;
+  const leadId = payload && (payload.lead_id || payload.leadId) ? (payload.lead_id || payload.leadId) : null;
+  await job.setStep(jobId, 'validating', { source: null, email: tokenEmail, leadId, lead_id: leadId, fields: v.values || fields }, { env: process.env });
 
   const base = siteBase(event);
   let dispatched = false;

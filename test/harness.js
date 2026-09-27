@@ -36,7 +36,11 @@ async function startServer(port, extraEnv) {
     // does several delivers from one IP; the test that exercises the limit asks for the
     // production default back through extraEnv.
     DELIVER_RATE_PER_MIN: '1000',
-    PS_TOKEN_SECRET: 'test-secret',
+    DELIVER_PER_EMAIL_DAY: '1000',
+    PDF_EMAIL_DAILY_MAX: '1000',
+    DEMO_MODE: 'true',
+    EMAIL_VERIFY: 'false',
+    PS_TOKEN_SECRET: 'test-secret-0123456789abcdef',
   }, extraEnv || {});
 
   const child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {

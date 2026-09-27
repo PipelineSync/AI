@@ -5,10 +5,18 @@
  * email, and we hand back an HMAC-signed stateless session token. The name is what the
  * AI interviewer calls them on the discovery call, and what lands on the HubSpot lead.
  * Production replaces this with Supabase Auth (magic link or OTP) using the same shape.
+ *
+ * Abuse protections (Phase 5):
+ *  - Cloudflare Turnstile, env-gated (TURNSTILE_SITE_KEY + TURNSTILE_SECRET_KEY). When both
+ *    are set, the token is verified via POST https://challenges.cloudflare.com/turnstile/v0/siteverify
+ *    BEFORE any Supabase or HubSpot write. Failure → 403.
+ *  - Demo mode behind DEMO_MODE=true: only then does /api/config return demoMode:true and the UI
+ *    show demo controls. When off, demo@pipelinesync.ai is rejected.
  */
 const core = require('../../lib/core');
 const leads = require('../../lib/supabase-leads');
 const hubspot = require('../../lib/hubspot');
+const turnstile = require('../../lib/turnstile');
 const { bodyOf, json, checkRateLimit, getClientIp } = require('../../lib/netlify-helpers');
 
 exports.handler = async (event) => {
@@ -22,8 +30,24 @@ exports.handler = async (event) => {
       body: JSON.stringify({ error: 'Too many attempts. Please wait ' + (rl.retryAfter || 60) + 's.' })
     };
   }
-  const entry = core.validateEntry(bodyOf(event));
+  const rawBody = bodyOf(event);
+  const entry = core.validateEntry(rawBody);
   if (!entry.ok) return json(400, { error: entry.error });
+
+  // Demo mode gate: when DEMO_MODE is off, reject the demo account address.
+  if (!turnstile.isDemoModeEnabled(process.env) && String(entry.email).toLowerCase() === 'demo@pipelinesync.ai') {
+    return json(403, { error: 'Demo account is not available. Please use your own email.' });
+  }
+
+  // Turnstile verification BEFORE any Supabase or HubSpot write, when env-gated.
+  if (turnstile.isEnabled(process.env)) {
+    const token = String(rawBody.turnstileToken || rawBody['cf-turnstile-response'] || rawBody.turnstile_token || '').trim();
+    const verified = await turnstile.verify(token, { env: process.env, fetchImpl: globalThis.fetch, remoteIp: ip });
+    if (!verified.ok) {
+      return json(403, { error: verified.error || 'Turnstile verification failed. Please try again.' });
+    }
+  }
+
   try {
     // Save first so a successful response always represents a captured lead.
     // With no Supabase variables (local tests/demos), createLead intentionally returns null.

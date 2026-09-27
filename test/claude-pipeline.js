@@ -230,6 +230,42 @@ async function runGenerate(token, fields) {
   const resNet = await aiPipeline.runGenerate(FIELDS, { env: KEY_ENV, fetchImpl: stubNet.fetchImpl, backoffMs: 5 });
   ok(resNet.source === 'claude', 'a network error is retried once');
 
+  section('Claude timeouts: hang → deadline fallback reason:"timeout"');
+  // Stub that hangs until abort signal
+  function hangingStub() {
+    const calls=[];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url: String(url) });
+      return new Promise((resolve, reject) => {
+        const sig = init && init.signal;
+        if (sig) {
+          if (sig.aborted) {
+            const e=new Error('The operation was aborted');
+            e.name='AbortError';
+            return reject(e);
+          }
+          sig.addEventListener('abort', () => {
+            const e=new Error('The operation was aborted');
+            e.name='AbortError';
+            reject(e);
+          });
+        }
+        // never resolve otherwise, hang
+      });
+    };
+    return { fetchImpl, calls };
+  }
+  const hang = hangingStub();
+  const t0 = Date.now();
+  const resHang = await aiPipeline.runExtract(ANSWERS, { env: Object.assign({}, KEY_ENV, { AI_EXTRACT_DEADLINE_MS: '120' }), fetchImpl: hang.fetchImpl, backoffMs: 5 });
+  ok(resHang.source === 'fallback' && resHang.reason === 'timeout', 'hang → deadline fallback reason:"timeout" (' + (Date.now()-t0) + 'ms)');
+  ok(hang.calls.length >= 1, 'hang still attempted at least one call before deadline');
+
+  // Also test callClaude timeoutMs directly
+  const hang2 = hangingStub();
+  const direct = await anthropic.callClaude({ systemPrompt: 'test', userMessage: 'hi', env: KEY_ENV, fetchImpl: hang2.fetchImpl, timeoutMs: 30 });
+  ok(direct.ok === false && direct.timeout === true, 'callClaude timeoutMs via AbortController returns timeout:true');
+
   section('the background function is a worker, not an open endpoint');
   const bgNoTok = await post(generateBgFn, { jobId: 'a'.repeat(32), fields: FIELDS });
   ok(bgNoTok.statusCode === 401, 'generate-background rejects a missing token');

@@ -124,11 +124,15 @@ const state = {
   theme: savedTheme === 'light' ? 'light' : 'dark',
   stage: 'start',        // the entry gate: name + email, then straight to the voice call
   answers: [],           // [{id, text}] captured on the call (or by typing)
-  fields: null,          // Section 7 contract
+  fields: null,          // Section 7 contract (from job record now)
   blueprint: null,
-  delivered: null,       // {contact_id, filename, pdf_base64, email, email_result, hubspot}
+  jobId: null,           // server-side job id for blueprint
+  delivered: null,       // {contact_id, filename, pdf_base64, email, email_result, hubspot, duplicate, persistence}
   booking: null,         // {day, slot}
   schedulerLink: null, // from /api/config (SCHEDULER_LINK env)
+  turnstileSiteKey: null, // from /api/config when TURNSTILE_SITE_KEY is set
+  demoMode: false,     // from /api/config when DEMO_MODE=true
+  turnstileToken: null,// filled by Turnstile widget callback
   hubspot: null,       // {ok, mocked, contactId?} from /api/auth/start
   fieldStatus: {},       // live sidebar state
   voice: null,           // live call state (see newVoiceState in the voice engine)
@@ -137,7 +141,8 @@ const state = {
   fieldError: null,      // live capture status problems, surfaced instead of failing silently
   fieldErrors: null,     // per-field errors returned by the server-side re-validation
   progress: null,        // real generation progress from /api/generate/status: {label, percent}
-  blueprintSource: null  // 'claude' | 'fallback', as reported by the API
+  blueprintSource: null,  // 'claude' | 'fallback', as reported by the API
+  emailVerify: { code: '', sending: false, sent: false, error: null } // for EMAIL_VERIFY flow
 };
 function saveAuth() {
   store.set('ps_token', state.token || '');
@@ -146,35 +151,73 @@ function saveAuth() {
 function resetJourney() {
   stopSpeaking(); stopListening();
   state.stage = 'consent'; state.answers = []; state.fields = null;
-  state.blueprint = null; state.delivered = null; state.booking = null; state.fieldStatus = {};
+  state.blueprint = null; state.jobId = null; state.delivered = null; state.booking = null; state.fieldStatus = {};
   state.hubspot = null;
   state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
   state.fieldErrors = null; state.progress = null; state.blueprintSource = null;
+  state.emailVerify = { code: '', sending: false, sent: false, error: null };
 }
 
 /* ---------------- api ---------------- */
 const api = {
   async post(p, body) {
-    const r = await fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ token: state.token }, body)) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
-      throw new Error(j.error || 'HTTP ' + r.status);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 25000) : null;
+    try {
+      const r = await fetch(p, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ token: state.token }, body)),
+        signal: controller ? controller.signal : undefined
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
+        const err = new Error(j.error || 'HTTP ' + r.status);
+        err.status = r.status;
+        err.body = j;
+        throw err;
+      }
+      return j;
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        const err = new Error('Request timed out. Please try again.');
+        err.timeout = true;
+        throw err;
+      }
+      throw e;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
-    return j;
   },
   async get(p) {
-    const sep = p.indexOf('?') >= 0 ? '&' : '?';
-    const r = await fetch(p + sep + 'token=' + encodeURIComponent(state.token || ''), { headers: { 'Accept': 'application/json' } });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
-      const err = new Error(j.error || 'HTTP ' + r.status);
-      err.status = r.status;
-      err.body = j;
-      throw err;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 25000) : null;
+    try {
+      const sep = p.indexOf('?') >= 0 ? '&' : '?';
+      const r = await fetch(p + sep + 'token=' + encodeURIComponent(state.token || ''), {
+        headers: { 'Accept': 'application/json' },
+        signal: controller ? controller.signal : undefined
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (r.status === 401) { state.token = null; state.user = null; saveAuth(); state.stage = 'start'; render(); }
+        const err = new Error(j.error || 'HTTP ' + r.status);
+        err.status = r.status;
+        err.body = j;
+        throw err;
+      }
+      return j;
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        const err = new Error('Request timed out. Please try again.');
+        err.timeout = true;
+        throw err;
+      }
+      throw e;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
-    return j;
   }
 };
 
@@ -186,13 +229,28 @@ function trackLeadProgress(status, extra) {
   return api.post('/api/lead/progress', Object.assign({ status }, extra || {}))
     .catch(e => { console.warn('[lead-progress]', e.message); return null; });
 }
-/* Scheduler link (HubSpot Meetings) — public, fetched once on boot so bookingView can embed it */
-function fetchSchedulerLink() {
+/* Public config: scheduler link, Turnstile site key, demo mode — fetched once on boot */
+function fetchConfig() {
   fetch('/api/config', { method: 'GET', headers: { 'Accept': 'application/json' } })
     .then(r => r.json()).then(j => {
-      if (j && j.schedulerLink) { state.schedulerLink = String(j.schedulerLink).trim(); if (state.stage === 'booking') render(); }
+      if (!j) return;
+      let needsRender = false;
+      if (j.schedulerLink) {
+        const link = String(j.schedulerLink).trim();
+        if (link && link !== state.schedulerLink) { state.schedulerLink = link; needsRender = true; }
+      }
+      if (j.turnstileSiteKey) {
+        const key = String(j.turnstileSiteKey).trim();
+        if (key && key !== state.turnstileSiteKey) { state.turnstileSiteKey = key; needsRender = true; }
+      } else {
+        if (state.turnstileSiteKey) { state.turnstileSiteKey = null; needsRender = true; }
+      }
+      const demo = !!j.demoMode;
+      if (demo !== state.demoMode) { state.demoMode = demo; needsRender = true; }
+      if (needsRender) render();
     }).catch(() => {});
 }
+function fetchSchedulerLink() { return fetchConfig(); }
 
 /* ---------------- toast ---------------- */
 let toastTimer = null;
@@ -1767,6 +1825,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 function startView() {
   const lastName = store.get('ps_last_name') || '';
   const lastEmail = store.get('ps_last_email') || '';
+  let turnstileHtml = '';
+  if (state.turnstileSiteKey) {
+    turnstileHtml = '<div class="field"><div id="turnstile-widget"><div class="cf-turnstile" data-sitekey="' + esc(state.turnstileSiteKey) + '" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileError"></div></div><p class="small txt-err" id="turnstile-error" role="alert" hidden></p></div>';
+  }
+  let demoHtml = '';
+  if (state.demoMode) {
+    demoHtml = '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
+      '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use the demo account</button>';
+  }
   return '<div class="gate">' +
     '<div class="gate-theme">' + themeToggleMarkup('theme-switch-gate') + '</div>' +
     '<div class="gate-brand">' +
@@ -1798,15 +1865,41 @@ function startView() {
         '<div class="field"><label for="st-email">Work email <span class="req">Required</span></label>' +
           '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
         '</div>' +
+        turnstileHtml +
         '<p class="form-error" id="start-error" role="alert" hidden></p>' +
         '<button class="btn btn-primary btn-lg btn-block mt16" id="st-btn" type="submit">Start strategy session</button>' +
       '</form>' +
-      '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
-      '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use demo account</button>' +
+      demoHtml +
       '<p class="gate-note">Live transcription. Audio is never stored.</p>' +
     '</div></div>' +
   '</div>';
 }
+/* Turnstile callbacks — global so the widget can call them */
+window.onTurnstileSuccess = function (token) {
+  state.turnstileToken = String(token || '');
+  const el = document.getElementById('turnstile-error');
+  if (el) { el.hidden = true; el.textContent = ''; }
+};
+window.onTurnstileExpired = function () {
+  state.turnstileToken = null;
+  const el = document.getElementById('turnstile-error');
+  if (el) { el.textContent = 'Turnstile expired. Please verify again.'; el.hidden = false; }
+};
+window.onTurnstileError = function () {
+  state.turnstileToken = null;
+  const el = document.getElementById('turnstile-error');
+  if (el) { el.textContent = 'Turnstile could not load. Please refresh and try again.'; el.hidden = false; }
+};
+function ensureTurnstileScript() {
+  if (!state.turnstileSiteKey) return;
+  if (document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]')) return;
+  const s = document.createElement('script');
+  s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+  s.async = true;
+  s.defer = true;
+  document.head.appendChild(s);
+}
+
 function bindStart() {
   const form = $('#start-form');
   const nameEl = $('#st-name');
@@ -1818,7 +1911,7 @@ function bindStart() {
     if (focusEl) { focusEl.setAttribute('aria-invalid', 'true'); focusEl.focus(); }
     if (btn) { btn.disabled = false; btn.textContent = 'Start strategy session'; }
     const demoBtn = $('#demo-btn');
-    if (demoBtn) { demoBtn.disabled = false; demoBtn.textContent = 'Use demo account'; }
+    if (demoBtn) { demoBtn.disabled = false; demoBtn.textContent = 'Use the demo account'; }
     toast(msg, true);
   };
   const clearErrors = () => {
@@ -1832,18 +1925,31 @@ function bindStart() {
     if (!cleanName || cleanName.length < 2) return fail('Enter your name so the AI knows what to call you on the call.', nameEl);
     if (!NAME_RE.test(cleanName)) return fail('Please enter your name using letters.', nameEl);
     if (!EMAIL_RE.test(cleanEmail)) return fail('Enter a valid email address, like you@yourbusiness.ph.', emailEl);
+    if (state.turnstileSiteKey && !state.turnstileToken) {
+      const tErr = document.getElementById('turnstile-error');
+      if (tErr) { tErr.textContent = 'Please complete the Turnstile verification.'; tErr.hidden = false; }
+      return fail('Please complete the Turnstile verification.', null);
+    }
     if (btn) { btn.disabled = true; btn.textContent = 'Connecting you to the AI...'; }
-    api.post('/api/auth/start', { name: cleanName, email: cleanEmail }).then(j => {
-      state.token = j.token;
-      state.user = j.user;
-      state.hubspot = j.hubspot || { mocked: true, ok: false };
-      saveAuth();
-      store.set('ps_last_name', cleanName);
-      store.set('ps_last_email', cleanEmail);
-      state.stage = 'consent';
-      render();
-      toast('Ready when you are, ' + (j.user.first_name || cleanName.split(' ')[0]) + '.');
-    }).catch(e => fail(e.message, nameEl));
+    const payload = { name: cleanName, email: cleanEmail };
+    if (state.turnstileToken) payload.turnstileToken = state.turnstileToken;
+    fetch('/api/auth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(async r => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+        return j;
+      })
+      .then(j => {
+        state.token = j.token;
+        state.user = j.user;
+        state.hubspot = j.hubspot || { mocked: true, ok: false };
+        saveAuth();
+        store.set('ps_last_name', cleanName);
+        store.set('ps_last_email', cleanEmail);
+        state.stage = 'consent';
+        render();
+        toast('Ready when you are, ' + (j.user.first_name || cleanName.split(' ')[0]) + '.');
+      }).catch(e => fail(e.message, nameEl));
   };
   if (form) form.addEventListener('submit', e => { e.preventDefault(); go(nameEl.value, emailEl.value); });
   const demo = $('#demo-btn');
@@ -1854,9 +1960,9 @@ function bindStart() {
     go('Demo Owner', 'demo@pipelinesync.ai');
   };
   [nameEl, emailEl].forEach(el => { if (el) el.addEventListener('input', clearErrors); });
-  // Put the cursor in the first empty field, and keep the keyboard out of the way on phones.
   if (nameEl && !nameEl.value) nameEl.focus();
   else if (emailEl && !emailEl.value) emailEl.focus();
+  if (state.turnstileSiteKey) ensureTurnstileScript();
 }
 
 /* ---------------- consent ---------------- */
@@ -2125,8 +2231,20 @@ function callSidebar() {
   const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
     '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
     '<div class="chat-body" id="chat-body">' + (bubbles || '<p class="small muted">Nothing yet.</p>') + '</div></details></div>';
+  let personaCard = '';
+  if (state.demoMode) {
+    const personaOpts = Object.keys(PERSONAS).map(k => '<option value="' + k + '">' + PERSONAS[k].label + '</option>').join('');
+    const quickBtns = Object.keys(PERSONAS).map(k => '<button class="btn btn-ghost btn-sm" data-persona="' + k + '">' + k + '</button>').join('');
+    personaCard = '<div class="side-card"><h3>Demo data</h3><div class="persona">' +
+      '<label for="persona-sel">QA shortcut: load a demo business</label>' +
+      '<select id="persona-sel"><option value="">Choose a vertical...</option>' + personaOpts + '</select>' +
+      '<button class="btn btn-ghost btn-sm" id="persona-go" style="width:100%">Load demo answers</button>' +
+      '<p class="hint" style="font-size:11.5px;color:var(--faint);margin-top:8px">Runs the four verticals from the QA checklist without a microphone.</p>' +
+      '<div class="persona-quick" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + quickBtns + '</div>' +
+      '</div></div>';
+  }
   return '<aside class="intake-side" id="intake-side" aria-label="Call progress and captured answers">' +
-    modeCard + '<div class="side-card"><h3>Captured signals</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + '</aside>';
+    modeCard + personaCard + '<div class="side-card"><h3>Captured signals</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + '</aside>';
 }
 /* The AI's line grows word by word on a live call, so it is patched in place rather than re-rendered
    (a full render would rebuild the orb and lose the animation mid-sentence). */
@@ -2659,9 +2777,12 @@ async function startGeneration(fields) {
   try {
     const started = await api.post('/api/generate', { fields });
     if (!started.jobId) throw new Error('The blueprint job could not be started. Please try again.');
+    state.jobId = started.jobId;
     const bp = await pollGeneration(started.jobId);
     state.blueprint = bp.blueprint;
     state.blueprintSource = bp.source || null;
+    // Prefer fields from job record if available (server-side source of truth)
+    if (bp.fields) state.fields = bp.fields;
     state.stage = 'blueprint';
     state.progress = null;
     render();
@@ -2890,46 +3011,131 @@ function bindBlueprint() {
   const ub = $('#unlock-btn');
   if (ub) ub.onclick = () => {
     const holder = $('#unlock-holder');
-    holder.innerHTML = '<div class=\"unlock-panel\"><h3 class="unlock-title">Download your blueprint</h3>' +
-      '<div class=\"grid-2\"><div class=\"field\"><label for=\"un-email\">Email for delivery</label><input type=\"email\" id=\"un-email\" value=\"' + esc(state.user.email) + '\" maxlength=\"254\"></div>' +
-      '<div class="field field-check"><label class="checkline"><input type=\"checkbox\" id=\"un-consent\"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
-      // Phase 3: the PDF is always emailed to the address the session was opened with (the server
-      // takes the recipient from the signed token), so say so instead of letting the field imply
-      // the address can be chosen here.
-      '<p class=\"small muted mt8\">The PDF is emailed to the address you signed in with: ' + esc(state.user.email) + '. You can download it here as well.</p>' +
-      '<button class=\"btn btn-primary\" id=\"un-go\" disabled>Generate and send my PDF</button></div>';
+    holder.innerHTML = '<div class="unlock-panel"><h3 class="unlock-title">Download your blueprint</h3>' +
+      '<div class="grid-2"><div class="field"><label>Email for delivery</label><div class="ro-field" id="un-email-ro">' + esc(state.user.email) + '</div></div>' +
+      '<div class="field field-check"><label class="checkline"><input type="checkbox" id="un-consent"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
+      '<p class="small muted mt8">The PDF is emailed to the address you signed in with: ' + esc(state.user.email) + '. You can download it here as well.</p>' +
+      '<button class="btn btn-primary" id="un-go" disabled>Download PDF</button>' +
+      '<div id="un-tryagain" style="margin-top:8px;display:none"><button class="btn btn-ghost btn-sm" id="un-retry">Try again</button></div>' +
+      '</div>';
     const cb = $('#un-consent'), go = $('#un-go');
+    const tryWrap = $('#un-tryagain'), retryBtn = $('#un-retry');
     cb.onchange = () => { go.disabled = !cb.checked; };
-    const emailInput = $('#un-email');
-    if (emailInput) emailInput.focus();
+    if (retryBtn) retryBtn.onclick = () => { holder.innerHTML = ''; if (ub) ub.click(); };
     go.onclick = async () => {
       go.disabled = true; go.textContent = 'Generating PDF...';
+      if (tryWrap) tryWrap.style.display = 'none';
       try {
         const j = await api.post('/api/deliver', {
-          email: $('#un-email').value,
+          jobId: state.jobId,
           consent: cb.checked,
-          fields: state.fields,
-          blueprint: state.blueprint,
           voice_meta: voiceMeta()
         });
-        const typed = $('#un-email').value.trim().toLowerCase();
         const emailResult = j.email || null;
         state.delivered = {
           contact_id: j.contact_id, filename: j.filename,
           pdf_base64: j.pdf_base64,
-          // The address shown is the one the API says it emailed (taken from the signed session),
-          // never simply what was typed in the form.
-          email: (emailResult && emailResult.to) || typed,
+          email: (emailResult && emailResult.to) || state.user.email,
           email_result: emailResult,
-          hubspot: j.hubspot || { mocked: true, ok: false }
+          hubspot: j.hubspot || { mocked: true, ok: false },
+          duplicate: !!j.duplicate,
+          persistence: j.persistence || { ok: true }
         };
         render();
         downloadPdf(state.delivered);
       } catch (e) {
-        go.disabled = false; go.textContent = 'Generate and send my PDF';
-        toast(e.message, true);
+        go.disabled = false; go.textContent = 'Download PDF';
+        if (e.timeout) {
+          if (tryWrap) tryWrap.style.display = 'block';
+          toast(e.message + ' Tap Try again.', true);
+        } else {
+          toast(e.message, true);
+        }
       }
     };
+  };
+
+  // Email verification UI: "Email me a copy" flow
+  const emailMeBtn = $('#email-me-btn');
+  if (emailMeBtn) emailMeBtn.onclick = async () => {
+    const btn = emailMeBtn;
+    btn.disabled = true; btn.textContent = 'Sending code...';
+    try {
+      const j = await api.post('/api/deliver/code', { jobId: state.jobId });
+      state.emailVerify.sent = true;
+      state.emailVerify.error = null;
+      if (j.devCode) {
+        state.emailVerify.code = j.devCode;
+        console.log('[dev] verification code', j.devCode);
+      }
+      toast('Verification code sent to ' + state.user.email, false);
+      render();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Email me a copy';
+      toast(e.message, true);
+    }
+  };
+  const verifyGo = $('#verify-go');
+  if (verifyGo) verifyGo.onclick = async () => {
+    const codeInput = $('#verify-code');
+    const code = codeInput ? codeInput.value.trim() : '';
+    if (!code) { toast('Enter the 6-digit code.', true); return; }
+    verifyGo.disabled = true; verifyGo.textContent = 'Verifying...';
+    try {
+      const j = await api.post('/api/deliver', {
+        jobId: state.jobId,
+        consent: true,
+        code: code,
+        voice_meta: voiceMeta()
+      });
+      const emailResult = j.email || null;
+      state.delivered = {
+        contact_id: j.contact_id, filename: j.filename,
+        pdf_base64: j.pdf_base64,
+        email: (emailResult && emailResult.to) || state.user.email,
+        email_result: emailResult,
+        hubspot: j.hubspot || { mocked: true, ok: false },
+        duplicate: !!j.duplicate,
+        persistence: j.persistence || { ok: true }
+      };
+      state.emailVerify.code = '';
+      state.emailVerify.error = null;
+      if (emailResult && !emailResult.sent && emailResult.error) {
+        state.emailVerify.error = emailResult.error;
+      }
+      render();
+      toast(emailResult && emailResult.sent ? 'Emailed to ' + (emailResult.to || state.user.email) : (emailResult && emailResult.error ? emailResult.error : 'Verification done'), !!(emailResult && !emailResult.sent));
+    } catch (e) {
+      verifyGo.disabled = false; verifyGo.textContent = 'Verify and email';
+      toast(e.message, true);
+    }
+  };
+  const resendBtn = $('#resend-email-btn');
+  if (resendBtn) resendBtn.onclick = async () => {
+    resendBtn.disabled = true; resendBtn.textContent = 'Sending...';
+    try {
+      const j = await api.post('/api/deliver', {
+        jobId: state.jobId,
+        consent: true,
+        resendEmail: true,
+        voice_meta: voiceMeta()
+      });
+      const emailResult = j.email || null;
+      state.delivered = {
+        contact_id: j.contact_id, filename: j.filename,
+        pdf_base64: j.pdf_base64,
+        email: (emailResult && emailResult.to) || state.user.email,
+        email_result: emailResult,
+        hubspot: j.hubspot || { mocked: true, ok: false },
+        duplicate: !!j.duplicate,
+        persistence: j.persistence || { ok: true }
+      };
+      render();
+      toast(emailResult && emailResult.sent ? 'Resent to ' + (emailResult.to || state.user.email) : 'Resend done', !!(emailResult && !emailResult.sent));
+    } catch (e) {
+      resendBtn.disabled = false; resendBtn.textContent = 'Resend email';
+      toast(e.message, true);
+    }
   };
   // Focus management
   const main = $('#main-content');

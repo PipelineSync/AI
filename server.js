@@ -24,6 +24,7 @@ const jobStore = require('./lib/job-store');
 const generateJob = require('./lib/generate-job');
 const deliverCore = require('./lib/deliver-core');
 const bookedCore = require('./lib/booked-core');
+const turnstile = require('./lib/turnstile');
 
 /* Zero-dependency .env loader: reads KEY=VALUE lines from a .env in the repo root, skipping
    blanks and comment lines, stripping inline " # comments" and surrounding quotes. Real
@@ -69,7 +70,8 @@ function escHtml(s) {
 function securityHeaders() {
   // The voice layer plays OpenAI speech from a blob: or data: URL, so media-src must allow both
   // (default-src 'self' alone would have the browser refuse to play the AI voice).
-  const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.hubspot.com; media-src 'self' blob: data:; connect-src 'self' https://*.hubspot.com; font-src 'self' https://fonts.gstatic.com data:; frame-src 'self' https://meetings.hubspot.com https://app.hubspot.com https://*.hubspot.com; object-src 'none'; base-uri 'self'; " +
+  // Turnstile widget needs script-src and frame-src https://challenges.cloudflare.com when enabled.
+  const csp = "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.hubspot.com; media-src 'self' blob: data:; connect-src 'self' https://*.hubspot.com https://challenges.cloudflare.com; font-src 'self' https://fonts.gstatic.com data:; frame-src 'self' https://meetings.hubspot.com https://app.hubspot.com https://*.hubspot.com https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; " +
     // Production (Netlify) sends frame-ancestors 'none'. The local dev server is embedded in the
     // preview pane, so it must stay framable here; PS_ALLOW_FRAMING=0 restores the strict rule.
     (process.env.PS_ALLOW_FRAMING === '0' ? "frame-ancestors 'none'" : "frame-ancestors *");
@@ -203,7 +205,11 @@ async function handleApi(req, res, url) {
   if (method === 'GET' && route === '/api/config') {
     // Public, safe config for the frontend (scheduler link is public, never the token)
     const link = String(process.env.SCHEDULER_LINK || '').trim();
-    return sendJson(res, 200, { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env), aiEnabled: anthropic.isEnabled(process.env) });
+    const out = { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env), aiEnabled: anthropic.isEnabled(process.env) };
+    const siteKey = turnstile.getSiteKey(process.env);
+    if (siteKey && turnstile.getSecret(process.env)) out.turnstileSiteKey = siteKey;
+    if (turnstile.isDemoModeEnabled(process.env)) out.demoMode = true;
+    return sendJson(res, 200, out);
   }
   if (method === 'GET' && route === '/dev/outbox') return outboxPage(res);
 
@@ -218,6 +224,21 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const entry = core.validateEntry(body);
     if (!entry.ok) return sendJson(res, 400, { error: entry.error });
+
+    // Demo mode gate: when DEMO_MODE is off, reject the demo account address.
+    if (!turnstile.isDemoModeEnabled(process.env) && String(entry.email).toLowerCase() === 'demo@pipelinesync.ai') {
+      return sendJson(res, 403, { error: 'Demo account is not available. Please use your own email.' });
+    }
+
+    // Turnstile verification BEFORE any Supabase or HubSpot write, when env-gated.
+    if (turnstile.isEnabled(process.env)) {
+      const token = String(body.turnstileToken || body['cf-turnstile-response'] || body.turnstile_token || '').trim();
+      const verified = await turnstile.verify(token, { env: process.env, fetchImpl: fetch, remoteIp: ip });
+      if (!verified.ok) {
+        return sendJson(res, 403, { error: verified.error || 'Turnstile verification failed. Please try again.' });
+      }
+    }
+
     try {
       const lead = await leads.createLead(entry.name, entry.email, { env: process.env });
       if (lead) await leads.addEvent(lead.id, 'lead_signed_up', { source: 'pipelinesync_ai' }, { env: process.env });
@@ -339,7 +360,9 @@ async function handleApi(req, res, url) {
       });
     }
     const jobId = jobStore.newJobId();
-    await generateJob.setStep(jobId, 'validating', { source: null }, { env: process.env });
+    const tokenEmail = payload && payload.email ? String(payload.email).trim().toLowerCase() : null;
+    const leadId = payload && (payload.lead_id || payload.leadId) ? (payload.lead_id || payload.leadId) : null;
+    await generateJob.setStep(jobId, 'validating', { source: null, email: tokenEmail, leadId, lead_id: leadId, fields: v.values || fields }, { env: process.env });
     generateJob.runJob(jobId, fields, payload, { env: process.env });
     return sendJson(res, 202, { ok: true, jobId, status: 'accepted', pollUrl: '/api/generate/status?jobId=' + jobId });
   }
@@ -353,9 +376,25 @@ async function handleApi(req, res, url) {
       label: rec.label || null, progress: typeof rec.progress === 'number' ? rec.progress : 0,
       source: rec.source || null
     };
+    if (rec.fields) out.fields = rec.fields;
+    if (rec.email) out.email = rec.email;
     if (rec.status === 'done') out.blueprint = rec.blueprint;
     if (rec.status === 'error') { out.error = rec.error || 'Generation failed.'; if (rec.fieldErrors) out.fieldErrors = rec.fieldErrors; }
     return sendJson(res, 200, out);
+  }
+
+  if (method === 'POST' && route === '/api/deliver/code') {
+    // Email verification code request
+    const deliverCode = require('./netlify/functions/deliver-code.js').handler;
+    const event = {
+      httpMethod: 'POST',
+      path: '/api/deliver/code',
+      headers: { 'x-nf-client-connection-ip': ip, 'x-forwarded-for': ip },
+      body: JSON.stringify(authBody)
+    };
+    const result = await deliverCode(event);
+    res.writeHead(result.statusCode, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, securityHeaders(), result.headers || {}));
+    return res.end(result.body);
   }
 
   if (method === 'POST' && route === '/api/deliver') {

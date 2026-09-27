@@ -58,7 +58,18 @@ Site configuration → **Environment variables** → **Add a variable**:
 | `PDF_EMAIL_SUBJECT` | optional | Subject template. `{first_name}`, `{name}`, `{vertical}`, `{tier}`, `{date}` are filled in; the default is `Your PipelineSync blueprint is attached`. |
 | `PDF_EMAIL_REPLY_TO` | optional | Reply-To address, so replies reach a real inbox. |
 | `DELIVER_RATE_PER_MIN` | `5` (default) | Unlocks per minute per IP on `/api/deliver`. Each attempt builds a PDF and may send an email, so it is the tightest limit in the app. |
+| `DELIVER_PER_EMAIL_DAY` | `3` (default) | Max 3 successful deliveries per email per 24h sliding window. Backed by Netlify Blobs with in-memory fallback. Past the cap, deliver returns 429. Tests set this high via `test/harness.js`. |
+| `PDF_EMAIL_DAILY_MAX` | `80` (default) | Global daily cap on emails sent (to stay under Resend's free 100/day). Backed by Netlify Blobs. Past the cap, deliver still returns the PDF with `email:{sent:false,error:"daily email limit reached"}`. |
+| `TURNSTILE_SITE_KEY` | public site key | **Cloudflare Turnstile at the entry gate, env-gated**. When both site and secret are set, the start view renders the Turnstile widget (loads `https://challenges.cloudflare.com/turnstile/v0/api.js` only in that case) and `start.js` verifies the token via `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` (secret, response, remoteip) BEFORE any Supabase or HubSpot write. Failure → 403. Returned by `/api/config` as `turnstileSiteKey`. When unset, behaviour is unchanged. |
+| `TURNSTILE_SECRET_KEY` | secret key | Server-only secret for Turnstile verification. Never exposed to browser. |
+| `DEMO_MODE` | `true` / `false` (default off) | When `true`, `/api/config` returns `demoMode:true` and the UI shows "Use the demo account" and the persona loader (its handlers exist at `app.js:2211,2236-2240` but no view rendered it before). When off, `start.js` rejects `demo@pipelinesync.ai`. |
 | `SCHEDULER_LINK` | `https://meetings.hubspot.com/...` | Public Meetings URL. When set, the booking screen embeds the real scheduler. |
+| `EMAIL_VERIFY` | `true` / `false` (default `true`) | **Verify email before emailing PDF**. PDF download always immediate. When true, emailing requires 6-digit code via `POST /api/deliver/code` → `POST /api/deliver {jobId, code}`. Code stored hashed in Blobs 10-min expiry, max 3 sends/hour/email and 5 wrong attempts. UI: Email me a copy → code input → status. Tests set `EMAIL_VERIFY=false` via `test/harness.js`. |
+| `EMAIL_VERIFY_CODE_TTL_MIN` | `10` (default) | TTL minutes for verification code. |
+| `EMAIL_VERIFY_MAX_SENDS_HOUR` | `3` (default) | Max code sends per hour per email. |
+| `EMAIL_VERIFY_MAX_ATTEMPTS` | `5` (default) | Max wrong code attempts per code. |
+| `AI_EXTRACT_DEADLINE_MS` | `8000` (default) | Total deadline ms for `runExtract` (extract). Retries must fit inside remaining. Deadline hit → deterministic fallback `reason:"timeout"`. |
+| `AI_GENERATE_DEADLINE_MS` | `60000` (default) | Total deadline ms for `runGenerate` (blueprint generation). |
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
 `OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`,

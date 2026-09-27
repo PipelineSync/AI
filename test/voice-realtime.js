@@ -39,6 +39,9 @@ process.env.OPENAI_API_KEY = 'sk-mock';
 process.env.OPENAI_BASE_URL = 'http://127.0.0.1:' + MOCK_PORT + '/v1';
 process.env.PORT = String(APP_PORT);
 process.env.PS_TOKEN_SECRET = 'voice-realtime-test-secret';
+process.env.DEMO_MODE = 'true';
+process.env.DELIVER_PER_EMAIL_DAY = '1000';
+process.env.PDF_EMAIL_DAILY_MAX = '1000';
 /* Test-only relaxation of the abuse limits, exactly as test/harness.js already does for
    VOICE_RATE_PER_MIN: this file opens several live sessions from one IP within a few seconds,
    which is more than any real visitor is allowed. The production defaults are NOT changed here -
