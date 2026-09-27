@@ -39,7 +39,18 @@ exports.handler = async (event) => {
         completed_at: status === 'discovery_completed' ? now : undefined
       }, { env: process.env });
     }
-    await leads.addEvent(auth.lead_id, status, {}, { env: process.env });
+    const eventData = {};
+    if (status === 'discovery_started') {
+      if (body.consent_at) eventData.consent_at = String(body.consent_at).slice(0, 100);
+      if (body.consent_version) eventData.consent_version = String(body.consent_version).slice(0, 50);
+      if (body.privacy_policy_url) eventData.privacy_policy_url = String(body.privacy_policy_url).slice(0, 500);
+      // Fallback to now if not provided
+      if (!eventData.consent_at) eventData.consent_at = now;
+      if (!eventData.consent_version) {
+        try { eventData.consent_version = require('../../lib/consent').CONSENT_VERSION; } catch (e) {}
+      }
+    }
+    await leads.addEvent(auth.lead_id, status, eventData, { env: process.env });
     return json(200, { ok: true, stored: true });
   } catch (e) {
     console.error('[lead-progress]', e.message);

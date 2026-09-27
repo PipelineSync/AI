@@ -205,7 +205,9 @@ async function handleApi(req, res, url) {
   if (method === 'GET' && route === '/api/config') {
     // Public, safe config for the frontend (scheduler link is public, never the token)
     const link = String(process.env.SCHEDULER_LINK || '').trim();
-    const out = { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env), aiEnabled: anthropic.isEnabled(process.env) };
+    const consent = require('./lib/consent');
+    const privacyUrl = consent.getPrivacyPolicyUrl(process.env);
+    const out = { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env), aiEnabled: anthropic.isEnabled(process.env), privacyPolicyUrl: privacyUrl || null, consentVersion: consent.CONSENT_VERSION };
     const siteKey = turnstile.getSiteKey(process.env);
     if (siteKey && turnstile.getSecret(process.env)) out.turnstileSiteKey = siteKey;
     if (turnstile.isDemoModeEnabled(process.env)) out.demoMode = true;
@@ -342,7 +344,17 @@ async function handleApi(req, res, url) {
         completed_at: status === 'discovery_completed' ? now : undefined
       }, { env: process.env });
     }
-    await leads.addEvent(payload.lead_id, status, {}, { env: process.env });
+    const eventData = {};
+    if (status === 'discovery_started') {
+      if (authBody.consent_at) eventData.consent_at = String(authBody.consent_at).slice(0, 100);
+      if (authBody.consent_version) eventData.consent_version = String(authBody.consent_version).slice(0, 50);
+      if (authBody.privacy_policy_url) eventData.privacy_policy_url = String(authBody.privacy_policy_url).slice(0, 500);
+      if (!eventData.consent_at) eventData.consent_at = now;
+      if (!eventData.consent_version) {
+        try { eventData.consent_version = require('./lib/consent').CONSENT_VERSION; } catch (e) {}
+      }
+    }
+    await leads.addEvent(payload.lead_id, status, eventData, { env: process.env });
     return sendJson(res, 200, { ok: true, stored: true });
   }
 

@@ -132,6 +132,8 @@ const state = {
   schedulerLink: null, // from /api/config (SCHEDULER_LINK env)
   turnstileSiteKey: null, // from /api/config when TURNSTILE_SITE_KEY is set
   demoMode: false,     // from /api/config when DEMO_MODE=true
+  privacyPolicyUrl: null, // from /api/config when PRIVACY_POLICY_URL is https
+  consentVersion: null, // from /api/config (CONSENT_VERSION)
   turnstileToken: null,// filled by Turnstile widget callback
   hubspot: null,       // {ok, mocked, contactId?} from /api/auth/start
   fieldStatus: {},       // live sidebar state
@@ -247,6 +249,16 @@ function fetchConfig() {
       }
       const demo = !!j.demoMode;
       if (demo !== state.demoMode) { state.demoMode = demo; needsRender = true; }
+      if (j.privacyPolicyUrl) {
+        const purl = String(j.privacyPolicyUrl).trim();
+        if (purl && purl !== state.privacyPolicyUrl) { state.privacyPolicyUrl = purl; needsRender = true; }
+      } else {
+        if (state.privacyPolicyUrl) { state.privacyPolicyUrl = null; needsRender = true; }
+      }
+      if (j.consentVersion) {
+        const cv = String(j.consentVersion).trim();
+        if (cv && cv !== state.consentVersion) { state.consentVersion = cv; needsRender = true; }
+      }
       if (needsRender) render();
     }).catch(() => {});
 }
@@ -377,9 +389,13 @@ function voiceReady() {
 /* Agreeing to the disclaimer is the gesture that starts the call: the screen changes and the AI
    speaks straight away, picking up the opening line that was prefetched while the notice was read. */
 function beginCall() {
+  const consentAt = new Date().toISOString();
+  const consentVersion = state.consentVersion || 'v1-2026-09-28';
+  state.consent = { at: consentAt, version: consentVersion, privacyPolicyUrl: state.privacyPolicyUrl || null };
+  try { localStorage.setItem('ps_consent', JSON.stringify(state.consent)); } catch (e) {}
   state.stage = 'intake';
   render();
-  trackLeadProgress('discovery_started');
+  trackLeadProgress('discovery_started', { consent_at: consentAt, consent_version: consentVersion, privacy_policy_url: state.privacyPolicyUrl || null });
   startCall();
 }
 
@@ -1834,6 +1850,11 @@ function startView() {
     demoHtml = '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
       '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use the demo account</button>';
   }
+  let privacyLink = '';
+  if (state.privacyPolicyUrl) {
+    privacyLink = ' <a href="' + esc(state.privacyPolicyUrl) + '" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.';
+  }
+  const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Otto is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
   return '<div class="gate">' +
     '<div class="gate-theme">' + themeToggleMarkup('theme-switch-gate') + '</div>' +
     '<div class="gate-brand">' +
@@ -1850,8 +1871,6 @@ function startView() {
       '</div>' +
     '</div>' +
     '<div class="gate-side"><div class="gate-card hud-frame specular">' +
-      // Otto greets the visitor on the start screen, next to the button that starts the call. He is
-      // bare on the panel: the mascot carries no background of his own.
       '<div class="otto-hello">' +
         '<span class="otto-hello-fig">' + ottoFigureHtml('hello', 200) + '</span>' +
         ottoCopyLine(OTTO_COPY.greeting, 'otto-copy-hello') +
@@ -1865,6 +1884,7 @@ function startView() {
         '<div class="field"><label for="st-email">Work email <span class="req">Required</span></label>' +
           '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
         '</div>' +
+        entryNotice +
         turnstileHtml +
         '<p class="form-error" id="start-error" role="alert" hidden></p>' +
         '<button class="btn btn-primary btn-lg btn-block mt16" id="st-btn" type="submit">Start strategy session</button>' +
@@ -1967,6 +1987,10 @@ function bindStart() {
 
 /* ---------------- consent ---------------- */
 function consentView() {
+  let privacyLink = '';
+  if (state.privacyPolicyUrl) {
+    privacyLink = ' <a href="' + esc(state.privacyPolicyUrl) + '" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.';
+  }
   return '<div class="card consent-card hud-frame specular">' +
     '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>CONSENT</div>' +
     '<div class="otto-wait otto-wait-consent">' +
@@ -1974,9 +1998,10 @@ function consentView() {
       ottoCopyLine(OTTO_COPY.greeting) +
     '</div>' +
     '<h2>Ready to start?</h2>' +
-    '<div class="notice info">' +
+    '<p>You\'ll be speaking with Otto, an AI.</p>' +
+    '<div class="notice info" id="consent-notice">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
-      '<div><b>Privacy</b><br><span>OpenAI for the voice call. Audio is never stored.</span></div>' +
+      '<div>Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div>' +
     '</div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I agree to continue.</label>' +
     '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +

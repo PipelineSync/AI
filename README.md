@@ -59,6 +59,7 @@ Site configuration → **Environment variables** → **Add a variable**:
 | `HUBSPOT_DEAL_PIPELINE` | optional | Internal pipeline ID for new deals (sets `pipeline`). |
 | `HUBSPOT_DEAL_STAGE` | optional | Internal stage ID for new deals (sets `dealstage`). |
 | `HUBSPOT_OWNER_ID` | optional | HubSpot owner ID to set as `hubspot_owner_id` on new contacts and deals. |
+| `PRIVACY_POLICY_URL` | `https://...` | Privacy Policy URL, must be https. Returned by `/api/config` as `privacyPolicyUrl` and `consentVersion`. If unset, server logs warning and notice shown without link. **A real policy is required before public launch.** |
 | `PDF_EMAIL_API_KEY` | Resend API key (`re_...`) | **Emails the finished PDF** to the lead as an attachment, with a branded HTML body. Server-side only. Without it the feature is off and `deliver` returns `email:{sent:false,error}`, so the finish screen says to download instead of claiming a send. |
 | `PDF_EMAIL_FROM` | `PipelineSync AI <blueprints@yourdomain.com>` | The From header. **The domain must be verified in Resend (DNS records) before Resend delivers to anyone but the address that owns the account.** Use `onboarding@resend.dev` for testing only - see below. |
 | `PDF_EMAIL_SUBJECT` | optional | Subject template. `{first_name}`, `{name}`, `{vertical}`, `{tier}`, `{date}` are filled in; the default is `Your PipelineSync blueprint is attached`. |

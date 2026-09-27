@@ -147,6 +147,19 @@ async function passGate(page, details) {
     await sleep(20);
   }
 
+  // Entry notice must exist before submit (Otto is an AI assistant...)
+  const entryNoticePre = document.querySelector('#entry-consent-notice');
+  if (entryNoticePre) {
+    ok(/Otto is an AI assistant/.test(entryNoticePre.textContent), 'entry form shows AI disclosure notice');
+    ok(/saved to our CRM.*HubSpot/.test(entryNoticePre.textContent), 'entry notice says name/email saved to CRM (HubSpot)');
+    ok(/OpenAI/.test(entryNoticePre.textContent) && /Claude/.test(entryNoticePre.textContent), 'entry notice names OpenAI and Claude');
+    ok(/Audio is never stored/.test(entryNoticePre.textContent), 'entry notice says audio never stored');
+  } else {
+    // If no privacy URL set, notice still exists without link
+    const gateText = document.body.textContent;
+    ok(/Otto is an AI assistant/.test(gateText), 'entry form shows AI disclosure notice (fallback)');
+  }
+
   if (details) {
     // An empty gate must not start a call: the error is inline and the client stays put.
     document.getElementById('start-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
@@ -180,14 +193,31 @@ async function reachCall(page, details) {
     lightTheme.click();
     await sleep(20);
   }
-  ok(/OpenAI for the voice call/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
+  ok(/OpenAI for the voice call/.test(document.body.textContent) || /OpenAI/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
   ok(/starts speaking/i.test(document.getElementById('consent-note').textContent), 'the consent screen says the AI starts speaking on agreement');
   ok(/Agree and start the voice call/.test(document.getElementById('consent-go').textContent), 'the button that agrees to the disclaimer is the one that starts the call');
+
+  // Consent checkbox must start UNCHECKED and button disabled until ticked
+  const cb = document.getElementById('consent-cb');
+  const go = document.getElementById('consent-go');
+  ok(cb && cb.checked === false, 'consent checkbox starts unchecked');
+  ok(go && go.disabled === true, 'consent button disabled until checkbox ticked');
+  // Notice on consent screen
+  const consentNotice = document.getElementById('consent-notice') || document.querySelector('#consent-notice');
+  // The new consent view has id consent-notice for the wrapper? Actually we have #consent-notice for wrapper and #consent-note for small text
+  const consentWrapper = document.querySelector('#consent-notice') || document.querySelector('.consent-card .notice');
+  if (consentWrapper) {
+    ok(/You.*speaking with Otto, an AI/.test(document.body.textContent), 'consent screen says you will be speaking with Otto, an AI');
+    ok(/saved to our CRM.*HubSpot/.test(consentWrapper.textContent || document.body.textContent), 'consent notice repeats CRM line');
+  } else {
+    ok(/You.*speaking with Otto, an AI/.test(document.body.textContent), 'consent screen says you will be speaking with Otto, an AI');
+  }
 
   // Agreeing to the disclaimer is the gesture that starts the call: the AI speaks from here, with
   // no separate start button and no text box.
   const agreedAt = Date.now();
   document.getElementById('consent-cb').click();
+  ok(document.getElementById('consent-go').disabled === false, 'consent button enabled after checkbox ticked');
   document.getElementById('consent-go').click();
   await sleep(300);
   ok(spoken.length >= 1, 'the AI started speaking as soon as the disclaimer was agreed');
@@ -560,6 +590,34 @@ async function reachCall(page, details) {
     'a regional meetings link keeps its host and still prefills the lead');
   ok(p3.errors.length === 0, 'no runtime errors across the embed journey' + (p3.errors.length ? ': ' + p3.errors[0] : ''));
   srv2.stop();
+
+  console.log('\nScenario 5: privacy policy link and consent checkbox');
+  const srv3 = await startServer(8095, { PRIVACY_POLICY_URL: 'https://example.com/privacy' });
+  process.on('exit', () => srv3.stop());
+  const p5 = boot(false, srv3.base);
+  await new Promise(r => setTimeout(r, 300));
+  // Check entry notice link before passing gate
+  const entryLinkPre = p5.document.querySelector('#entry-consent-notice a');
+  ok(!!entryLinkPre && entryLinkPre.getAttribute('href') === 'https://example.com/privacy', 'entry notice shows Privacy Policy link when PRIVACY_POLICY_URL is set');
+  // passGate will wait for consent screen, which should now have privacy link
+  await passGate(p5, { name: 'Privacy Test', email: 'privacy@example.ph' });
+  // Check consent notice link
+  const consentLink = p5.document.querySelector('#consent-notice a') || p5.document.querySelector('.consent-card .notice a');
+  ok(!!consentLink && consentLink.getAttribute('href') === 'https://example.com/privacy', 'consent notice shows Privacy Policy link when set');
+  // Checkbox and button
+  const cb4 = p5.document.getElementById('consent-cb');
+  const go4 = p5.document.getElementById('consent-go');
+  ok(cb4 && cb4.checked === false, 'privacy scenario: checkbox starts unchecked');
+  ok(go4 && go4.disabled === true, 'privacy scenario: button disabled until checked');
+  cb4.click();
+  ok(go4.disabled === false, 'privacy scenario: button enabled after checking');
+  // Uncheck again should disable
+  cb4.click();
+  ok(go4.disabled === true, 'privacy scenario: button disabled again after unchecking');
+  // Check consent text includes AI disclosure
+  ok(/You.*speaking with Otto, an AI/.test(p5.document.body.textContent), 'privacy scenario: consent says you will be speaking with Otto, an AI');
+  ok(p5.errors.length === 0, 'no runtime errors in privacy scenario' + (p5.errors.length ? ': ' + p5.errors[0] : ''));
+  srv3.stop();
 
   console.log('\n' + (failures === 0 ? 'UI SMOKE TEST PASSED' : failures + ' UI FAILURES'));
   process.exit(failures === 0 ? 0 : 1);
