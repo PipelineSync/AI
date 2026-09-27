@@ -105,11 +105,13 @@ exports.handler = async (event) => {
     });
   } catch (e) {
     console.error('[entry] could not create lead:', e.message);
-    const configurationError = /PS_TOKEN_SECRET|required in production|needs SUPABASE|WORKSPACE_OWNER_ID/i.test(e.message || '');
-    return json(configurationError ? 500 : 503, {
-      error: configurationError
-        ? 'The lead database is not configured correctly.'
-        : 'We could not save your details right now. Please try again in a moment.'
-    });
+    const msg = e.message || '';
+    if (/PS_TOKEN_SECRET|required in production/i.test(msg)) {
+      return json(500, { error: 'Server configuration error: PS_TOKEN_SECRET is not set.' });
+    }
+    if (/SUPABASE|WORKSPACE_OWNER_ID/i.test(msg)) {
+      return json(500, { error: 'The lead database is not configured correctly.' });
+    }
+    return json(503, { error: 'We could not save your details right now. Please try again in a moment.' });
   }
 };

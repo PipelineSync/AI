@@ -18,7 +18,7 @@ exports.handler = async (event) => {
   try { auth = core.verifyToken(body.token); }
   catch (e) { return json(500, { error: 'Server session configuration is invalid.' }); }
   if (!auth) return json(401, { error: 'Your session has ended. Enter your name and email to start again.' });
-  if (!auth.lead_id || !leads.isEnabled(process.env)) return json(200, { ok: true, stored: false });
+  if (!auth.lead_id) return json(200, { ok: true, stored: false });
 
   const status = String(body.status || '');
   if (!CLIENT_STATUSES.has(status)) return json(400, { error: 'Invalid lead progress status.' });
@@ -29,6 +29,7 @@ exports.handler = async (event) => {
   if (status === 'consultation_requested') patch.consultation_requested_at = now;
 
   try {
+    if (!leads.isEnabled(process.env)) return json(200, { ok: true, stored: false });
     await leads.updateLead(auth.lead_id, patch, { env: process.env });
     if (status === 'discovery_started' || status === 'discovery_completed') {
       await leads.saveSession(auth.lead_id, {
@@ -54,6 +55,9 @@ exports.handler = async (event) => {
     return json(200, { ok: true, stored: true });
   } catch (e) {
     console.error('[lead-progress]', e.message);
+    if (/SUPABASE|WORKSPACE_OWNER_ID/i.test(e.message || '')) {
+      return json(500, { error: 'The lead database is not configured correctly.' });
+    }
     return json(503, { error: 'We could not save lead progress right now.' });
   }
 };

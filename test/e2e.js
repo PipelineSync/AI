@@ -2,6 +2,7 @@
    Self-contained: starts its own dedicated server instance via test/harness.js. */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { startServer, generateBlueprint } = require('./harness');
 let BASE;
 
@@ -96,7 +97,7 @@ async function get(p) {
     ok(text.includes('REVENUE OPERATIONS BLUEPRINT'), 'pdf contains title');
     ok(text.includes('Cost of inaction'), 'pdf contains cost of inaction section');
     if (key === 'solar') ok(text.includes('TCPA'), 'pdf contains TCPA flag');
-    fs.writeFileSync(path.join(__dirname, 'sample_' + key + '.pdf'), Buffer.from(buf));
+    fs.writeFileSync(path.join(os.tmpdir(), 'pipelinesync-sample_' + key + '.pdf'), Buffer.from(buf));
 
     // extract null-check: an answer-free run must return nulls
     const exNull = await post('/api/extract', { token: T, answers: answers.slice(0, 2) });
