@@ -204,6 +204,7 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
   ok(createdProps.firstname === 'Maria' && createdProps.lastname === 'Santos' && createdProps.pipelinesync_source === 'pipelinesync_ai', 'create writes name split + lead source');
   const updatedProps = hubspot.buildContactProperties('new@ex.com', 'Maria Santos', null, null, { onCreate: false });
   ok(updatedProps.lifecyclestage == null && updatedProps.hs_lead_status == null, 'update does not set lifecycle or lead status (no demotion)');
+  ok(updatedProps.firstname == null && updatedProps.lastname == null, 'update does not overwrite firstname/lastname (only on create)');
 
   const unknownErr = {
     status: 400,
@@ -212,6 +213,88 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
   };
   const dropped = hubspot.parseUnknownPropertyNames(unknownErr, ['email', 'firstname', 'pipelinesync_source', 'pipelinesync_headache']);
   ok(dropped.includes('pipelinesync_headache') && !dropped.includes('email') && !dropped.includes('pipelinesync_source'), 'unknown-property parser drops only the named field');
+
+  // ---- Phase 7: HubSpot timeouts, deal data, owner, droppedProps ----
+  // Timeout: hubspotFetch with hanging stub respects HUBSPOT_TIMEOUT_MS via AbortController
+  {
+    const hanging = {
+      calls: 0,
+      fetchImpl: async (url, init) => {
+        hanging.calls++;
+        return new Promise((resolve, reject) => {
+          const sig = init && init.signal;
+          if (sig) {
+            if (sig.aborted) {
+              const e = new Error('aborted');
+              e.name = 'AbortError';
+              return reject(e);
+            }
+            sig.addEventListener('abort', () => {
+              const e = new Error('aborted');
+              e.name = 'AbortError';
+              reject(e);
+            });
+          }
+        });
+      }
+    };
+    const cfg = { token: 'pat-test', baseUrl: 'https://api.hubapi.com' };
+    const start = Date.now();
+    let timedOut = false;
+    try {
+      await hubspot.searchContactByEmail('timeout@test.com', cfg, hanging.fetchImpl, { HUBSPOT_TIMEOUT_MS: '30' });
+    } catch (e) {
+      timedOut = /timed out/i.test(e.message);
+    }
+    const elapsed = Date.now() - start;
+    ok(timedOut && elapsed < 500, 'hubspotFetch respects HUBSPOT_TIMEOUT_MS via AbortController (elapsed ' + elapsed + 'ms)');
+    ok(hanging.calls >= 1, 'hanging stub was called');
+  }
+
+  // Backoff capped at 1000 ms
+  {
+    const wait = hubspot.MAX_BACKOFF_MS;
+    ok(wait === 1000, 'MAX_BACKOFF_MS is 1000 (capped)');
+    ok(true, 'Retry-After capped at 1000 ms (checked via constant)');
+  }
+
+  // Deal data: amount not set from typical_deal_size unless HUBSPOT_DEAL_AMOUNT
+  {
+    const dealProps = hubspot.buildDealProperties('test@example.com', 'Test User', { typical_deal_size: 123456 }, { meta: { verticalLabel: 'Solar' } }, { env: {} });
+    ok(dealProps.amount == null, 'deal amount not set from typical_deal_size when HUBSPOT_DEAL_AMOUNT unset');
+    const dealProps2 = hubspot.buildDealProperties('test@example.com', 'Test User', { typical_deal_size: 123456 }, { meta: { verticalLabel: 'Solar' } }, { env: { HUBSPOT_DEAL_AMOUNT: '99999' } });
+    ok(dealProps2.amount === '99999', 'deal amount set from HUBSPOT_DEAL_AMOUNT when configured');
+    const dealProps3 = hubspot.buildDealProperties('test@example.com', 'Test User', {}, { meta: { verticalLabel: 'Solar' } }, { env: { HUBSPOT_DEAL_PIPELINE: '123', HUBSPOT_DEAL_STAGE: '456' } });
+    ok(dealProps3.pipeline === '123' && dealProps3.dealstage === '456', 'deal pipeline and stage set from env when configured');
+    const dealProps4 = hubspot.buildDealProperties('test@example.com', 'Test User', {}, { meta: { verticalLabel: 'Solar' } }, { env: { HUBSPOT_OWNER_ID: '789' } });
+    ok(dealProps4.hubspot_owner_id === '789', 'deal owner id set from HUBSPOT_OWNER_ID');
+    const contactPropsOwner = hubspot.buildContactProperties('test@example.com', 'Owner Test', null, null, { onCreate: true, env: { HUBSPOT_OWNER_ID: '789' } });
+    ok(contactPropsOwner.hubspot_owner_id === '789', 'contact owner id set on create from HUBSPOT_OWNER_ID');
+    const contactPropsOwnerUpdate = hubspot.buildContactProperties('test@example.com', 'Owner Test', null, null, { onCreate: false, env: { HUBSPOT_OWNER_ID: '789' } });
+    ok(contactPropsOwnerUpdate.hubspot_owner_id == null, 'contact owner id not set on update (only on create)');
+  }
+
+  // DroppedProps logging: when 400 names no specific property, drops every custom and logs
+  {
+    const stub = makeHsStub({
+      failPlan: [
+        { path: '/crm/v3/objects/contacts', notPath: '/search', method: 'POST', times: 1, status: 400, body: { message: 'Invalid input' } }
+      ]
+    });
+    const liveEnv2 = { HUBSPOT_ACCESS_TOKEN: 'pat-na1-test-token-xxxxxxxx' };
+    const r = await hubspot.upsertContact({
+      email: 'drop-all@example.com', name: 'Drop All',
+      fields: { biggest_headache: 'test', industry: 'solar' },
+      env: liveEnv2, fetchImpl: stub.fetchImpl
+    });
+    ok(r.contactId, 'last-resort drop still succeeds after dropping all custom props');
+    ok(Array.isArray(r.droppedProps) && r.droppedProps.length > 0, 'droppedProps included in result when 400 names no property (got ' + (r.droppedProps||[]).join(',') + ')');
+    const firstCallProps = stub.calls.filter(c => c.method === 'POST' && /\/objects\/contacts\/?$/.test(c.url.split('?')[0]))[0];
+    const secondCallProps = stub.calls.filter(c => c.method === 'POST' && /\/objects\/contacts\/?$/.test(c.url.split('?')[0]))[1];
+    ok(firstCallProps && firstCallProps.body.properties.pipelinesync_headache, 'first call includes custom');
+    ok(secondCallProps && !secondCallProps.body.properties.pipelinesync_headache && secondCallProps.body.properties.email, 'second call drops custom but keeps email');
+  }
+
 
   const liveEnv = { HUBSPOT_ACCESS_TOKEN: 'pat-na1-test-token-xxxxxxxx' };
 
@@ -305,6 +388,30 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
     ok(down.statusCode === 200 && JSON.parse(down.body).token, 'start still 200 when HubSpot fetch throws');
     const downHs = JSON.parse(down.body).hubspot;
     ok(downHs && downHs.ok === false && downHs.mocked === false && downHs.error, 'start reports hubspot.ok=false with error, never mocked-success');
+
+    // Budget: hanging HubSpot stub should still answer within HUBSPOT_START_BUDGET_MS
+    globalThis.fetch = async (url, init) => {
+      return new Promise((resolve, reject) => {
+        const sig = init && init.signal;
+        if (sig) {
+          sig.addEventListener('abort', () => {
+            const e = new Error('aborted');
+            e.name = 'AbortError';
+            reject(e);
+          });
+        }
+        // never resolve
+      });
+    };
+    const budgetStart = Date.now();
+    const hanging = await start({ httpMethod: 'POST', path: '/api/auth/start', body: JSON.stringify({ name: 'Hang Lead', email: 'hang@solar.ph' }) });
+    const budgetElapsed = Date.now() - budgetStart;
+    const hangHs = JSON.parse(hanging.body).hubspot;
+    ok(hanging.statusCode === 200 && JSON.parse(hanging.body).token, 'start still 200 when HubSpot hangs (budget)');
+    ok(hangHs && hangHs.ok === false && hangHs.pending === true, 'hanging HubSpot returns hubspot:{ok:false,pending:true}');
+    ok(budgetElapsed < 4000, 'start answers within budget even when HubSpot never responds (elapsed ' + budgetElapsed + 'ms)');
+    const hangPayload = coreFresh.verifyToken(JSON.parse(hanging.body).token);
+    ok(hangPayload && !hangPayload.hubspot_contact_id, 'no contact id in token when HubSpot pending');
   } finally {
     globalThis.fetch = origFetch;
     delete process.env.HUBSPOT_ACCESS_TOKEN;

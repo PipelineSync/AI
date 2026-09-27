@@ -12,12 +12,23 @@
  *    BEFORE any Supabase or HubSpot write. Failure → 403.
  *  - Demo mode behind DEMO_MODE=true: only then does /api/config return demoMode:true and the UI
  *    show demo controls. When off, demo@pipelinesync.ai is rejected.
+ *
+ * HubSpot reliability (Phase 7):
+ *  - captureLead has a total budget HUBSPOT_START_BUDGET_MS (default 3500). If it runs out,
+ *    respond normally with hubspot:{ok:false,pending:true} and no contact id in token.
+ *  - Deliver already finds or creates the contact by email later.
  */
 const core = require('../../lib/core');
 const leads = require('../../lib/supabase-leads');
 const hubspot = require('../../lib/hubspot');
 const turnstile = require('../../lib/turnstile');
 const { bodyOf, json, checkRateLimit, getClientIp } = require('../../lib/netlify-helpers');
+
+function parseBudget(env) {
+  const raw = String((env || process.env).HUBSPOT_START_BUDGET_MS || '').trim();
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 3500;
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -49,19 +60,38 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Save first so a successful response always represents a captured lead.
-    // With no Supabase variables (local tests/demos), createLead intentionally returns null.
     const lead = await leads.createLead(entry.name, entry.email, { env: process.env });
     if (lead) await leads.addEvent(lead.id, 'lead_signed_up', { source: 'pipelinesync_ai' }, { env: process.env });
-    // HubSpot at capture must never fail the entry gate. Search-or-create the contact and
-    // report the outcome; a missing token is mocked, a live error is returned as hubspot.ok=false.
-    const hubspotInfo = await hubspot.captureLead({
-      email: entry.email, name: entry.name, env: process.env, fetchImpl: globalThis.fetch
-    });
+
+    // HubSpot at capture must never fail the entry gate and must respect total budget.
+    const budgetMs = parseBudget(process.env);
+    let hubspotInfo;
+    try {
+      const capturePromise = hubspot.captureLead({
+        email: entry.email, name: entry.name, env: process.env, fetchImpl: globalThis.fetch
+      });
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          const err = new Error('HubSpot start budget exceeded');
+          err.code = 'BUDGET_EXCEEDED';
+          reject(err);
+        }, budgetMs);
+      });
+      hubspotInfo = await Promise.race([capturePromise, timeoutPromise]);
+    } catch (e) {
+      if (e && e.code === 'BUDGET_EXCEEDED') {
+        console.warn('[entry] HubSpot captureLead budget exceeded after ' + budgetMs + 'ms, returning pending');
+        hubspotInfo = { ok: false, mocked: false, pending: true, error: 'HubSpot timeout (budget ' + budgetMs + 'ms)' };
+      } else {
+        console.warn('[entry] HubSpot captureLead failed within budget:', e.message);
+        hubspotInfo = { ok: false, mocked: false, error: e.message };
+      }
+    }
+
     const token = core.signToken({
       email: entry.email, name: entry.name,
       lead_id: lead && lead.id ? lead.id : null,
-      hubspot_contact_id: hubspotInfo && hubspotInfo.contactId ? hubspotInfo.contactId : null,
+      hubspot_contact_id: hubspotInfo && hubspotInfo.contactId && !hubspotInfo.pending ? hubspotInfo.contactId : null,
       exp: Date.now() + core.TOKEN_TTL_MS
     });
     return json(200, {

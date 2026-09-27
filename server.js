@@ -242,14 +242,41 @@ async function handleApi(req, res, url) {
     try {
       const lead = await leads.createLead(entry.name, entry.email, { env: process.env });
       if (lead) await leads.addEvent(lead.id, 'lead_signed_up', { source: 'pipelinesync_ai' }, { env: process.env });
-      // HubSpot at capture must never fail the entry gate.
-      const hubspotInfo = await hubspot.captureLead({
-        email: entry.email, name: entry.name, env: process.env, fetchImpl: fetch
-      });
+
+      // HubSpot at capture must never fail the entry gate and must respect total budget.
+      const parseBudget = () => {
+        const raw = String(process.env.HUBSPOT_START_BUDGET_MS || '').trim();
+        const n = parseInt(raw, 10);
+        return Number.isFinite(n) && n > 0 ? n : 3500;
+      };
+      const budgetMs = parseBudget();
+      let hubspotInfo;
+      try {
+        const capturePromise = hubspot.captureLead({
+          email: entry.email, name: entry.name, env: process.env, fetchImpl: fetch
+        });
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            const err = new Error('HubSpot start budget exceeded');
+            err.code = 'BUDGET_EXCEEDED';
+            reject(err);
+          }, budgetMs);
+        });
+        hubspotInfo = await Promise.race([capturePromise, timeoutPromise]);
+      } catch (e) {
+        if (e && e.code === 'BUDGET_EXCEEDED') {
+          console.warn('[entry] HubSpot captureLead budget exceeded after ' + budgetMs + 'ms, returning pending');
+          hubspotInfo = { ok: false, mocked: false, pending: true, error: 'HubSpot timeout (budget ' + budgetMs + 'ms)' };
+        } else {
+          console.warn('[entry] HubSpot captureLead failed within budget:', e.message);
+          hubspotInfo = { ok: false, mocked: false, error: e.message };
+        }
+      }
+
       const token = core.signToken({
         email: entry.email, name: entry.name,
         lead_id: lead && lead.id ? lead.id : null,
-        hubspot_contact_id: hubspotInfo && hubspotInfo.contactId ? hubspotInfo.contactId : null,
+        hubspot_contact_id: hubspotInfo && hubspotInfo.contactId && !hubspotInfo.pending ? hubspotInfo.contactId : null,
         exp: Date.now() + core.TOKEN_TTL_MS
       });
       return sendJson(res, 200, {
