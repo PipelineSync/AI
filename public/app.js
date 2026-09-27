@@ -38,6 +38,54 @@ const store = {
   get: k => { try { return window.localStorage.getItem(k); } catch (e) { return memStore[k] != null ? memStore[k] : null; } },
   set: (k, v) => { try { window.localStorage.setItem(k, v); } catch (e) { memStore[k] = v; } }
 };
+const sessionStore = {
+  get: k => { try { return window.sessionStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { window.sessionStorage.setItem(k, v); } catch (e) {} },
+  remove: k => { try { window.sessionStorage.removeItem(k); } catch (e) {} }
+};
+const KNOWN_STAGES = new Set(['consent','intake','extracting','review','generating','blueprint','booking','done']);
+function saveJourneyState() {
+  if (!state.token) return;
+  try {
+    const data = {
+      stage: state.stage,
+      answers: state.answers,
+      fields: state.fields,
+      jobId: state.jobId
+    };
+    sessionStore.set('ps_journey', JSON.stringify(data));
+  } catch (e) {}
+}
+function restoreJourneyState() {
+  if (!state.token) return false;
+  try {
+    const raw = sessionStore.get('ps_journey');
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') return false;
+    let restored = false;
+    if (data.stage && typeof data.stage === 'string' && KNOWN_STAGES.has(data.stage)) {
+      state.stage = data.stage;
+      restored = true;
+    }
+    if (Array.isArray(data.answers)) {
+      state.answers = data.answers;
+      restored = true;
+    }
+    if (data.fields && typeof data.fields === 'object') {
+      state.fields = data.fields;
+      restored = true;
+    }
+    if (data.jobId && typeof data.jobId === 'string') {
+      state.jobId = data.jobId;
+      restored = true;
+    }
+    return restored;
+  } catch (e) {
+    return false;
+  }
+}
+
 
 /* The 12-question interview plan, the field labels and the three required fields all live in
    lib/voice.js and arrive from /api/voice/session, so the voice layer and the screen cannot drift
@@ -158,6 +206,7 @@ function resetJourney() {
   state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
   state.fieldErrors = null; state.progress = null; state.blueprintSource = null;
   state.emailVerify = { code: '', sending: false, sent: false, error: null };
+  sessionStore.remove('ps_journey');
 }
 
 /* ---------------- api ---------------- */
@@ -1387,7 +1436,7 @@ function recordAnswer(id, text, replace) {
   if (!id) return;
   text = String(text == null ? '' : text).slice(0, MAX_CHARS);   // same ceiling the server enforces
   const prev = state.answers.find(a => a.id === id);
-  if (!prev) { state.answers.push({ id, text: text }); return; }
+  if (!prev) { state.answers.push({ id, text: text }); saveJourneyState(); return; }
   if (replace) prev.text = text;
   else prev.text = (String(prev.text || '').trim() + ' ' + String(text || '').trim()).trim();
 }
@@ -1401,7 +1450,7 @@ function unrecordAnswer(id, text) {
   if (!a) return;
   const keep = String(a.text || '').split(String(text)).join(' ').replace(/\s+/g, ' ').trim();
   if (keep) a.text = keep;
-  else state.answers = state.answers.filter(x => x.id !== id);
+  else state.answers = state.answers.filter(x => x.id !== id); saveJourneyState();
 }
 function buildTurnBody(lastAnswer) {
   const v = voiceSync();
@@ -1725,12 +1774,16 @@ function ottoErrorHtml() {
 /* ---------------- rendering ---------------- */
 function render() {
   const app = $('#app');
-  // Keep the signed-in workspace inside a fixed dashboard viewport. Long content is handled by
-  // the active panel rather than making the browser page itself scroll.
   document.body.classList.toggle('entry-screen', !state.token);
   document.body.classList.toggle('app-screen', !!state.token);
   document.body.dataset.theme = state.theme;
   document.documentElement.style.colorScheme = state.theme;
+  // With a valid token, never show blank: unknown stage falls back to consent
+  if (state.token) {
+    if (!KNOWN_STAGES.has(state.stage)) {
+      state.stage = 'consent';
+    }
+  }
   document.body.dataset.stage = state.token ? state.stage : 'start';
   if (!state.token) { app.innerHTML = startView(); return; }
   let h = topbar() + '<main class=\"main\" id=\"main-content\" tabindex=\"-1\">' + steps();
@@ -1743,9 +1796,11 @@ function render() {
     case 'blueprint': h += blueprintView(); break;
     case 'booking': h += bookingView(); break;
     case 'done': h += doneView(); break;
+    default: h += consentView(); break;
   }
   h += '</main>' + footer();
   app.innerHTML = h;
+  saveJourneyState();
   if (state.stage === 'intake') afterCallRender();
   if (state.stage === 'blueprint') animateNumbers();
 }
@@ -2793,7 +2848,7 @@ function checkRefocus(id) {
   }
 }
 async function startGeneration(fields) {
-  state.fields = fields;
+  state.fields = fields; saveJourneyState();
   state.stage = 'generating';
   // Real progress: the server reports the step it is actually on. No timed animation,
   // and the blueprint screen is only shown when the API says the job is done.
@@ -3797,6 +3852,12 @@ function routeBindings() {
 function boot() {
   armPageExitGuard();
   fetchSchedulerLink();
+  if (state.token) {
+    const restored = restoreJourneyState();
+    if (!restored) {
+      state.stage = 'consent';
+    }
+  }
   render();
   routeBindings();
 }

@@ -531,7 +531,7 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
     ok(live.statusCode === 200 && liveBj.ok === true && liveBj.recorded.hubspot.ok === true && liveBj.recorded.hubspot.contactId, 'lead-booked with HubSpot configured records the booking note');
     const notePost = stub.calls.filter(c => c.method === 'POST' && c.url.indexOf('/objects/notes') >= 0)[0];
     const noteBody = notePost && notePost.body && notePost.body.properties && notePost.body.properties.hs_note_body;
-    ok(/Consultation booked/.test(noteBody || '') && /2026-10-01/.test(noteBody || ''), 'the booking note names the consultation and the date');
+    ok(/Consultation booking reported by the website \(confirm in HubSpot Meetings\)/.test(noteBody || '') && /2026-10-01/.test(noteBody || '') && /Reported by the website; the HubSpot meeting record is the source of truth\./.test(noteBody || ''), 'the booking note carries the reported-by-website title, the date, and the source-of-truth footer');
     const noteAssoc = stub.calls.filter(c => c.method === 'PUT' && /\/notes\/\d+\/associations\/contacts\//.test(c.url));
     const assocId = noteAssoc[0] && noteAssoc[0].body && noteAssoc[0].body[0] && noteAssoc[0].body[0].associationTypeId;
     ok(assocId === 202, 'the booking note is associated to the contact with type 202');
