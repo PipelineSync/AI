@@ -244,8 +244,8 @@ async function reachCall(page, details) {
   // Brand: the header lockup on every screen, and the live call panel the brand sheet specifies.
   ok(!!d1.querySelector('.topbar .brand-logo svg[aria-label="PipelineSync AI"]'), 'the header carries the logo lockup on the call screen');
   ok(!!d1.querySelector('.otto-live .otto-live-fig svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto is on the call screen, bare on the panel');
-  ok(/^OTTO \u00b7 QUESTION \d+ OF \d+$/.test((d1.querySelector('.otto-label') || {}).textContent || ''),
-    'the live label names Otto and the question count (' + ((d1.querySelector('.otto-label') || {}).textContent || '') + ')');
+  ok(/^Question \d+ of \d+$/.test((d1.querySelector('#call-progress') || {}).textContent || ''),
+    'the call header tracks the question count (' + ((d1.querySelector('#call-progress') || {}).textContent || '') + ')');
   ok(d1.querySelectorAll('.otto-wave .otto-wave-bar').length === 9, 'the animated waveform sits under the question');
   // The ring and the waveform follow the live state, which alternates while the call runs, so the
   // test samples the call rather than reading one instant of it.

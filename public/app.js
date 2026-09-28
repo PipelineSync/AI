@@ -1856,10 +1856,17 @@ function topbar() {
 /* The step rail doubles as the progress bar: a compact count on phones, the full rail on
    desktop. Labels are wrapped in .label so CSS can drop them at narrow widths. */
 function steps() {
-  const order = ['intake', 'review', 'blueprint', 'done', 'booking'];
-  const idx = state.stage === 'consent' ? 0 : state.stage === 'extracting' ? 1 : order.indexOf(state.stage);
+  /* The rail mirrors the journey order, not alphabetical stage names: the same
+     label has to light up for every stage inside one phase, and the progress
+     must never move backwards. consent/intake share "Discovery", extracting is
+     the gap-analysis pass, review is "Review signals", generating + blueprint
+     are "Blueprint", and booking + done are the final "Next Steps". */
+  const order = ['intake', 'extracting', 'review', 'blueprint', 'booking', 'done'];
+  const phaseOf = { consent: 0, intake: 0, extracting: 1, generating: 3 };
+  let idx = phaseOf[state.stage];
+  if (idx === undefined) idx = order.indexOf(state.stage);
   const labels = ['Discovery', 'Gap Analysis', 'Review', 'Blueprint', 'Next Steps'];
-  const at = Math.max(0, Math.min(labels.length - 1, idx));
+  const at = Math.max(0, Math.min(labels.length - 1, idx < 0 ? 0 : idx));
   const pct = Math.max(0, Math.min(100, Math.round(((at + 1) / labels.length) * 100)));
   let h = '<nav class="steps" aria-label="Progress">' +
     '<p class="steps-count">Step ' + (at + 1) + ' of ' + labels.length +
@@ -2103,26 +2110,6 @@ function callModeLabel(v) {
   if (v.mode === 'openai') return v.rtFallback ? 'ChatGPT voice (the live call fell back to step by step)' : 'ChatGPT voice';
   return 'Simulated voice';
 }
-const QUESTION_TOPICS = {
-  business: 'Business overview & target audience',
-  products: 'Products, pricing & prerequisite milestones',
-  deal: 'Deal size & sales team capacity',
-  fulfilment: 'Service delivery & team headcount',
-  owner: 'Marketing & operational leadership',
-  close: 'Sales motion & buying journey',
-  sources: 'Lead acquisition channels & tracking',
-  capture: 'Lead capture & CRM infrastructure',
-  volumes: 'Lead volume, conversion rate & cycle speed',
-  spend: 'Marketing investment & software budget',
-  headache: 'Operational bottlenecks & friction',
-  goal: 'Growth targets & six-month milestones'
-};
-const TRACK_LABELS = [
-  'Overview', 'Products', 'Deal size', 'Fulfilment',
-  'Leadership', 'Sales motion', 'Lead sources', 'CRM stack',
-  'Conversion', 'Budgets', 'Bottlenecks', 'Growth goal'
-];
-
 function voiceOrbHtml(status, listening) {
   const st = esc(status || 'idle');
   const isSpeakingOrListening = status === 'speaking' || listening;
@@ -2160,28 +2147,12 @@ function callView() {
   const aiLine = v.lastLine || OTTO_COPY.greeting;
   const youLine = v.interim || v.lastHeard || '';
 
-  const curQId = v.currentQuestionId || (plan[answered] && plan[answered].id) || 'business';
-  const topic = QUESTION_TOPICS[curQId] || 'Business Discovery';
-
-  let trackHtml = '<div class="business-track" role="list" aria-label="Discovery topics">';
-  for (let i = 0; i < total; i++) {
-    const isDone = i < answered;
-    const isCur = i === answered && started && !v.done;
-    const cls = isDone ? 'track-done' : (isCur ? 'track-active' : 'track-inactive');
-    const label = TRACK_LABELS[i] || ('Topic ' + (i + 1));
-    trackHtml += '<div class="track-step ' + cls + '" role="listitem">' +
-      '<span class="track-dot" aria-hidden="true"></span>' +
-      '<span class="track-name">' + esc(label) + '</span></div>';
-  }
-  trackHtml += '</div>';
-
   /* The live call screen the brand sheet asks for: Otto on the left, bare on the panel, with the
-     orange pulsing ring, and on the right the label, the question in large type and the animated
-     waveform. Everything below it - the controls, the progress track, the captured signals - is
-     unchanged. Otto's pose is the state the call is already in. */
+     orange pulsing ring, and on the right the question in large type and the animated waveform.
+     Everything below it - the controls, the progress bar, the captured signals - is unchanged.
+     Otto's pose is the state the call is already in. */
   const waveOn = ottoWaveOn();
   const ottoPose = ottoPoseNow();
-  const qNow = Math.min(answered + 1, total);
   const ottoLine = v.rtNotice ? v.rtNotice : (v.error ? '' : (!started ? OTTO_COPY.greeting : (v.listening || waveOn ? OTTO_COPY.listening : '')));
 
   let h = '<div class="intake-wrap"><div class="call hud-frame' + (waveOn ? ' otto-wave-live' : '') + '">' +
@@ -2191,12 +2162,9 @@ function callView() {
       '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress<span class="side-toggle-count">' + answered + '/' + total + '</span></button></div></div>' +
     '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
     '<div class="call-body">' +
-      trackHtml +
-      '<div class="topic-chip"><span class="dot" aria-hidden="true"></span> ' + esc(topic) + '</div>' +
       '<div class="otto-live">' +
         '<div class="otto-live-fig' + (waveOn ? ' otto-ringing' : '') + '" data-pose="' + ottoPose + '">' + OttoAvatar({ pose: ottoPose, size: ottoLiveSize(), ring: true }) + '</div>' +
         '<div class="otto-live-main">' +
-          '<div class="otto-label" id="otto-label">OTTO &middot; QUESTION ' + qNow + ' OF ' + total + '</div>' +
           '<div class="otto-question" id="ai-line" aria-live="polite">' + esc(aiLine) + '</div>' +
           ottoWaveHtml('otto-wave') +
           (ottoLine ? ottoCopyLine(ottoLine) : '') +
@@ -2340,6 +2308,11 @@ function updateLiveLine() {
   const txt = v.interim || v.lastHeard || '';
   el.textContent = txt || 'Your answer appears here as you speak.';
   el.className = 'line you' + (txt ? '' : ' empty');
+  // The call body scrolls on short screens: keep the live answer line in view
+  // while the visitor speaks, without moving anything they are reading.
+  if (txt && typeof el.scrollIntoView === 'function') {
+    try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* older engines: plain call */ try { el.scrollIntoView(); } catch (e2) {} }
+  }
 }
 function bindCall() {
   const v = voiceSync();
