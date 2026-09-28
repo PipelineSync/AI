@@ -2110,26 +2110,6 @@ function callModeLabel(v) {
   if (v.mode === 'openai') return v.rtFallback ? 'ChatGPT voice (the live call fell back to step by step)' : 'ChatGPT voice';
   return 'Simulated voice';
 }
-const QUESTION_TOPICS = {
-  business: 'Business overview & target audience',
-  products: 'Products, pricing & prerequisite milestones',
-  deal: 'Deal size & sales team capacity',
-  fulfilment: 'Service delivery & team headcount',
-  owner: 'Marketing & operational leadership',
-  close: 'Sales motion & buying journey',
-  sources: 'Lead acquisition channels & tracking',
-  capture: 'Lead capture & CRM infrastructure',
-  volumes: 'Lead volume, conversion rate & cycle speed',
-  spend: 'Marketing investment & software budget',
-  headache: 'Operational bottlenecks & friction',
-  goal: 'Growth targets & six-month milestones'
-};
-const TRACK_LABELS = [
-  'Overview', 'Products', 'Deal size', 'Fulfilment',
-  'Leadership', 'Sales motion', 'Lead sources', 'CRM stack',
-  'Conversion', 'Budgets', 'Bottlenecks', 'Growth goal'
-];
-
 function voiceOrbHtml(status, listening) {
   const st = esc(status || 'idle');
   const isSpeakingOrListening = status === 'speaking' || listening;
@@ -2167,28 +2147,12 @@ function callView() {
   const aiLine = v.lastLine || OTTO_COPY.greeting;
   const youLine = v.interim || v.lastHeard || '';
 
-  const curQId = v.currentQuestionId || (plan[answered] && plan[answered].id) || 'business';
-  const topic = QUESTION_TOPICS[curQId] || 'Business Discovery';
-
-  let trackHtml = '<div class="business-track" role="list" aria-label="Discovery topics">';
-  for (let i = 0; i < total; i++) {
-    const isDone = i < answered;
-    const isCur = i === answered && started && !v.done;
-    const cls = isDone ? 'track-done' : (isCur ? 'track-active' : 'track-inactive');
-    const label = TRACK_LABELS[i] || ('Topic ' + (i + 1));
-    trackHtml += '<div class="track-step ' + cls + '" role="listitem">' +
-      '<span class="track-dot" aria-hidden="true"></span>' +
-      '<span class="track-name">' + esc(label) + '</span></div>';
-  }
-  trackHtml += '</div>';
-
   /* The live call screen the brand sheet asks for: Otto on the left, bare on the panel, with the
-     orange pulsing ring, and on the right the label, the question in large type and the animated
-     waveform. Everything below it - the controls, the progress track, the captured signals - is
-     unchanged. Otto's pose is the state the call is already in. */
+     orange pulsing ring, and on the right the question in large type and the animated waveform.
+     Everything below it - the controls, the progress bar, the captured signals - is unchanged.
+     Otto's pose is the state the call is already in. */
   const waveOn = ottoWaveOn();
   const ottoPose = ottoPoseNow();
-  const qNow = Math.min(answered + 1, total);
   const ottoLine = v.rtNotice ? v.rtNotice : (v.error ? '' : (!started ? OTTO_COPY.greeting : (v.listening || waveOn ? OTTO_COPY.listening : '')));
 
   let h = '<div class="intake-wrap"><div class="call hud-frame' + (waveOn ? ' otto-wave-live' : '') + '">' +
@@ -2198,12 +2162,9 @@ function callView() {
       '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress<span class="side-toggle-count">' + answered + '/' + total + '</span></button></div></div>' +
     '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
     '<div class="call-body">' +
-      trackHtml +
-      '<div class="topic-chip"><span class="dot" aria-hidden="true"></span> ' + esc(topic) + '</div>' +
       '<div class="otto-live">' +
         '<div class="otto-live-fig' + (waveOn ? ' otto-ringing' : '') + '" data-pose="' + ottoPose + '">' + OttoAvatar({ pose: ottoPose, size: ottoLiveSize(), ring: true }) + '</div>' +
         '<div class="otto-live-main">' +
-          '<div class="otto-label" id="otto-label">OTTO &middot; QUESTION ' + qNow + ' OF ' + total + '</div>' +
           '<div class="otto-question" id="ai-line" aria-live="polite">' + esc(aiLine) + '</div>' +
           ottoWaveHtml('otto-wave') +
           (ottoLine ? ottoCopyLine(ottoLine) : '') +

@@ -1911,19 +1911,6 @@ input:-webkit-autofill:focus {
   border-radius: var(--r-pill);
 }
 
-/* Question in Focus */
-.topic-chip {
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--cyan);
-  background: rgba(34, 211, 238, 0.08);
-  border: 1px solid rgba(34, 211, 238, 0.25);
-  border-radius: var(--r-pill);
-  padding: 4px 12px;
-  margin-bottom: 0.25rem;
-}
 .call .line {
   max-width: 720px;
   width: 100%;
@@ -2614,69 +2601,6 @@ input:-webkit-autofill:focus {
   font-size: 1.1rem;
 }
 
-/* Luminous Business Track */
-.business-track {
-  display: flex;
-  gap: 0.35rem;
-  overflow-x: auto;
-  padding: 0.5rem 0;
-  margin-bottom: 1rem;
-  width: 100%;
-  scrollbar-width: thin;
-}
-.track-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
-  font-size: 0.75rem;
-  white-space: nowrap;
-  transition: all 0.2s ease;
-  background: rgba(255, 255, 255, 0.02);
-}
-.track-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--deco);
-  flex-shrink: 0;
-}
-.track-name {
-  font-family: var(--mono);
-  color: var(--deco);
-}
-.track-done {
-  border-color: rgba(52, 211, 153, 0.35);
-  background: rgba(52, 211, 153, 0.06);
-}
-.track-done .track-dot {
-  background: var(--emerald);
-  box-shadow: 0 0 6px var(--emerald);
-}
-.track-done .track-name {
-  color: var(--ink-2);
-}
-.track-active {
-  border-color: rgba(34, 211, 238, 0.55);
-  background: rgba(34, 211, 238, 0.1);
-  box-shadow: 0 0 12px rgba(34, 211, 238, 0.2);
-}
-.track-active .track-dot {
-  background: var(--cyan);
-  box-shadow: 0 0 8px var(--cyan);
-}
-.track-active .track-name {
-  color: var(--cyan);
-  font-weight: 600;
-}
-.track-inactive {
-  border-color: var(--line);
-  color: var(--deco);
-  opacity: 0.65;
-}
-
 /* Quick Personas Bar */
 .quick-personas {
   display: flex;
@@ -3139,29 +3063,12 @@ img, video, canvas {
   max-width: 100%;
 }
 
-/* The topic track is an overview, not a carousel. Wrapping it prevents its
-   twelve intrinsic-width labels from forcing the call panel off screen. */
-.business-track {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
-  overflow: visible;
-  padding: 0;
-}
-.track-step {
-  min-width: 0;
-  white-space: normal;
-}
-.track-name {
-  overflow-wrap: anywhere;
-}
-
 .chat-input textarea {
   min-width: 0;
   width: auto;
 }
 
-.tbl-wrap,
-.business-track {
+.tbl-wrap {
   max-width: 100%;
 }
 .tbl-wrap {
@@ -3369,12 +3276,6 @@ img, video, canvas {
     flex: 1 1 130px;
   }
 
-  .business-track {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .track-step {
-    padding-inline: 0.5rem;
-  }
   .voice-orb-container {
     max-width: 100%;
   }
@@ -3386,9 +3287,6 @@ img, video, canvas {
   }
   .side-toggle-count {
     display: none;
-  }
-  .business-track {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -3902,16 +3800,6 @@ body.app-screen[data-stage="intake"] .call-body {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
-body.app-screen[data-stage="intake"] .business-track {
-  flex: 0 0 auto;
-  margin-bottom: 0;
-  padding: 0;
-  gap: 0.25rem;
-}
-body.app-screen[data-stage="intake"] .track-step {
-  padding: 0.25rem 0.45rem;
-  font-size: 0.65rem;
-}
 body.app-screen[data-stage="intake"] .voice-orb-container {
   width: 128px;
   height: 128px;
@@ -4153,9 +4041,6 @@ body.app-screen[data-stage="done"] .done-card {
   }
   body.app-screen[data-stage="review"] .field.review-full {
     grid-column: auto;
-  }
-  body.app-screen[data-stage="intake"] .business-track {
-    display: none;
   }
   body.app-screen[data-stage="intake"] .call-body {
     padding: 0.55rem;
@@ -4448,7 +4333,6 @@ body[data-theme="light"] .side-card {
 }
 body[data-theme="light"] .userchip,
 body[data-theme="light"] .step,
-body[data-theme="light"] .track-step,
 body[data-theme="light"] .side-chip,
 body[data-theme="light"] .call .line.you,
 body[data-theme="light"] .call-note,
@@ -4483,7 +4367,6 @@ body[data-theme="light"] .bubble.ai {
   color: #0B5268;
 }
 body[data-theme="light"] .call-status,
-body[data-theme="light"] .topic-chip,
 body[data-theme="light"] .telemetry-chip {
   background: rgba(7, 122, 149, 0.08);
 }
@@ -4530,7 +4413,6 @@ body[data-theme="light"] a:hover {
   color: var(--cyan);
   text-shadow: none;
 }
-body[data-theme="light"] .track-name,
 body[data-theme="light"] .stage-arrow {
   color: var(--deco);
 }
@@ -4810,14 +4692,6 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   text-align: left;
 }
 .otto-live-fig { flex: 0 0 auto; display: inline-flex; }
-.otto-label {
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--sync-orange);
-}
 .otto-live-main {
   min-width: 0;
   display: flex;

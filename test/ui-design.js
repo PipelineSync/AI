@@ -257,7 +257,7 @@ for (const line of [
   ok(ottoJs.indexOf(JSON.stringify(line).slice(1, -1)) >= 0, 'Otto says: ' + line.slice(0, 42) + '...');
 }
 ok(!/\bAlex\b/.test(appJs), 'the UI no longer calls the interviewer Alex');
-ok(/<b>Otto<\/b>/.test(appJs) && /OTTO &middot; QUESTION/.test(appJs), 'the call screen names Otto and the question count');
+ok(/<b>Otto<\/b>/.test(appJs) && /id="call-progress"/.test(appJs), 'the call screen names Otto and tracks question progress');
 
 /* ------------------------------------------------------------------ */
 section('touch targets on phones');
