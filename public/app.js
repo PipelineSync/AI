@@ -1856,10 +1856,17 @@ function topbar() {
 /* The step rail doubles as the progress bar: a compact count on phones, the full rail on
    desktop. Labels are wrapped in .label so CSS can drop them at narrow widths. */
 function steps() {
-  const order = ['intake', 'review', 'blueprint', 'done', 'booking'];
-  const idx = state.stage === 'consent' ? 0 : state.stage === 'extracting' ? 1 : order.indexOf(state.stage);
+  /* The rail mirrors the journey order, not alphabetical stage names: the same
+     label has to light up for every stage inside one phase, and the progress
+     must never move backwards. consent/intake share "Discovery", extracting is
+     the gap-analysis pass, review is "Review signals", generating + blueprint
+     are "Blueprint", and booking + done are the final "Next Steps". */
+  const order = ['intake', 'extracting', 'review', 'blueprint', 'booking', 'done'];
+  const phaseOf = { consent: 0, intake: 0, extracting: 1, generating: 3 };
+  let idx = phaseOf[state.stage];
+  if (idx === undefined) idx = order.indexOf(state.stage);
   const labels = ['Discovery', 'Gap Analysis', 'Review', 'Blueprint', 'Next Steps'];
-  const at = Math.max(0, Math.min(labels.length - 1, idx));
+  const at = Math.max(0, Math.min(labels.length - 1, idx < 0 ? 0 : idx));
   const pct = Math.max(0, Math.min(100, Math.round(((at + 1) / labels.length) * 100)));
   let h = '<nav class="steps" aria-label="Progress">' +
     '<p class="steps-count">Step ' + (at + 1) + ' of ' + labels.length +
@@ -2340,6 +2347,11 @@ function updateLiveLine() {
   const txt = v.interim || v.lastHeard || '';
   el.textContent = txt || 'Your answer appears here as you speak.';
   el.className = 'line you' + (txt ? '' : ' empty');
+  // The call body scrolls on short screens: keep the live answer line in view
+  // while the visitor speaks, without moving anything they are reading.
+  if (txt && typeof el.scrollIntoView === 'function') {
+    try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* older engines: plain call */ try { el.scrollIntoView(); } catch (e2) {} }
+  }
 }
 function bindCall() {
   const v = voiceSync();
