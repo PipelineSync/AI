@@ -47,10 +47,10 @@ ok(/body\.entry-screen \.gate\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh
 ok(/classList\.toggle\(['"]entry-screen['"]/.test(appJs),
   'the one-screen lock is scoped to the entry instead of trapping long blueprint content');
 
-/* The brand components (the logo and Otto) render markup into the same screens, so they are part
-   of the check. Their animation classes ship inside the components' own inline <style> (the brand
-   sheet specifies the components as written), so a class is covered if the stylesheet has a rule
-   for it or the component's own CSS defines it. */
+/* The brand components (the logo, and Otto - still shipped as a brand asset, though the UI no
+   longer renders him) are part of the check. Their animation classes ship inside the components'
+   own inline <style> (the brand sheet specifies the components as written), so a class is covered
+   if the stylesheet has a rule for it or the component's own CSS defines it. */
 const brandSrcs = ['Logo.js', 'Otto.js'].map(f =>
   fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 const brandCss = brandSrcs.join('\n');
@@ -224,20 +224,13 @@ ok(/@media \(prefers-reduced-motion:reduce\)\{\[class\^="otto-"\]/.test(ottoJs),
 ok(/#0C2B5E/.test(ottoJs) && /#3E6892/.test(ottoJs) && /#FF7A1A/.test(ottoJs) && /#8FB0D0/.test(ottoJs) && /#E8EFF7/.test(ottoJs),
   "Otto's palette is the brand palette and nothing else");
 
-/* Rules from the brand sheet, asserted on the real rendering code. */
-ok(/window.innerWidth[\s\S]{0,80}< 420 \? 104/.test(appJs.slice(appJs.indexOf('function ottoLiveSize'), appJs.indexOf('function ottoLiveSize') + 300)),
-  'the live avatar never drops below 96px on a small phone');
-const poseFn = appJs.slice(appJs.indexOf('function ottoPoseNow'), appJs.indexOf('function ottoPoseNow') + 900);
-ok(/status === 'speaking'[\s\S]*?'speak'/.test(poseFn) && /v.listening[\s\S]*?'listen'/.test(poseFn) && /'thinking'[\s\S]*?'think'/.test(poseFn) && /'blueprint'[\s\S]*?'party'/.test(poseFn),
-  'the pose follows the real state: speaking, listening, thinking, celebrating');
-ok(/stage === 'extracting'|stage === 'generating'/.test(poseFn), 'the loader states think too');
-ok(/\.otto-live-fig \{ flex: 0 0 auto/.test(css) && /\.otto-party-fig \{ flex: 0 0 auto/.test(css) && /\.otto-hello-fig \{ flex: 0 0 auto/.test(css),
-  "Otto's figures reserve their space, so a pose change cannot shift the layout");
-const figCardRule = (css.match(/\.otto-fig-card \{[^}]*\}/) || [''])[0];
-ok(figCardRule && !/background/.test(figCardRule) && !/box-shadow/.test(figCardRule),
-  "Otto's sizing wrapper paints nothing, so the app's surface stays behind him");
-ok(/\.otto-ringing > span \{ animation: ottoRing/.test(css) && /box-shadow: 0 0 0 3px var\(--sync-orange\)/.test(css),
-  'the active-speaker ring is the brand orange');
+/* Rules from the brand sheet, asserted on the real rendering code. The UI no longer renders the
+   mascot: no figure, no avatar, no copy line - the only trace of the brand sheet left on screen
+   is the logo and the audio waveform. */
+ok(!/OttoAvatar\(|PSBrand\.Otto\b/.test(appJs), 'the app no longer renders Otto\'s figure anywhere');
+ok(!/OTTO_COPY\./.test(appJs), 'the app no longer renders Otto\'s copy lines');
+ok(!/\.otto-live-fig|\.otto-party-fig|\.otto-ringing|\.otto-fig-card|\.bubble-av|\.toast-av|\.who-otto/.test(css),
+  'no mascot rules remain in the stylesheet');
 ok(/\.otto-wave-bar \{[^}]*linear-gradient\(180deg, var\(--sky\) 0%, var\(--sync-orange\) 100%\)/.test(css),
   'the waveform is the #8FB0D0 -> #FF7A1A gradient');
 ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,200}\.otto-wave-bar \{ animation: none/.test(css),
@@ -245,8 +238,8 @@ ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,200}\.otto-wave-bar \{ 
 ok(/ottoWaveHtml\('otto-wave'\)/.test(appJs) && /<div class="otto-wave"/.test(appJs),
   'the waveform is rendered under the live question');
 
-/* Otto's copy: the five lines, exactly as the brand sheet words them. */
-ok(/const OTTO_COPY = window\.PSBrand\.OTTO_COPY;/.test(appJs), "the app reads Otto's copy from the brand component");
+/* Otto's copy: the five lines, exactly as the brand sheet words them in the component. The UI no
+   longer renders them, but the brand component keeps the copy verbatim. */
 for (const line of [
   "Hi, I'm Otto. Let's map how your deals actually move.",
   "Take your time. I'm connecting the dots as you talk.",
@@ -257,7 +250,7 @@ for (const line of [
   ok(ottoJs.indexOf(JSON.stringify(line).slice(1, -1)) >= 0, 'Otto says: ' + line.slice(0, 42) + '...');
 }
 ok(!/\bAlex\b/.test(appJs), 'the UI no longer calls the interviewer Alex');
-ok(/<b>Otto<\/b>/.test(appJs) && /id="call-progress"/.test(appJs), 'the call screen names Otto and tracks question progress');
+ok(/<b>Nova<\/b>/.test(appJs) && !/id="call-progress"/.test(appJs) && !/id="call-bar"/.test(appJs), 'the call screen names the AI, and the question counter is gone');
 
 /* ------------------------------------------------------------------ */
 section('touch targets on phones');

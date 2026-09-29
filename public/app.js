@@ -315,13 +315,11 @@ function fetchSchedulerLink() { return fetchConfig(); }
 
 /* ---------------- toast ---------------- */
 let toastTimer = null;
-/* `ottoPose` is optional: when it is given the toast carries Otto's avatar (the blueprint-ready
-   toast celebrates with pose="party"). The message itself is always escaped, never trusted. */
-function toast(msg, isErr, ottoPose) {
+/* The message is always escaped, never trusted. */
+function toast(msg, isErr) {
   const t = $('#toast');
-  t.innerHTML = (ottoPose ? '<span class="toast-av" aria-hidden="true">' + OttoAvatar({ pose: ottoPose, size: 56 }) + '</span>' : '') +
-    '<span class="toast-txt">' + esc(msg) + '</span>';
-  t.className = 'toast show' + (isErr ? ' err' : '') + (ottoPose ? ' has-otto' : '');
+  t.innerHTML = '<span class="toast-txt">' + esc(msg) + '</span>';
+  t.className = 'toast show' + (isErr ? ' err' : '');
   t.setAttribute('role', isErr ? 'alert' : 'status');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.className = 'toast'; }, 3800);
@@ -381,20 +379,20 @@ const RT_STATUS_TEXT = {
   idle: 'Live call. Speak whenever you are ready.',
   connecting: 'Connecting the live voice call...',
   thinking: 'Saving what you just said...',
-  speaking: 'Otto is speaking. Interrupt at any time.',
+  speaking: 'Nova is speaking. Interrupt at any time.',
   listening: 'You are speaking. Take your time, there is nothing to press.',
-  ready: 'Live call. Speak whenever you are ready, or interrupt Otto.',
+  ready: 'Live call. Speak whenever you are ready, or interrupt Nova.',
   complete: 'That is the call. Review what we captured, then structure the answers.',
   error: 'The live call hit a problem. It carries on step by step below.'
 };
 
 const VOICE_STATUS_TEXT = {
   idle: 'Ready when you are. Start the call and answer out loud, like a phone call.',
-  connecting: 'Connecting Otto, your AI interviewer...',
+  connecting: 'Connecting Nova, your AI interviewer...',
   thinking: 'Thinking about what you said...',
-  speaking: 'The AI is speaking. Listen, then answer when it stops.',
+  speaking: 'Nova is speaking. Tap Stop to interrupt.',
   listening: 'Listening. Answer in your own words, then pause when you are done.',
-  ready: 'Your turn. Tap the microphone and answer out loud, or type instead.',
+  ready: 'Your turn. Answer out loud when you are ready, or type instead.',
   complete: 'That is the call. Review what we captured, then structure the answers.',
   error: 'The call hit a problem. You can retry the turn, or carry on by typing.'
 };
@@ -559,11 +557,10 @@ function armAudioRetry() {
     v.retryArmed = false;
     const pending = v.blockedAudio;
     if (!pending) return;
-    if (e && e.target && e.target.id === 'repeat-btn') return;   // that button plays it itself
     v.blockedAudio = null; v.notice = null;
     playAudio(pending.b64, pending.mime)
       .then(() => { v.status = v.done ? 'complete' : 'ready'; render(); })
-      .catch(() => { v.notice = 'Still blocked. Press Play the line.'; render(); });
+      .catch(() => { v.notice = 'Still blocked. Tap to play the line.'; render(); });
   };
   try { document.addEventListener('click', retry, { once: true }); } catch (e) {}
 }
@@ -739,7 +736,7 @@ async function listenForAnswer() {
   const heard = String(text || '').trim();
   if (!heard) {
     v.status = 'ready';
-    v.notice = 'I did not catch that. Tap the microphone to try again, or type instead.';
+      v.notice = 'I did not catch that. Tap Answer to try again, or type instead.';
     render();
     return;
   }
@@ -1275,7 +1272,7 @@ function onRealtimeUserTurn(text) {
   rt.userLines.push(t);
   if (rt.userLines.length > 12) rt.userLines.shift();
   v.lastHeard = t; v.interim = '';
-  /* Attribute the answer to the question Otto is on, so Function A still sees it even if the model
+  /* Attribute the answer to the question Nova is on, so Function A still sees it even if the model
      forgets to call the tool. The server has the last word: a turn it judges off topic or empty is
      stripped back out below, so noise never reaches the contract. */
   const qid = v.currentQuestionId;
@@ -1406,11 +1403,6 @@ function sendRealtimeText(text) {
   render();
   refreshFieldStatus();
 }
-function realtimeRepeat() {
-  const v = voiceSync();
-  rtRespond('They did not catch that. Repeat your last question once, in the same words, a little more slowly, then wait for the answer.');
-  v.status = 'speaking'; render();
-}
 function setRealtimeMicMuted(muted) {
   const rt = voiceSync().rt;
   if (!rt || !rt.mic) return;
@@ -1472,7 +1464,7 @@ function applyTurn(res) {
   if (Array.isArray(res.voice_captures)) v.captures = res.voice_captures;
   if (res.ask && res.ask.id) {
     if (res.ask.kind === 'probe' || res.ask.kind === 'callback') v.probes[res.ask.id] = (v.probes[res.ask.id] || 0) + 1;
-    /* A deferred turn is one the lead spent asking Otto things: the answer was the whole turn and
+    /* A deferred turn is one the lead spent asking Nova things: the answer was the whole turn and
        the question was never asked, so it is not recorded as asked and comes back next turn. */
     if (!res.ask.deferred && !v.asked.includes(res.ask.id)) v.asked.push(res.ask.id);
     v.currentQuestionId = res.ask.id;
@@ -1571,16 +1563,6 @@ async function startCall() {
   render();
   await voiceTurn(null);
 }
-function repeatLine() {
-  const v = voiceSync();
-  if (!v.lastLine) return;
-  v.status = 'speaking'; render();
-  api.post('/api/voice/speak', { text: v.lastLine }).then(j => {
-    if (j.audio_base64) return playAudio(j.audio_base64, j.audio_mime).then(() => false).catch(() => true);
-    return speakWithBrowser(v.lastLine).then(() => true);
-  }).then(() => { v.status = v.done ? 'complete' : 'ready'; render(); })
-    .catch(() => { speakWithBrowser(v.lastLine).then(() => { v.status = v.done ? 'complete' : 'ready'; render(); }); });
-}
 function skipQuestion() {
   const v = voiceSync();
   stopSpeaking(); stopListening();
@@ -1662,71 +1644,40 @@ function armPageExitGuard() {
   try { window.addEventListener('pagehide', onExit); } catch (e) {}
 }
 
-/* ---------------- brand: the logo and Otto ----------------
+/* ---------------- brand: the logo ----------------
  * The logo and the mascot are the brand components in public/components/brand/{Logo,Otto}.js:
  * the React components from the brand sheet ported to this no-build vanilla layer, with their SVG
  * markup, geometry and colours unchanged. They load before this file (see index.html).
  *
- * Otto's pose is derived from state the app already tracks - the voice status and the stage - so
- * nothing new is stored, no new logic runs and the voice flow is untouched. */
+ * The UI no longer renders the mascot: only the logo appears on screen. The mascot's pose and size are
+ * no longer derived from call state; the waveform follows the state the call is already in. */
 const Logo = opts => window.PSBrand.Logo(opts);
 const LogoMark = opts => window.PSBrand.LogoMark(opts);
-const Otto = opts => window.PSBrand.Otto(opts);
-const OttoAvatar = opts => window.PSBrand.OttoAvatar(opts);
-const OTTO_COPY = window.PSBrand.OTTO_COPY;
 
-/* Which Otto the current state asks for: speaking -> listening -> thinking -> celebrating.
-   Every branch reads a field that already existed; the last one is the resting pose. */
-function ottoPoseNow() {
-  const v = state.voice;
-  if (v) {
-    if (v.error) return 'think';                                   // it lost a turn
-    if (v.status === 'speaking') return 'speak';                    // the AI is talking
-    if (v.listening) return 'listen';                               // the microphone is open
-    if (v.status === 'thinking' || v.status === 'connecting') return 'think';
-  }
-  if (state.stage === 'extracting' || state.stage === 'generating') return 'think';
-  if (state.stage === 'blueprint' || state.stage === 'done') return 'party';
-  return 'sync';
-}
-/* Phones get a smaller figure so the question keeps the room. It never drops below 96px: the brand
-   minimum for Otto on the call screen. The size is fixed for a render, so a pose change cannot
-   shift the layout. */
-function ottoLiveSize() {
-  const w = (typeof window !== 'undefined' && window.innerWidth) || 1280;
-  return w < 420 ? 104 : (w < 700 ? 120 : 140);
-}
-/* True while the call is actually live: Otto is speaking, or the microphone is open. The ring and
-   the waveform both follow this, so one function answers for both. */
+/* True while the call is actually live: the AI is speaking, or the microphone is open. The
+   waveform follows this, so one function answers for it. */
 function ottoWaveOn() {
   const v = state.voice;
   if (!v) return false;
   return v.status === 'speaking' || !!v.listening || !!(v.rt && v.rt.live);
 }
-/* The pose is repainted in place while the call runs. A full render would rebuild the call orb and
-   lose its animation mid-sentence, exactly like the AI's line, so the figure is swapped the same
-   way the live line is: a cheap heartbeat reads the state the call is already in and only touches
-   the DOM when the pose actually changed. It stops itself the moment the call screen is gone. */
-let ottoPoseTimer = null;
-function refreshOttoPose() {
-  const host = document.querySelector('.otto-live-fig');
-  if (!host) {
-    if (ottoPoseTimer) { clearInterval(ottoPoseTimer); ottoPoseTimer = null; }
+/* The live state is repainted in place while the call runs. A full render would rebuild the call
+   orb and lose its animation mid-sentence, exactly like the AI's line, so the waveform flag is
+   swapped the same way: a cheap heartbeat reads the state the call is already in and only touches
+   the DOM when it changed. It stops itself the moment the call screen is gone. */
+let waveLiveTimer = null;
+function refreshWaveLive() {
+  const call = document.querySelector('.call');
+  if (!call) {
+    if (waveLiveTimer) { clearInterval(waveLiveTimer); waveLiveTimer = null; }
     return;
   }
-  const on = ottoWaveOn();
-  host.classList.toggle('otto-ringing', on);
-  const call = document.querySelector('.call');
-  if (call) call.classList.toggle('otto-wave-live', on);
-  const pose = ottoPoseNow();
-  if (host.getAttribute('data-pose') === pose) return;
-  host.setAttribute('data-pose', pose);
-  host.innerHTML = OttoAvatar({ pose: pose, size: ottoLiveSize(), ring: true });
+  call.classList.toggle('otto-wave-live', ottoWaveOn());
 }
-function armOttoPose() {
-  refreshOttoPose();
-  if (ottoPoseTimer) return;
-  ottoPoseTimer = setInterval(refreshOttoPose, 300);
+function armWaveLive() {
+  refreshWaveLive();
+  if (waveLiveTimer) return;
+  waveLiveTimer = setInterval(refreshWaveLive, 300);
 }
 
 /* The animated waveform under the live question: nine bars in a #8FB0D0 -> #FF7A1A gradient. */
@@ -1743,32 +1694,12 @@ function ottoSplashHtml() {
     '<span class="otto-splash-card" aria-hidden="true">' + LogoMark({ variant: 'light', animated: true, size: 96 }) + '</span>' +
     '</div>';
 }
-/* A full-body Otto. He is transparent artwork with no plate, circle or shadow of his own, so this
-   wrapper only reserves his space; whatever surface the screen already has shows through. */
-function ottoFigureHtml(pose, size, extraClass) {
-  return '<span class="otto-fig-card' + (extraClass ? ' ' + extraClass : '') + '">' +
-    Otto({ pose: pose, size: size }) + '</span>';
-}
-/* A line of Otto's copy, next to the figure that says it. */
-function ottoCopyLine(text, extraClass) {
-  return '<p class="otto-copy' + (extraClass ? ' ' + extraClass : '') + '">' + esc(text) + '</p>';
-}
-/* The empty state: no data yet, so Otto thinks it over and offers the way in. */
-function ottoEmptyHtml() {
+/* The empty state: no data yet, so the screen offers the way in. */
+function emptyHtml() {
   return '<div class="card hud-frame otto-empty">' +
-    '<span class="otto-empty-fig">' + ottoFigureHtml('think', 170) + '</span>' +
     '<h2>No pipeline data yet</h2>' +
-    ottoCopyLine(OTTO_COPY.greeting) +
     '<div class="btn-row btn-row-center"><button class="btn btn-primary btn-lg" id="empty-start">Start strategy session</button></div>' +
   '</div>';
-}
-
-/* Otto's error state: the avatar plus the line under it. */
-function ottoErrorHtml() {
-  return '<div class="otto-error" role="alert">' +
-      '<span class="otto-error-fig">' + OttoAvatar({ pose: 'think', size: 56 }) + '</span>' +
-      ottoCopyLine(OTTO_COPY.error, 'otto-copy-err') +
-    '</div>';
 }
 
 /* ---------------- rendering ---------------- */
@@ -1916,7 +1847,7 @@ function startView() {
   if (state.privacyPolicyUrl) {
     privacyLink = ' <a href="' + esc(state.privacyPolicyUrl) + '" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.';
   }
-  const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Otto is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
+  const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Nova is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
   return '<div class="gate">' +
     '<div class="gate-theme">' + themeToggleMarkup('theme-switch-gate') + '</div>' +
     '<div class="gate-brand">' +
@@ -1933,10 +1864,6 @@ function startView() {
       '</div>' +
     '</div>' +
     '<div class="gate-side"><div class="gate-card hud-frame specular">' +
-      '<div class="otto-hello">' +
-        '<span class="otto-hello-fig">' + ottoFigureHtml('hello', 200) + '</span>' +
-        ottoCopyLine(OTTO_COPY.greeting, 'otto-copy-hello') +
-      '</div>' +
       '<h2>Start strategy session</h2>' +
       '<p class="sub">Enter your details to start the AI voice call.</p>' +
       '<form id="start-form" novalidate>' +
@@ -2055,19 +1982,15 @@ function consentView() {
   }
   return '<div class="card consent-card hud-frame specular">' +
     '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>CONSENT</div>' +
-    '<div class="otto-wait otto-wait-consent">' +
-      '<span class="otto-wait-fig">' + OttoAvatar({ pose: 'hello', size: 96 }) + '</span>' +
-      ottoCopyLine(OTTO_COPY.greeting) +
-    '</div>' +
     '<h2>Ready to start?</h2>' +
-    '<p>You\'ll be speaking with Otto, an AI.</p>' +
+    '<p>You\'ll be speaking with Nova, an AI.</p>' +
     '<div class="notice info" id="consent-notice">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
       '<div>Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div>' +
     '</div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I agree to continue.</label>' +
     '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
-    '<p class="small muted mt8" id="consent-note">Otto starts speaking automatically. You can skip or type.</p>' +
+    '<p class="small muted mt8" id="consent-note">Nova starts speaking automatically. You can skip or type.</p>' +
     '</div>';
 }
 
@@ -2137,47 +2060,38 @@ function voiceOrbHtml(status, listening) {
 
 function callView() {
   const v = voiceSync();
-  const plan = v.plan || [];
-  const total = plan.length || 12;
-  const answered = state.answers.filter(a => String(a.text || '').trim()).length;
-  const pct = Math.round((Math.min(answered, total) / total) * 100);
   const started = !!v.startedAt || v.transcript.length > 0;
   const statusText = (v.mode === 'realtime' ? RT_STATUS_TEXT[v.status] : VOICE_STATUS_TEXT[v.status]) ||
     VOICE_STATUS_TEXT[v.status] || VOICE_STATUS_TEXT.idle;
-  const aiLine = v.lastLine || OTTO_COPY.greeting;
+  const aiLine = v.lastLine || "Hi, I'm Nova. Let's map how your deals actually move.";
   const youLine = v.interim || v.lastHeard || '';
 
-  /* The live call screen the brand sheet asks for: Otto on the left, bare on the panel, with the
-     orange pulsing ring, and on the right the question in large type and the animated waveform.
-     Everything below it - the controls, the progress bar, the captured signals - is unchanged.
-     Otto's pose is the state the call is already in. */
+  /* The live call screen, built for a natural voice conversation: the orb on top as the presence
+     meter, the voice subtitles (the AI's line, the waveform, your live answer) below it, and the
+     status and controls pinned at the bottom. No question counter - the conversation leads. The
+     waveform animates while the call is live. */
   const waveOn = ottoWaveOn();
-  const ottoPose = ottoPoseNow();
-  const ottoLine = v.rtNotice ? v.rtNotice : (v.error ? '' : (!started ? OTTO_COPY.greeting : (v.listening || waveOn ? OTTO_COPY.listening : '')));
 
   let h = '<div class="intake-wrap"><div class="call hud-frame' + (waveOn ? ' otto-wave-live' : '') + '">' +
-    '<div class="call-head"><div class="who"><span class="who-otto">' + OttoAvatar({ pose: 'sync', size: 38 }) + '</span><div><b>Otto</b><span class="small muted" id="call-mode">' +
+    '<div class="call-head"><div class="who"><div><b>Nova</b><span class="small muted" id="call-mode">' +
       (v.cfg ? callModeLabel(v) : 'Connecting...') + '</span></div></div>' +
-      '<div class="call-head-right"><div class="progress" id="call-progress">' + (started ? 'Question ' + Math.min(answered + 1, total) + ' of ' + total : 'Not started') + '</div>' +
-      '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress<span class="side-toggle-count">' + answered + '/' + total + '</span></button></div></div>' +
-    '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
+      '<div class="call-head-right">' +
+      '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress</button></div></div>' +
     '<div class="call-body">' +
+      '<div class="otto-stepper">' + voiceOrbHtml(v.status, v.listening) + '</div>' +
       '<div class="otto-live">' +
-        '<div class="otto-live-fig' + (waveOn ? ' otto-ringing' : '') + '" data-pose="' + ottoPose + '">' + OttoAvatar({ pose: ottoPose, size: ottoLiveSize(), ring: true }) + '</div>' +
         '<div class="otto-live-main">' +
           '<div class="otto-question" id="ai-line" aria-live="polite">' + esc(aiLine) + '</div>' +
           ottoWaveHtml('otto-wave') +
-          (ottoLine ? ottoCopyLine(ottoLine) : '') +
           (youLine ? '<div class="line you" id="you-line">' + esc(youLine) + '</div>' : '<div class="line you empty" id="you-line">Your answer appears here as you speak.</div>') +
         '</div>' +
       '</div>' +
-      '<div class="otto-stepper">' + voiceOrbHtml(v.status, v.listening) + '</div>' +
       '<div class="call-status" id="call-status" role="status" aria-live="polite">' + esc(statusText) + '</div>' +
-      (v.error ? ottoErrorHtml() : '') +
+      (v.rtNotice ? '<div class="call-note">' + esc(v.rtNotice) + '</div>' : '') +
       (v.notice ? '<div class="call-note">' + esc(v.notice) + '</div>' : '') +
       (v.error ? '<div class="call-note err">' + esc(v.error) + ' <button class="btn btn-ghost btn-sm" id="retry-turn">Retry</button></div>' : '') +
     '</div>' +
-    '<div class="call-controls" id="call-controls">' + callControls(started, total) + '</div>' +
+    '<div class="call-controls" id="call-controls">' + callControls(started) + '</div>' +
     '</div>' + callSidebar() + '</div>';
   return h;
 }
@@ -2185,15 +2099,14 @@ function callControls(started, total) {
   const v = voiceSync();
   const rt = v.rt;
   if (rt && (rt.live || rt.connecting)) {
-    /* Three clear controls, in the order a visitor reaches for them: my microphone, the AI's
-       speaker, and the way out. Repeat and Type instead stay beside them because both are useful
-       mid-call. Microphone mute and speaker mute are separate buttons and say which is which. */
+    /* Minimal controls for a natural conversation: my microphone, the AI's speaker, and the way
+       out. Type instead stays beside them because it is useful mid-call. Microphone mute and
+       speaker mute are separate buttons and say which is which. */
     let h = '<div class="call-row">';
     h += '<button class="btn ' + (rt.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" type="button" aria-pressed="' + (rt.micMuted ? 'false' : 'true') + '" title="Mute or unmute your microphone">' +
       (rt.micMuted ? 'Microphone muted' : 'Microphone live') + '</button>';
     h += '<button class="btn ' + (v.muted ? 'btn-ghost' : 'btn-dark') + '" id="mute-btn" type="button" aria-pressed="' + (v.muted ? 'false' : 'true') + '" title="Mute or unmute the AI voice">' +
       (v.muted ? 'Speaker muted' : 'Speaker on') + '</button>';
-    h += '<button class="btn btn-ghost" id="repeat-btn">Repeat</button>';
     h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
     h += '</div>';
     if (!v.done) {
@@ -2214,10 +2127,11 @@ function callControls(started, total) {
       '<button class="btn btn-ghost" id="type-btn-pre">Type answers instead</button></div>';
   }
   let h = '<div class="call-row">';
+  // The call is hands-free: Nova speaks, then listens, automatically. The button is the override -
+  // stop Nova mid-line (tap barge-in), send the answer early, or answer when she missed you.
+  const micLabel = v.listening ? '&#9632; Stop and send' : (v.status === 'speaking' ? '&#9632; Stop' : '&#127908; Answer');
   h += '<button class="btn ' + (v.listening ? 'btn-dark' : 'btn-primary') + '" id="mic-btn" aria-pressed="' + (v.listening ? 'true' : 'false') + '"' +
-    (v.status === 'thinking' || v.done ? ' disabled' : '') + '>' +
-    (v.listening ? '&#9632; Stop and send' : '&#127908; Tap to answer') + '</button>';
-  h += '<button class="btn ' + (v.blockedAudio ? 'btn-primary' : 'btn-ghost') + '" id="repeat-btn">' + (v.blockedAudio ? '&#9654; Play' : 'Repeat') + '</button>';
+    (v.status === 'thinking' || v.done ? ' disabled' : '') + '>' + micLabel + '</button>';
   h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
   if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip</button>';
   h += '</div>';
@@ -2272,9 +2186,7 @@ function callSidebar() {
   const reqCard = missingReq.length
     ? '<div class="side-card warn"><h3>Needed for blueprint</h3><p class="small">Pending: <b>' + missingReq.map(k => esc(labels[k] || FIELD_LABELS[k])).join(', ') + '</b>.</p></div>'
     : '<div class="side-card ok"><h3>Required numbers captured</h3><p class="small">Deal size, lead volume, and close rate are captured.</p></div>';
-  // The AI's lines carry Otto's avatar: the same head-only figure, with no background of its own.
   const bubbles = v.transcript.map(t => '<div class="bubble ' + (t.role === 'ai' ? 'ai' : 'user') + (t.ignored ? ' ignored' : '') + '">' +
-    (t.role === 'ai' ? '<span class="bubble-av" aria-hidden="true">' + OttoAvatar({ pose: 'sync', size: 32 }) + '</span>' : '') +
     '<span class="bubble-txt">' + esc(t.text) + '</span></div>').join('');
   const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
     '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
@@ -2335,8 +2247,6 @@ function bindCall() {
   };
   const stopSpeak = $('#stop-speak');
   if (stopSpeak) stopSpeak.onclick = () => { stopSpeaking(); v.status = v.done ? 'complete' : 'ready'; render(); };
-  const rep = $('#repeat-btn');
-  if (rep) rep.onclick = () => { if (v.rt && v.rt.live) { realtimeRepeat(); return; } repeatLine(); };
   const typ = $('#type-btn');
   if (typ) typ.onclick = () => {
     stopListening();
@@ -2433,7 +2343,7 @@ function listNow() {
 function afterCallRender() {
   const v = state.voice;
   if (!v) return;
-  armOttoPose();   // the figure and its ring follow the call while it is on screen
+  armWaveLive();   // the waveform follows the live state while the call is on screen
   const body = $('#chat-body');
   if (body) body.scrollTop = body.scrollHeight;
   updateLiveLine();
@@ -2533,11 +2443,6 @@ function loaderView(kind) {
     '<div class="scanline-sweep" aria-hidden="true"></div>' +
     // The loading splash: the animated light mark on its white card, as the brand sheet asks.
     ottoSplashHtml() +
-    // Otto waits with the visitor, bare on the loading screen, and says his loading line while the job runs.
-    '<div class="otto-wait">' +
-      '<span class="otto-wait-fig">' + ottoFigureHtml('think', 180) + '</span>' +
-      ottoCopyLine(OTTO_COPY.loading, 'otto-copy-load') +
-    '</div>' +
     '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>AI ADVISOR SYNTHESIS &bull; ACTIVE</div>' +
     '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' +
     '<div class="lstep active" id="loader-step" role="status" aria-live="polite">' +
@@ -2554,9 +2459,9 @@ function loaderView(kind) {
 /* ---------------- review ---------------- */
 function reviewView() {
   const f = state.fields;
-  // Nothing captured yet (a session opened without a call): Otto says so and offers the way in,
+  // Nothing captured yet (a session opened without a call): say so and offer the way in,
   // rather than the screen reading a field set that does not exist.
-  if (!f) return ottoEmptyHtml();
+  if (!f) return emptyHtml();
   const isNull = v => v === null || v === '' || (Array.isArray(v) && !v.length);
   // What the voice model says it heard on the call, used only to help fill gaps the parser missed.
   const heard = (state.voice && state.voice.capture && state.voice.capture.heard) || {};
@@ -2981,11 +2886,6 @@ function blueprintView() {
 
   let h = '<div class=\"doc hud-frame' + (delivered ? ' otto-celebrate' : '') + '\">' +
     '<div class=\"doc-head\"><div class=\"telem cy mb12\"><span class=\"d\" aria-hidden=\"true\"></span>BLUEPRINT VERIFIED</div>' +
-    // Otto celebrates at the top of the results, with the line he says once the blueprint is ready.
-    '<div class=\"otto-party\">' +
-      '<span class=\"otto-party-fig\">' + ottoFigureHtml('party', 200) + '</span>' +
-      ottoCopyLine(OTTO_COPY.success, 'otto-copy-win') +
-    '</div>' +
     '<div class=\"kicker\">PIPELINESYNC AI  |  ' + esc(bp.meta.verticalLabel).toUpperCase() + '</div>' +
     '<h2>Your growth system</h2>' +
     '<div class=\"meta\">' + esc(bp.meta.businessLine) + '  |  Prepared ' + esc(bp.meta.date) + '  |  ' + esc(bp.meta.generatedBy) + '</div></div>' +
@@ -3233,7 +3133,7 @@ function downloadPdf(d) {
     a.href = u; a.download = d.filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 4000);
-    toast(deliveryToast(d) + ' ' + OTTO_COPY.success, false, 'party');
+    toast(deliveryToast(d), false);
   } catch (e) {
     toast('Could not auto-download in this browser. Use "Download PDF again".', true);
   }
@@ -3255,7 +3155,7 @@ function generateClientPDF() {
   }
 
   // The brand palette (brand sheet 1). The generated PDF uses the logo nowhere - the brand sheet
-  // keeps Otto out of documents - so this is the brand's navy, steel and orange in type.
+  // keeps the mascot out of documents - so this is the brand's navy, steel and orange in type.
   const navy = '#0C2B5E';
   const steel = '#3E6892';
   const orange = '#FF7A1A';
@@ -3723,10 +3623,6 @@ function doneView() {
     ? 'Your blueprint is on its way'
     : (hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready');
   let h = '<div class="card done-card">' +
-    '<div class="otto-party otto-party-done">' +
-      '<span class="otto-party-fig">' + ottoFigureHtml('party', 180) + '</span>' +
-      ottoCopyLine(OTTO_COPY.success, 'otto-copy-win') +
-    '</div>' +
     '<div class="done-mark">' + logoTile(54) + '</div>' +
     '<h2>' + esc(heading) + '</h2>' +
     '<div class="done-list">' +
