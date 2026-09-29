@@ -5,6 +5,7 @@
  */
 const core = require('../../lib/core');
 const leads = require('../../lib/supabase-leads');
+const { clampVoiceMeta } = require('../../lib/voice-api');
 const { bodyOf, json } = require('../../lib/netlify-helpers');
 
 const CLIENT_STATUSES = new Set([
@@ -35,7 +36,7 @@ exports.handler = async (event) => {
       await leads.saveSession(auth.lead_id, {
         status: status === 'discovery_completed' ? 'completed' : 'in_progress',
         answers: Array.isArray(body.answers) ? body.answers : undefined,
-        voice_metadata: body.voice_meta || undefined,
+        voice_metadata: clampVoiceMeta(body.voice_meta) || undefined,
         started_at: status === 'discovery_started' ? now : undefined,
         completed_at: status === 'discovery_completed' ? now : undefined
       }, { env: process.env });

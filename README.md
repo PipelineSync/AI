@@ -86,9 +86,9 @@ Site configuration → **Environment variables** → **Add a variable**:
 | `AI_GENERATE_DEADLINE_MS` | `60000` (default) | Total deadline ms for `runGenerate` (blueprint generation). |
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
-`OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`,
-`OPENAI_REALTIME_MAX_TOOLS`, `OPENAI_REALTIME_TIMEOUT_MS`, `OPENAI_REALTIME_CONNECT_PER_MIN`,
-`OPENAI_REALTIME_MAX_CONCURRENT`, `OPENAI_REALTIME_DAILY_MAX`, `OPENAI_REALTIME_IDLE_MIN`,
+`OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`, `OPENAI_REALTIME_MAX_TOOLS`, `OPENAI_REALTIME_TIMEOUT_MS`,
+`OPENAI_REALTIME_CONNECT_PER_MIN`, `OPENAI_REALTIME_MAX_CONCURRENT`,
+`OPENAI_REALTIME_DAILY_MAX`, `OPENAI_REALTIME_IDLE_MIN`,
 `VOICE_PROVIDER`, `OPENAI_CHAT_MODEL`, `OPENAI_TTS_MODEL`, `OPENAI_TTS_VOICE`, `OPENAI_STT_MODEL`,
 `VOICE_STT`, `VOICE_LANGUAGE`, `VOICE_LOCALE`, `VOICE_MAX_TURNS`, `OPENAI_BASE_URL`) and everything
 else about the voice layer is documented in `docs/VOICE_SETUP.md` (all of them are commented out in
@@ -232,11 +232,13 @@ The live call screen puts his avatar on the left with the orange pulsing ring an
 `#8FB0D0` → `#FF7A1A` gradient). Every control, the progress track, the captured-signals sidebar and
 the transcript are unchanged.
 
-> **One name, said and seen.** Otto is what the client reads on screen *and* what they hear on the
-> call: the identity line in `lib/voice.js` (`realtimeInstructions()`, `buildMessages()`), the first
-> question's greeting, and `MASTER_INTERVIEW_IDENTITY` in `lib/prompts.js` all say "I am Otto from
-> PipelineSync". Nothing else about the spoken content changed — the 12 questions, the FAQ answers
-> and the call rules are word for word what they were, so the rename is a name and nothing more.
+**One name, said and seen.** Otto is what the client reads on screen *and* what they hear on the
+call. The step-by-step identity and first greeting, `MASTER_INTERVIEW_IDENTITY` in `lib/prompts.js`,
+and the Realtime opening all identify Otto as an AI from PipelineSync. The opening uses the caller's
+first name when available, stays within two short statements and one question, and says the call
+usually takes five to ten minutes. Realtime keeps the 12 topic examples and FAQ facts while using
+flexible topic order, concise phone-call turns, grounded multi-topic capture, Taglish-aware English
+replies, and gentle silence check-ins.
 
 ## UI and responsive design
 
@@ -359,15 +361,21 @@ Run each demo persona from the intake sidebar, then check the blueprint:
       question he did not get to stays pending ("deferred") instead of being skipped
 - [ ] When the client says stop, or that they have to go, the call ends at once, whatever is still
       missing; a request to pause makes him wait instead of hanging up
-- [ ] Every one of the 12 questions is asked out loud exactly once, in order, with a probe only when
-      an answer arrived without its figures
+- [ ] Each of the 12 topics is covered at most once; Otto may follow the caller's conversational
+      order, skips volunteered/captured topics, and never asks again for a topic already answered
+- [ ] A short, specific acknowledgement and one natural question follow each caller turn; multiple
+      volunteered topics from one turn are captured separately without waiting for server validation
+- [ ] Caller interruptions stop Otto's audio immediately; quiet at about 8 seconds gets "Take your
+      time", at about 20 seconds Otto offers a skip, and silence does not trigger an early hang-up
+      (the existing long idle wrap-up remains only as a last resort)
 - [ ] Nothing is captured that the client did not say: every value carries the exact quoted words,
       figures lifted from on-screen examples are refused, and an off-topic turn captures nothing
 - [ ] The three required fields (deal size, monthly lead volume, close rate) are captured on the call;
       anything still unstated is flagged on the review screen and blocks generation
 - [ ] The lead payload records how the call ran (`voice_call`: provider, models, `transport`,
       realtime model/voice/turn detection, turns, probes, captures accepted and rejected,
-      missing required figures at the end) and `audio_retained: false`
+      `median_ms`, `p90_ms`, `turns_measured`, missing required figures at the end) and
+      `audio_retained: false`
 - [ ] No keys in the browser; PDF generated server-side; disclaimer + privacy notice before data
 - [ ] The emailed PDF goes to the session address only: typing a different address in the unlock form
       does not redirect the attachment
@@ -382,7 +390,7 @@ node test/voice.js       # voice policy, capture state, the grounded-capture gat
                          # and the routes
 node test/voice-openai.js# the whole step-by-step ChatGPT path against a mock OpenAI endpoint
 node test/voice-realtime.js # a whole continuous call in jsdom: fake WebRTC, fake model, mock
-                         # endpoint - one session, twelve questions, grounded captures, fallback
+                         # endpoint - one session, flexible topic coverage, grounded captures, fallback
 node test/ui-smoke.js    # drives the real frontend through the voice-first journey (jsdom);
                          # proves the AI speaks before any text input appears, and that a blocked
                          # microphone falls back to typing without losing the journey

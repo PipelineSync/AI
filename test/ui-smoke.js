@@ -46,16 +46,24 @@ const QMAP = [
 ];
 
 /* A jsdom page wired the way the sandbox preview would be, with the microphone and voice faked. */
-function boot(withMic, baseOverride) {
+function boot(withMic, baseOverride, opts) {
+  opts = opts || {};
   const pageBase = baseOverride || BASE;
   const dom = new JSDOM(html, { url: pageBase + '/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   const { document } = window;
   const spoken = [];
   const errors = [];
-  window.fetch = (p, o) => fetch(new URL(p, pageBase).toString(), o);
+  const fallbackPosts = [];
+  let recognitionStarts = 0;
+  window.fetch = (p, o) => {
+    if (String(p).indexOf('/api/voice/fallback') >= 0) {
+      try { fallbackPosts.push(JSON.parse(o && o.body || '{}')); } catch (e) {}
+    }
+    return fetch(new URL(p, pageBase).toString(), o);
+  };
   window.addEventListener('error', e => { errors.push(e.message); });
-  window.__PS_VOICE_TIMING__ = { silenceMs: 50, noSpeechMs: 400, maxListenMs: 1500, speakFactorMs: 4, minSpeakMs: 10, maxSpeakMs: 120 };
+  window.__PS_VOICE_TIMING__ = Object.assign({ silenceMs: 50, noSpeechMs: 400, maxListenMs: 1500, speakFactorMs: 4, minSpeakMs: 10, maxSpeakMs: 120 }, opts.timing || {});
   // Faked spoken voice: the AI can also receive OpenAI audio, in which case Audio fires onended.
   const speechTimes = [];
   window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
@@ -85,7 +93,15 @@ function boot(withMic, baseOverride) {
   if (withMic) {
     window.SpeechRecognition = class {
       constructor() { this.lang = ''; this.interimResults = false; this.continuous = false; }
-      start() { const self = this; setTimeout(() => { if (self.onresult) self.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: answerNow() + ' ' }], { isFinal: true })] }); setTimeout(() => { if (self.onend) self.onend(); }, 20); }, 30); }
+      start() {
+        recognitionStarts++;
+        const self = this;
+        if (opts.emptyTranscriptions) {
+          setTimeout(() => { if (self.onerror) self.onerror({ error: 'no-speech' }); if (self.onend) self.onend(); }, 2);
+          return;
+        }
+        setTimeout(() => { if (self.onresult) self.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: answerNow() + ' ' }], { isFinal: true })] }); setTimeout(() => { if (self.onend) self.onend(); }, 20); }, 30);
+      }
       stop() { if (this.onend) this.onend(); }
     };
   } else {
@@ -96,7 +112,7 @@ function boot(withMic, baseOverride) {
   }
   brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
-  return { window, document, spoken, errors, speechTimes };
+  return { window, document, spoken, errors, speechTimes, fallbackPosts, recognitionStarts: () => recognitionStarts };
 }
 
 /* Dispatch a postMessage the way the HubSpot Meetings iframe would. jsdom's MessageEvent
@@ -255,9 +271,10 @@ async function reachCall(page, details) {
     "the AI's transcript bubbles carry Otto's avatar");
   ok(!!d1.querySelector('#mic-btn') || !!d1.querySelector('#type-btn'), 'the in-call controls are on screen straight after agreement');
   ok(p1.spoken.length >= 1, 'the AI spoke its first line out loud (' + JSON.stringify((p1.spoken[0] || '').slice(0, 60)) + '...)');
-  ok(/what do you do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
+  ok(/what does your business do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
   ok(/PipelineSync/.test(p1.spoken[0] || ''), 'the AI introduces itself on the first line (AI disclosure on the call)');
-  ok(/ChatGPT voice|Simulated voice/.test(d1.body ? d1.body.textContent : d1.body.textContent), 'the screen states which voice provider is live');
+  ok((d1.querySelector('.badge-mode') || {}).textContent === 'Browser voice (no API key)', 'the no-key call shows the exact browser-voice badge');
+  ok((d1.querySelector('#call-mode') || {}).textContent === 'Browser voice (no API key)', 'the call header repeats only the exact browser-voice mode label');
   ok(!!d1.querySelector('.orb.listening, .orb.speaking, .orb.thinking, .orb.ready'), 'the call UI shows the live call state');
 
   // Brand: with a working microphone the call alternates between Otto speaking and Otto listening,
@@ -274,6 +291,7 @@ async function reachCall(page, details) {
     'the pose follows the call: speaking -> listening (' + [...micPoses].join(', ') + ')');
   ok(!!d1.querySelector('#structure-btn'), 'the AI worked through the intake set and closed the call');
   ok(p1.spoken.length >= 12, 'the AI spoke every question (' + p1.spoken.length + ' lines)');
+  ok(p1.recognitionStarts() >= 12, 'step-by-step speech automatically starts another microphone listen without a tap');
   ok(d1.querySelectorAll('.bubble.user').length >= 12, 'the transcript holds the spoken answers');
   ok(d1.querySelectorAll('.bubble.ai').length >= 12, 'the transcript holds the AI lines');
   const details = d1.querySelector('#transcript-wrap');
@@ -286,7 +304,7 @@ async function reachCall(page, details) {
   d1.getElementById('structure-btn').click();
   await sleep(3200);
   ok(!!d1.querySelector('#confirm-fields'), 'review screen rendered from the call transcript');
-  ok(/ChatGPT voice|Simulated voice/.test(d1.querySelector('.call-summary').textContent), 'the review screen records how the call was run');
+  ok((d1.querySelector('.call-summary .badge-mode') || {}).textContent === 'Browser voice (no API key)', 'the review screen records the exact browser-voice mode');
   const nullBadges = d1.querySelectorAll('.nullbadge').length;
   console.log('  (review shows ' + nullBadges + ' "Not stated" badges)');
   const reviewInputs = Array.from(d1.querySelectorAll('[data-key], [data-prod], [data-src]'))
@@ -482,6 +500,23 @@ async function reachCall(page, details) {
   ok(!!d2.querySelector('#done-download-btn'), 'the download button is available on the success path too');
   ok(p2.errors.length === 0, 'no runtime errors across the typed journey' + (p2.errors.length ? ': ' + p2.errors[0] : ''));
 
+  console.log('\nScenario 3b: two empty browser transcriptions switch automatically to typing');
+  const emptyPage = boot(true, BASE, {
+    emptyTranscriptions: true,
+    timing: { silenceMs: 10, noSpeechMs: 35, maxListenMs: 60, emptyRetryMs: 1, recognitionRestartMs: 2, recognitionRestartWindowMs: 1000, maxRapidRecognitionRestarts: 2 }
+  });
+  await sleep(200);
+  emptyPage.document.getElementById('demo-btn').click();
+  await sleep(300);
+  emptyPage.document.getElementById('consent-cb').click();
+  emptyPage.document.getElementById('consent-go').click();
+  for (let i = 0; i < 60 && !emptyPage.document.querySelector('#intake-input'); i++) await sleep(25);
+  ok(!!emptyPage.document.querySelector('#intake-input'), 'two consecutive empty transcriptions automatically enable typed answers');
+  ok(/two answers.*typed answers/i.test(emptyPage.document.body.textContent), 'the empty-transcription fallback announces why it switched');
+  ok(emptyPage.recognitionStarts() <= 8, 'browser recognition restarts respect the configured cap (' + emptyPage.recognitionStarts() + ' starts)');
+  ok(emptyPage.fallbackPosts.some(post => post.reason === 'empty-transcription'), 'the client reports empty-transcription to the shared server route');
+  ok(emptyPage.errors.length === 0, 'no runtime errors during the empty-transcription fallback' + (emptyPage.errors.length ? ': ' + emptyPage.errors[0] : ''));
+
   console.log('\nScenario 4: the lead asks something, then stops the call');
   const p4 = boot(true);
   /* The first thing the lead says is a question, not an answer, and the very next thing is a stop.
@@ -490,8 +525,10 @@ async function reachCall(page, details) {
   p4.window.__askOnce = 'How much does this cost me, all in?';
   await reachCall(p4, { name: 'Nena Cruz', email: 'nena@example.ph' });
   const d4 = p4.document;
-  p4.window.__askOnce = 'Can we stop here, please?';
   const aiBubbles = () => Array.from(d4.querySelectorAll('#transcript-wrap .bubble.ai .bubble-txt')).map(b => b.textContent);
+  const faqPattern = /free, and (?:there is|there's) nothing to buy/i;
+  for (let i = 0; i < 100 && !aiBubbles().some(t => faqPattern.test(t)); i++) await sleep(25);
+  p4.window.__askOnce = 'Can we stop here, please?';
   let ended = false;
   for (let i = 0; i < 200 && !ended; i++) {
     ended = !!d4.getElementById('structure-btn');
@@ -499,7 +536,7 @@ async function reachCall(page, details) {
   }
   ok(ended, 'a stop from the lead ends the call on the spot');
   const lines = aiBubbles();
-  const faqLine = lines.filter(t => /free, and there is nothing to buy/i.test(t))[0] || '';
+  const faqLine = lines.filter(t => faqPattern.test(t))[0] || '';
   ok(!!faqLine, 'a question from the lead is answered from the scripted FAQ (' + (faqLine || lines.slice(-1)[0] || '').slice(0, 60) + '...)');
   ok(!!faqLine && !/\?/.test(faqLine), 'the answering turn asks nothing back');
   ok(!!faqLine && !/what do you do, and who do you sell to/i.test(faqLine), 'and it does not smuggle the intake question in behind the answer');

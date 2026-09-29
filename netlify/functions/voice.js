@@ -1,10 +1,10 @@
 'use strict';
 /*
  * Netlify function: the voice layer (/api/voice/*).
- * One function serves the four voice routes; netlify.toml rewrites /api/voice/* here.
+ * One function serves all voice routes; netlify.toml rewrites /api/voice/* here.
  * All OpenAI calls happen inside this function, so OPENAI_API_KEY stays server-side.
  */
-const { handleVoice, rateLimitFor } = require('../../lib/voice-api');
+const { handleVoice, rateLimitFor, logFallback } = require('../../lib/voice-api');
 const helpers = require('../../lib/netlify-helpers');
 
 function bodyOf(event, limitBytes) {
@@ -44,20 +44,23 @@ function subRoute(event) {
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
+  const sub = subRoute(event);
+  // Voice turns spend OpenAI credit, so rate limit per IP per minute (in-memory, per warm instance).
+  const ip = helpers.getClientIp(event);
+  const perMinute = parseInt(process.env.VOICE_RATE_PER_MIN, 10) || rateLimitFor(sub);
+  const rl = helpers.checkRateLimit('voice:' + sub + ':' + ip, perMinute, 60 * 1000);
+  if (!rl.allowed) {
+    const fallbackReason = sub === 'realtime/connect' ? 'session-limit' : undefined;
+    if (fallbackReason) logFallback(fallbackReason, '', 'server-rate-limit');
+    const headers = helpers.securityHeaders();
+    headers['retry-after'] = String(rl.retryAfter);
+    return { statusCode: 429, headers, body: JSON.stringify({ error: 'Too many voice requests. Wait ' + rl.retryAfter + 's and try again.', fallback_reason: fallbackReason }) };
+  }
   let body;
   try {
     body = bodyOf(event, 8 * 1024 * 1024); // audio turns arrive as base64
   } catch (e) {
     return json(e.tooLarge ? 413 : 400, { error: e.tooLarge ? 'That recording is too large. Keep each answer short, or type instead.' : 'Bad request body.' });
-  }
-  const sub = subRoute(event);
-  // Voice turns spend OpenAI credit, so rate limit per IP per minute (in-memory, per warm instance).
-  const ip = helpers.getClientIp(event);
-  const rl = helpers.checkRateLimit('voice:' + sub + ':' + ip, rateLimitFor(sub), 60 * 1000);
-  if (!rl.allowed) {
-    const headers = helpers.securityHeaders();
-    headers['retry-after'] = String(rl.retryAfter);
-    return { statusCode: 429, headers, body: JSON.stringify({ error: 'Too many voice requests. Wait ' + rl.retryAfter + 's and try again.' }) };
   }
   try {
     const out = await handleVoice(sub, body, { env: process.env, fetchImpl: fetch, ip });

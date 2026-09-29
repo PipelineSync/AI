@@ -327,7 +327,7 @@ function toast(msg, isErr, ottoPose) {
   toastTimer = setTimeout(() => { t.className = 'toast'; }, 3800);
 }
 
-/* ---------------- voice engine (ChatGPT voice discovery call) ----------------
+/* ---------------- voice engine (step-by-step discovery call) ----------------
  * The call is voice-first: the AI speaks every line out loud, the client answers with their
  * voice, and the transcript stays collapsed behind a link. Text input lives behind "Type
  * instead", so a blocked microphone never locks anyone out of the journey.
@@ -338,12 +338,16 @@ function toast(msg, isErr, ottoPose) {
  *              otherwise MediaRecorder -> /api/voice/transcribe (OpenAI transcription).
  *
  * Timings are tunable (useful for tuning silence detection, and for tests):
- *   window.__PS_VOICE_TIMING__ = { silenceMs, noSpeechMs, maxListenMs, speakFactorMs }
+ *   window.__PS_VOICE_TIMING__ = { silenceMs, noSpeechMs, maxListenMs, recognitionRestartMs, maxRapidRecognitionRestarts }
  */
 const TIMING = Object.assign({
-  silenceMs: 1900,       // quiet for this long after speech -> the answer is done
-  noSpeechMs: 9000,      // nothing at all -> ask again
+  silenceMs: 1200,       // quiet for about 1.2s after speech -> the answer is done
+  noSpeechMs: 9000,      // nothing at all -> retry, then use typing after a second empty result
   maxListenMs: 25000,    // hard stop for one answer
+  recognitionRestartMs: 250,
+  recognitionRestartWindowMs: 8000,
+  maxRapidRecognitionRestarts: 5,
+  emptyRetryMs: 250,
   speakFactorMs: 330,    // ms per word, used to size the spoken-line watchdog
   minSpeakMs: 900,
   maxSpeakMs: 30000,
@@ -394,7 +398,7 @@ const VOICE_STATUS_TEXT = {
   thinking: 'Thinking about what you said...',
   speaking: 'The AI is speaking. Listen, then answer when it stops.',
   listening: 'Listening. Answer in your own words, then pause when you are done.',
-  ready: 'Your turn. Tap the microphone and answer out loud, or type instead.',
+  ready: 'Your turn. Answer out loud whenever you are ready, or type instead.',
   complete: 'That is the call. Review what we captured, then structure the answers.',
   error: 'The call hit a problem. You can retry the turn, or carry on by typing.'
 };
@@ -406,16 +410,64 @@ function newVoiceState() {
     callId: 'call-' + Math.random().toString(36).slice(2, 10), callTicket: null, turns: 0,
     startedAt: null, endedAt: null, currentQuestionId: null, pendingQuestionId: null,
     lastLine: '', interim: '', lastHeard: '', error: null, notice: null, rtNotice: null,
-    micBlocked: false, engine: null, handsFree: true, muted: false, typed: false,
+    micBlocked: false, micMuted: false, engine: null, handsFree: true, muted: false, typed: false,
+    typedFallback: false, consecutiveEmptyTranscriptions: 0, listenGeneration: 0, listenPending: false,
     speaking: false, listening: false, capture: null, done: false, warnings: [],
     audioEl: null, stopListening: null, rec: null, skipped: [], stopSpeakHook: null,
     opening: null, prefetching: false, prefetchTried: false, prefetchPromise: null,
     sessionPromise: null, sessionError: null, blockedAudio: null, retryArmed: false,
-    rt: null, rtTried: false, rtFallback: false
+    rt: null, rtTried: false, rtFallback: false, fallbackReason: null,
+    fallbackLoggedReasons: [], fallbackReportedReasons: []
   };
 }
 
 function voiceSync() { return state.voice || (state.voice = newVoiceState()); }
+
+const VOICE_FALLBACK_COPY = {
+  'no-key': 'No OpenAI API key is configured, so this call is using browser voice.',
+  'token-secret-invalid': 'Live voice is disabled because PS_TOKEN_SECRET is missing, too short, or still the development secret.',
+  'handshake-timeout': 'The live voice handshake timed out; the call carries on step by step, with everything you said kept.',
+  'model-refused': 'This OpenAI account refused the realtime model; the call carries on step by step, with everything you said kept.',
+  'webrtc-unsupported': 'This browser does not support WebRTC; the call carries on step by step, with everything you said kept.',
+  'mic-blocked': 'Microphone access was blocked; you can type answers or allow microphone access to try voice again.',
+  'connection-failed': 'The live voice connection failed; it carries on step by step, with everything you said kept.',
+  'session-limit': 'A live voice session is temporarily unavailable; the call carries on step by step, with everything you said kept.',
+  'empty-transcription': 'I could not make out two answers, so I am switching to typed answers.'
+};
+const VOICE_FALLBACK_CODES = Object.keys(VOICE_FALLBACK_COPY);
+function isVoiceDiagnosticsVisible() {
+  const host = String((window.location && window.location.hostname) || '').toLowerCase();
+  return !!state.demoMode || host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.e2b.app');
+}
+function canonicalVoiceFallback(reason) {
+  const code = String(reason || '').trim().toLowerCase();
+  return VOICE_FALLBACK_CODES.indexOf(code) >= 0 ? code : 'connection-failed';
+}
+function normalizeVoiceFallback(reason) {
+  const code = String(reason || '').trim().toLowerCase();
+  return VOICE_FALLBACK_CODES.indexOf(code) >= 0 ? code : null;
+}
+/* Record each distinct cause once per call. Browser-only causes are reported to the shared server
+   route; connect/readiness refusals already logged by the server are marked serverReported. */
+function recordVoiceFallback(reason, opts) {
+  opts = opts || {};
+  const v = voiceSync();
+  const code = canonicalVoiceFallback(reason);
+  v.fallbackReason = code; // latest fallback cause in lead metadata; server logs retain every distinct cause
+  if (!v.fallbackLoggedReasons.includes(code)) {
+    v.fallbackLoggedReasons.push(code);
+    console.warn('[voice] fallback reason=' + code);
+  }
+  if (opts.reportToServer && !opts.serverReported && !v.fallbackReportedReasons.includes(code)) {
+    v.fallbackReportedReasons.push(code);
+    api.post('/api/voice/fallback', { call_id: v.callId, reason: code }).catch(() => {});
+  }
+  if (opts.showNotice !== false) {
+    // Detailed fallback explanations are diagnostics; the exact mode remains visible in the badge.
+    v.rtNotice = isVoiceDiagnosticsVisible() ? VOICE_FALLBACK_COPY[code] : '';
+  }
+  return code;
+}
 
 /* Prefetchable session: same call, no status line change, safe to fire while the screen renders. */
 function ensureSessionSilent() {
@@ -577,9 +629,18 @@ function stopSpeaking() {
 }
 function stopListening() {
   const v = voiceSync();
-  try { if (v.rec) v.rec.stop(); } catch (e) {}
-  try { if (v.stopListening) v.stopListening(); } catch (e) {}
+  // In hands-free mode stopping is cancellation (mute/type/end), never a manual "send" action.
+  v.listenGeneration = (v.listenGeneration || 0) + 1;
+  v.listenPending = false;
+  const cancel = v.stopListening;
+  v.stopListening = null;
+  if (cancel) { try { cancel(); } catch (e) {} }
+  else if (v.rec) {
+    try { if (typeof v.rec.abort === 'function') v.rec.abort(); else v.rec.stop(); } catch (e) {}
+  }
+  v.rec = null;
   v.listening = false;
+  v.interim = '';
 }
 
 /* ---------------- listening ---------------- */
@@ -601,148 +662,298 @@ function blobToBase64(blob) {
     } catch (e) { reject(e); }
   });
 }
-function listenBrowser() {
+function listenBrowser(attemptId) {
   return new Promise((resolve, reject) => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     let rec;
-    try { rec = new SR(); } catch (e) { return reject(e); }
+    try { rec = new SR(); } catch (e) { return reject(new Error('mic-blocked')); }
     const v = voiceSync();
     v.rec = rec;
     rec.lang = (v.cfg && v.cfg.locale) || 'en-PH';
     rec.interimResults = true;
     rec.continuous = true;
     rec.maxAlternatives = 1;
-    let finalText = '', silenceTimer = null, hardTimer = null, settled = false;
-    const clear = () => { clearTimeout(silenceTimer); clearTimeout(hardTimer); };
-    const done = txt => { if (settled) return; settled = true; clear(); v.listening = false; try { rec.stop(); } catch (e) {} resolve(String(txt || '').trim()); };
-    const arm = ms => { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => done(finalText), ms); };
+    let finalText = '', interimText = '';
+    let silenceTimer = null, noSpeechTimer = null, hardTimer = null, restartTimer = null;
+    let settled = false;
+    const restartTimes = [];
+    const clear = () => {
+      clearTimeout(silenceTimer); clearTimeout(noSpeechTimer); clearTimeout(hardTimer); clearTimeout(restartTimer);
+      silenceTimer = noSpeechTimer = hardTimer = restartTimer = null;
+    };
+    const release = () => {
+      clear();
+      v.listening = false;
+      if (v.rec === rec) v.rec = null;
+      if (v.stopListening === cancel) v.stopListening = null;
+    };
+    const transcript = () => (finalText + ' ' + interimText).replace(/\s+/g, ' ').trim();
+    const finish = txt => {
+      if (settled) return;
+      settled = true;
+      release();
+      try { rec.stop(); } catch (e) {}
+      resolve(String(txt || '').trim());
+    };
+    const cancel = () => {
+      if (settled) return;
+      settled = true;
+      release();
+      try { if (typeof rec.abort === 'function') rec.abort(); else rec.stop(); } catch (e) {}
+      resolve(null);
+    };
+    const failMic = () => {
+      if (settled) return;
+      settled = true;
+      release();
+      try { if (typeof rec.abort === 'function') rec.abort(); else rec.stop(); } catch (e) {}
+      reject(new Error('mic-blocked'));
+    };
+    const armSilence = () => {
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => finish(transcript()), TIMING.silenceMs);
+    };
+    const scheduleRestart = () => {
+      if (settled || attemptId !== v.listenGeneration || v.micMuted || restartTimer) return;
+      const now = Date.now();
+      const windowMs = Math.max(1, Number(TIMING.recognitionRestartWindowMs) || 8000);
+      const cap = Math.max(1, Number(TIMING.maxRapidRecognitionRestarts) || 5);
+      while (restartTimes.length && now - restartTimes[0] >= windowMs) restartTimes.shift();
+      const baseDelay = Math.max(0, Number(TIMING.recognitionRestartMs) || 250);
+      const delay = restartTimes.length >= cap
+        ? Math.max(baseDelay, windowMs - (now - restartTimes[0]))
+        : baseDelay;
+      restartTimer = setTimeout(() => {
+        restartTimer = null;
+        if (settled || attemptId !== v.listenGeneration || v.micMuted) return;
+        restartTimes.push(Date.now());
+        try {
+          rec.start();
+          v.listening = true;
+          v.status = 'listening';
+          render();
+        } catch (e) {
+          if (e && (e.name === 'NotAllowedError' || /notallowed|service-not-allowed/i.test(e.message || ''))) return failMic();
+          // Some engines dispatch `end` slightly before start() is legal again. Keep retrying, but
+          // through the same windowed cap so an engine bug cannot spin the CPU or the event queue.
+          scheduleRestart();
+        }
+      }, delay);
+    };
+    v.stopListening = cancel;
     rec.onresult = e => {
-      let interim = '';
+      let nextInterim = '';
+      let gotSpeech = false;
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
-        if (r.isFinal) finalText += r[0].transcript + ' ';
-        else interim += r[0].transcript;
+        const word = String(r && r[0] && r[0].transcript || '').trim();
+        if (!word) continue;
+        gotSpeech = true;
+        if (r.isFinal) finalText += word + ' ';
+        else nextInterim += word;
       }
-      v.interim = (finalText + ' ' + interim).replace(/\s+/g, ' ').trim();
-      updateLiveLine();
-      arm(TIMING.silenceMs);
+      if (gotSpeech) {
+        interimText = nextInterim;
+        clearTimeout(noSpeechTimer);
+        v.interim = transcript();
+        updateLiveLine();
+        armSilence();
+      }
     };
     rec.onerror = ev => {
       const code = ev && ev.error;
-      if (code === 'not-allowed' || code === 'service-not-allowed') {
-        v.micBlocked = true; v.listening = false; clear();
-        settled = true; return reject(new Error('mic-blocked'));
-      }
-      if (code === 'no-speech' && !finalText) { done(''); return; }
-      done(finalText);
+      if (code === 'not-allowed' || code === 'service-not-allowed' || code === 'audio-capture') return failMic();
+      if (code === 'no-speech') { scheduleRestart(); return; }
+      if (transcript()) finish(transcript());
+      else scheduleRestart();
     };
-    rec.onend = () => { if (!settled) done(finalText); };
-    try { rec.start(); } catch (e) { return reject(e); }
+    rec.onend = () => { if (!settled) scheduleRestart(); };
+    try { rec.start(); }
+    catch (e) { return failMic(); }
     v.listening = true;
-    arm(TIMING.noSpeechMs);
-    hardTimer = setTimeout(() => done(finalText), TIMING.maxListenMs);
+    noSpeechTimer = setTimeout(() => {
+      if (transcript()) finish(transcript());
+      else finish('');
+    }, Math.min(TIMING.noSpeechMs, TIMING.maxListenMs));
+    hardTimer = setTimeout(() => finish(transcript()), TIMING.maxListenMs);
   });
 }
-function listenOpenAI() {
+function listenOpenAI(attemptId) {
   return new Promise((resolve, reject) => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
       return reject(new Error('mic-blocked'));
     }
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(stream => {
       const v = voiceSync();
+      const stopTracks = () => { try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} };
+      if (attemptId !== v.listenGeneration || v.micMuted || v.typed) { stopTracks(); return resolve(null); }
       const chunks = [];
       let rec, ctx = null, raf = null, stopped = false, heard = false;
       const startedAt = Date.now();
       let lastLoud = Date.now();
-      const finish = async () => {
-        if (stopped) return; stopped = true;
-        try { if (raf && window.cancelAnimationFrame) window.cancelAnimationFrame(raf); } catch (e) {}
+      const closeMeter = () => {
+        try { if (raf && window.cancelAnimationFrame) window.cancelAnimationFrame(raf); else if (raf) clearTimeout(raf); } catch (e) {}
+        raf = null;
         try { if (ctx) ctx.close(); } catch (e) {}
-        try { rec.stop(); } catch (e) {}
-        try { stream.getTracks().forEach(t => t.stop()); } catch (e) {}
-        const blob = new Blob(chunks, { type: (rec && rec.mimeType) || 'audio/webm' });
+        ctx = null;
+      };
+      const forgetListener = () => {
         v.listening = false;
+        if (v.rec === rec) v.rec = null;
+        if (v.stopListening === cancel) v.stopListening = null;
+      };
+      const cancel = () => {
+        if (stopped) return;
+        stopped = true;
+        closeMeter();
+        try { if (rec) { rec.onstop = null; rec.stop(); } } catch (e) {}
+        stopTracks();
+        forgetListener();
+        resolve(null);
+      };
+      let recordingSaved = false;
+      const saveRecording = async () => {
+        if (recordingSaved) return;
+        recordingSaved = true;
+        stopTracks();
+        const blob = new Blob(chunks, { type: (rec && rec.mimeType) || 'audio/webm' });
+        forgetListener();
         if (!blob.size) return resolve('');
         v.status = 'thinking'; render();
         try {
           const b64 = await blobToBase64(blob);
           const j = await api.post('/api/voice/transcribe', { audio_base64: b64, mime: blob.type || 'audio/webm' });
-          if (!j.text) throw new Error('The transcription came back empty. Try again, or type instead.');
-          resolve(String(j.text).trim());
+          resolve(String(j.text || '').trim());
         } catch (e) { reject(e); }
+      };
+      const finish = () => {
+        if (stopped) return;
+        stopped = true;
+        closeMeter();
+        // MediaRecorder emits its final dataavailable event before stop. Wait for onstop so the
+        // server transcription receives the complete recording, not an empty pre-stop snapshot.
+        if (!rec || rec.state === 'inactive') return saveRecording();
+        try {
+          rec.onstop = () => { saveRecording(); };
+          rec.stop();
+        } catch (e) { saveRecording(); }
       };
       try {
         rec = new MediaRecorder(stream);
         rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-        rec.onstop = () => {};
         rec.start();
         v.rec = rec;
-        v.stopListening = finish;
+        v.stopListening = cancel;
+        v.listening = true;
         const AC = window.AudioContext || window.webkitAudioContext;
         if (AC) {
-          ctx = new AC();
-          const analyser = ctx.createAnalyser();
-          analyser.fftSize = 1024;
-          ctx.createMediaStreamSource(stream).connect(analyser);
-          const buf = new Uint8Array(analyser.fftSize);
-          const tick = () => {
-            if (stopped) return;
-            try { analyser.getByteTimeDomainData(buf); } catch (e) {}
-            let peak = 0;
-            for (let i = 0; i < buf.length; i++) { const d = Math.abs(buf[i] - 128) / 128; if (d > peak) peak = d; }
-            if (peak > TIMING.levelThreshold) { heard = true; lastLoud = Date.now(); }
-            if (heard && Date.now() - lastLoud > TIMING.silenceMs) return finish();
-            if (!heard && Date.now() - startedAt > TIMING.noSpeechMs) return finish();
-            if (Date.now() - startedAt > TIMING.maxListenMs) return finish();
-            raf = window.requestAnimationFrame ? window.requestAnimationFrame(tick) : setTimeout(tick, 120);
-          };
-          tick();
+          try {
+            ctx = new AC();
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            ctx.createMediaStreamSource(stream).connect(analyser);
+            const buf = new Uint8Array(analyser.fftSize);
+            const tick = () => {
+              if (stopped) return;
+              try { analyser.getByteTimeDomainData(buf); } catch (e) {}
+              let peak = 0;
+              for (let i = 0; i < buf.length; i++) { const d = Math.abs(buf[i] - 128) / 128; if (d > peak) peak = d; }
+              if (peak > TIMING.levelThreshold) { heard = true; lastLoud = Date.now(); }
+              if (heard && Date.now() - lastLoud >= TIMING.silenceMs) return finish();
+              if (!heard && Date.now() - startedAt >= TIMING.noSpeechMs) return finish();
+              if (Date.now() - startedAt >= TIMING.maxListenMs) return finish();
+              raf = window.requestAnimationFrame ? window.requestAnimationFrame(tick) : setTimeout(tick, 120);
+            };
+            tick();
+          } catch (e) {
+            closeMeter();
+            setTimeout(finish, TIMING.maxListenMs);
+          }
         } else {
           setTimeout(finish, TIMING.maxListenMs);
         }
-      } catch (e) { try { stream.getTracks().forEach(t => t.stop()); } catch (e2) {} reject(e); }
+      } catch (e) {
+        closeMeter(); stopTracks();
+        forgetListener();
+        reject(e);
+      }
     }).catch(e => {
-      voiceSync().micBlocked = true;
+      if (attemptId !== voiceSync().listenGeneration) return resolve(null);
       reject(new Error(e && e.name === 'NotAllowedError' ? 'mic-blocked' : 'mic-blocked'));
     });
   });
 }
+function switchToTypedFallback(reason, message) {
+  const v = voiceSync();
+  const code = recordVoiceFallback(reason, { reportToServer: true, showNotice: false });
+  const diagnostics = isVoiceDiagnosticsVisible();
+  setFallbackNotice(diagnostics ? (VOICE_FALLBACK_COPY[code] || String(message || '')) : '');
+  v.micBlocked = true;
+  v.micMuted = true;
+  v.typed = true;
+  v.typedFallback = true;
+  v.listening = false;
+  v.interim = '';
+  v.status = 'ready';
+  v.notice = 'Typing is on. Type your answer below to continue.';
+  render();
+}
 async function listenForAnswer() {
   const v = voiceSync();
+  if (v.done || v.typed || v.micMuted || v.listenPending) return;
+  const attemptId = (v.listenGeneration || 0) + 1;
+  v.listenGeneration = attemptId;
+  v.listenPending = true;
   const engine = pickEngine();
   v.engine = engine;
   if (!engine) {
-    v.micBlocked = true;
-    v.typed = true;
-    v.notice = 'No microphone is available in this browser, so typing is on. Type your answers below, or open the site in a browser with a microphone for the voice call.';
-    v.status = 'ready'; render();
+    v.listenPending = false;
+    switchToTypedFallback('mic-blocked', 'No microphone is available in this browser. Type your answers below, or open this page in a browser with microphone support.');
     return;
   }
   v.status = 'listening'; v.interim = ''; v.notice = null; v.error = null;
   render();
   let text = '';
   try {
-    text = engine === 'browser' ? await listenBrowser() : await listenOpenAI();
+    text = engine === 'browser' ? await listenBrowser(attemptId) : await listenOpenAI(attemptId);
   } catch (e) {
+    if (attemptId !== v.listenGeneration) return;
+    v.listenPending = false;
     v.listening = false;
     if (e && e.message === 'mic-blocked') {
-      v.micBlocked = true; v.status = 'ready';
-      v.notice = 'The microphone is blocked here (browsers block it inside preview iframes). Open the site in its own tab for the voice call, or tap "Type instead" and type your answers.';
-      v.typed = true;
-      render();
+      switchToTypedFallback('mic-blocked', 'The microphone is blocked here. Type your answers below, or open the site in its own tab and allow microphone access.');
       return;
     }
-    v.status = 'ready'; v.error = e.message || 'Microphone error.'; render();
-    return;
-  }
-  v.interim = '';
-  const heard = String(text || '').trim();
-  if (!heard) {
-    v.status = 'ready';
-    v.notice = 'I did not catch that. Tap the microphone to try again, or type instead.';
+    const code = recordVoiceFallback('connection-failed', { reportToServer: true, showNotice: false });
+    setFallbackNotice(isVoiceDiagnosticsVisible() ? VOICE_FALLBACK_COPY[code] : '');
+    v.micBlocked = true; v.micMuted = true; v.typed = true; v.typedFallback = true;
+    v.status = 'ready'; v.error = null;
+    v.notice = 'Typing is on. Type your answer below to continue.';
     render();
     return;
   }
+  if (attemptId !== v.listenGeneration) return;
+  v.listenPending = false;
+  v.listening = false;
+  v.rec = null;
+  v.stopListening = null;
+  v.interim = '';
+  if (text == null) return; // cancelled by mute, typing, hang-up, or a replacement listen
+  const heard = String(text || '').trim();
+  if (!heard) {
+    v.consecutiveEmptyTranscriptions = (v.consecutiveEmptyTranscriptions || 0) + 1;
+    if (v.consecutiveEmptyTranscriptions >= 2) {
+      switchToTypedFallback('empty-transcription', 'I could not make out two answers, so I am switching to typed answers. Type below to keep going.');
+      return;
+    }
+    v.status = 'ready';
+    v.notice = 'I did not catch that. I am listening again automatically.';
+    render();
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, TIMING.emptyRetryMs)));
+    if (attemptId === v.listenGeneration && !v.micMuted && !v.typed && !v.done) await listenForAnswer();
+    return;
+  }
+  v.consecutiveEmptyTranscriptions = 0;
   v.lastHeard = heard;
   await voiceTurn(heard);
 }
@@ -752,10 +963,10 @@ async function listenForAnswer() {
  * first question to the last: the model hears where each answer ends (semantic turn detection) and
  * the lead can talk over it, so nothing is cut between questions and there is no button to press.
  *
- * The guardrail set still decides the content. After every answer the model calls record_answer;
- * that lands on /api/voice/realtime/tool, where lib/voice.js checks each claimed value against what
- * the lead actually said and hands back the next question the model is allowed to ask. Ungrounded
- * values are refused there, so nothing reaches the contract that was not said on the call.
+ * The guardrail set still decides what counts. After each caller turn the model calls record_answer
+ * for every distinct topic answered; /api/voice/realtime/tool checks each claimed value against the
+ * lead's words. The server returns uncovered topics or a required missing-fact callback, not a fixed
+ * question order. Ungrounded values are refused, so nothing reaches the contract that was not said.
  *
  * The API key never reaches the browser: the SDP offer is exchanged by our own server, which also
  * owns the session instructions, the tools and the voice.
@@ -766,16 +977,21 @@ async function listenForAnswer() {
 function newRealtimeState() {
   return {
     pc: null, dc: null, audioEl: null, mic: null, live: false, connecting: false, failed: null,
+    failedDetail: '', serverReported: false,
     startedAt: null, model: null, voice: null, vad: null, maxSessionMin: 15, watchdog: null,
     callTicket: null, opening: null, toolCalls: 0, accepted: 0, rejected: 0, endAttempts: 0,
     lastUserTurn: '', userLines: [], aiLines: [], handled: {}, aiPartial: '', pendingAttribution: null,
-    responseActive: false, userSpeaking: false, closing: false, dropped: false, micMuted: false, micCalls: 0,
+    responseActive: false, responseCreatePending: false, responseCreateTimer: null, queuedResponse: null,
+    lastResponseHadSpeech: false, lastResponseAskedQuestion: false, userSpeaking: false, closing: false,
+    dropped: false, micMuted: false, micCalls: 0,
+    validationQueue: Promise.resolve(), pendingValidations: 0, callerFinishedAt: null, latencySamples: [],
+    checkInTimer: null, skipTimer: null, silenceStage: 0, silenceGeneration: 0, pauseRequested: false,
     // connection health: what the peer connection last reported, and the grace timer that keeps a
     // temporary network hiccup from ending the call.
     connState: '', iceState: '', healthTimer: null, teardown: false, channelTimer: null,
     // real microphone level driving the orb waveform (null when the browser has no AudioContext).
     level: null,
-    // inactivity: a live call with no speech from either side for idleMin is wrapped up politely.
+    // inactivity: the last-resort polite wrap-up is measured from caller activity, not Otto's voice.
     idleTimer: null, lastActivityAt: 0, idleMin: RT_HEALTH.idleMin, maxToolCalls: 90,
     // the hang-up report has been sent, so the page-exit guard does not send it twice.
     endedSent: false
@@ -793,11 +1009,38 @@ function rtSend(obj) {
   if (!rt || !rt.dc || rt.dc.readyState !== 'open') return false;
   try { rt.dc.send(JSON.stringify(obj)); return true; } catch (e) { return false; }
 }
-/* Ask the session to speak. `instructions` is the line the guardrail set picked on the server. */
+/* Realtime allows one active response at a time. Tool results can arrive in a burst, so hold one
+   response request until the current response.done event rather than issuing overlapping creates. */
 function rtRespond(instructions) {
+  const rt = voiceSync().rt;
+  if (!rt) return false;
+  const request = { instructions: instructions ? String(instructions).slice(0, 1500) : '' };
+  if (rt.userSpeaking || rt.responseActive || rt.responseCreatePending) {
+    rt.queuedResponse = request; // coalesce same-turn tools into one next response
+    return true;
+  }
   const ev = { type: 'response.create' };
-  if (instructions) ev.response = { instructions: String(instructions).slice(0, 1500) };
-  return rtSend(ev);
+  if (request.instructions) ev.response = { instructions: request.instructions };
+  const sent = rtSend(ev);
+  if (sent) {
+    rt.responseCreatePending = true;
+    if (rt.responseCreateTimer) clearTimeout(rt.responseCreateTimer);
+    rt.responseCreateTimer = setTimeout(() => {
+      rt.responseCreateTimer = null;
+      if (rt.responseCreatePending && !rt.responseActive) {
+        rt.responseCreatePending = false;
+        flushRealtimeResponse();
+      }
+    }, 5000);
+  }
+  return sent;
+}
+function flushRealtimeResponse() {
+  const rt = voiceSync().rt;
+  if (!rt || !rt.queuedResponse || rt.userSpeaking || rt.responseActive || rt.responseCreatePending || rt.teardown || rt.dropped || voiceSync().done) return false;
+  const queued = rt.queuedResponse;
+  rt.queuedResponse = null;
+  return rtRespond(queued.instructions || null);
 }
 
 /* ---------------- the visitor's real microphone level ----------------
@@ -921,8 +1164,8 @@ function armConnectionHealth(pc) {
     if (s === 'connected' || s === 'completed') clearHealthGrace();
     else if (s === 'failed' || s === 'closed') {
       clearHealthGrace();
-      if (rt.live) dropRealtime(s === 'failed' ? 'The live voice connection failed.' : 'The live voice connection closed.');
-      else rt.failed = rt.failed || 'connection-' + s;
+      if (rt.live) dropRealtime('connection-failed', s === 'failed' ? 'The live voice connection failed.' : 'The live voice connection closed.');
+      else { rt.failed = rt.failed || 'connection-failed'; rt.failedDetail = rt.failedDetail || s; }
     } else if (s === 'disconnected') armHealthGrace();
     updateConnNote();
   };
@@ -952,7 +1195,7 @@ function armHealthGrace() {
     let s = '';
     try { s = (rt.pc && (rt.pc.connectionState || rt.pc.iceConnectionState)) || ''; } catch (e) {}
     if (s === 'connected' || s === 'completed') { updateConnNote(); return; }
-    dropRealtime('The live voice connection dropped out and did not come back.');
+    dropRealtime('connection-failed', 'The live voice connection dropped out and did not come back.');
   }, RT_HEALTH.graceMs);
 }
 function clearHealthGrace() {
@@ -970,9 +1213,9 @@ function updateConnNote() {
   el.className = 'conn-state' + (bad ? ' bad' : '');
 }
 
-/* Inactivity: on a live call the model is always asking something, so total silence for this long
-   means the visitor has walked away. Wrapping up politely protects both the spend and the
-   transcript, and it is a courtesy only - the server enforces its own limit independently. */
+/* Inactivity is measured from caller activity, not Otto’s check-ins or audio output. This keeps
+   the existing idle wrap-up as a last resort after the 8s/20s courtesy prompts, without allowing
+   those prompts themselves to postpone it forever. The server still enforces its own hard limit. */
 function armIdleWatchdog() {
   const v = voiceSync(); const rt = v.rt;
   if (!rt || rt.idleTimer) return;
@@ -996,6 +1239,78 @@ function clearIdleWatchdog() {
 function touchActivity() {
   const rt = voiceSync().rt;
   if (rt) rt.lastActivityAt = Date.now();
+}
+function realtimeSilenceTiming() {
+  const test = window.__PS_REALTIME_SILENCE_TIMING__ || {};
+  const check = Number(test.checkInMs);
+  const offer = Number(test.skipMs);
+  const checkInMs = Number.isFinite(check) && check > 0 ? check : 8000;
+  const skipMs = Number.isFinite(offer) && offer > checkInMs ? offer : 20000;
+  return { checkInMs, skipMs };
+}
+function clearRealtimeSilenceTimers(resetStage) {
+  const rt = voiceSync().rt;
+  if (!rt) return;
+  if (rt.checkInTimer) clearTimeout(rt.checkInTimer);
+  if (rt.skipTimer) clearTimeout(rt.skipTimer);
+  rt.checkInTimer = null; rt.skipTimer = null;
+  rt.silenceGeneration++;
+  if (resetStage) rt.silenceStage = 0;
+}
+function armRealtimeSilenceCheckIns() {
+  const v = voiceSync(); const rt = v.rt;
+  if (!rt || !rt.live || v.done || rt.closing || rt.teardown || rt.dropped || rt.userSpeaking || rt.pauseRequested) return;
+  clearRealtimeSilenceTimers(false);
+  rt.silenceStage = 0;
+  const generation = rt.silenceGeneration;
+  const timing = realtimeSilenceTiming();
+  const stillQuiet = () => rt.silenceGeneration === generation && rt.live && !v.done && !rt.closing &&
+    !rt.teardown && !rt.dropped && !rt.userSpeaking && !rt.pauseRequested;
+  rt.checkInTimer = setTimeout(() => {
+    rt.checkInTimer = null;
+    if (!stillQuiet()) return;
+    rt.silenceStage = 1;
+    rtRespond('Say only “Take your time.” Then stop and wait. Do not ask a question or call a tool.');
+  }, timing.checkInMs);
+  rt.skipTimer = setTimeout(() => {
+    rt.skipTimer = null;
+    if (!stillQuiet()) return;
+    rt.silenceStage = 2;
+    rtRespond('Gently say, “No rush. Would you like to skip this one?” Then stop and wait. Do not call a tool unless the caller answers.');
+  }, timing.skipMs);
+}
+function noteRealtimeSpeechStart() {
+  const v = voiceSync();
+  const rt = v.rt;
+  if (!rt || !Number.isFinite(rt.callerFinishedAt)) return;
+  const elapsed = Math.max(0, Date.now() - rt.callerFinishedAt);
+  rt.callerFinishedAt = null;
+  // Keep one sample for every completed caller-to-Otto hand-off; only the aggregate is persisted.
+  if (!Array.isArray(rt.latencySamples)) rt.latencySamples = [];
+  rt.latencySamples.push(elapsed);
+  const message = '[voice] realtime caller-finish-to-otto-start_ms=' + elapsed + ' target=<1000';
+  if (v.callId) console.info(message + ' call=' + String(v.callId).slice(0, 64));
+  else console.info(message);
+}
+function summarizeRealtimeLatency(samples) {
+  const sorted = (Array.isArray(samples) ? samples : [])
+    .filter(value => Number.isFinite(value) && value >= 0)
+    .map(Math.round)
+    .sort((a, b) => a - b);
+  if (!sorted.length) return { median_ms: null, p90_ms: null, turns_measured: 0 };
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  // Nearest-rank percentile: p90 is the first observed value at or above the 90th percentile.
+  const p90 = sorted[Math.max(0, Math.ceil(sorted.length * 0.9) - 1)];
+  return { median_ms: median, p90_ms: p90, turns_measured: sorted.length };
+}
+function addRealtimeSystemNote(text) {
+  const note = String(text || '').trim().slice(0, 1600);
+  if (!note) return false;
+  return rtSend({
+    type: 'conversation.item.create',
+    item: { type: 'message', role: 'system', content: [{ type: 'input_text', text: note }] }
+  });
 }
 
 /* Bound the handshake: if the event channel never opens, the session is not usable and the call
@@ -1033,13 +1348,35 @@ function waitForIce(pc, ms) {
     catch (e) { try { pc.onicegatheringstatechange = onState; } catch (e2) {} }
   });
 }
+function clientRealtimeFailure(err) {
+  if (err && err.body && err.body.fallback_reason) return canonicalVoiceFallback(err.body.fallback_reason);
+  if (err && (err.timeout || err.name === 'AbortError') || /timeout|timed out|aborted/i.test(String(err && err.message || ''))) return 'handshake-timeout';
+  const text = String(err && (err.message || err.error) || '').toLowerCase();
+  if (/model|voice|realtime.{0,40}(access|available|supported)|not found|does not exist/.test(text) && !/invalid_api_key|incorrect api key/.test(text)) return 'model-refused';
+  return 'connection-failed';
+}
 async function startRealtimeCall() {
   const v = voiceSync();
   const rt = rtSync();
   if (rt.live) return true;
   rt.teardown = false; rt.endedSent = false; rt.connState = ''; rt.dropped = false;
-  try { await ensureSession(); } catch (e) { rt.failed = e.message; return false; }
-  if (!realtimePlanned()) { rt.failed = rt.failed || 'not-available'; return false; }
+  rt.failed = null; rt.failedDetail = ''; rt.serverReported = false;
+  try { await ensureSession(); }
+  catch (e) { rt.failed = clientRealtimeFailure(e); rt.failedDetail = e.message || ''; return false; }
+  const planned = !!(v.cfg && v.cfg.realtime && v.cfg.realtime.enabled);
+  if (!planned) {
+    const configuredReason = v.cfg && v.cfg.realtime && v.cfg.realtime.fallback_reason;
+    rt.failed = configuredReason ? canonicalVoiceFallback(configuredReason) : 'realtime-disabled';
+    return false; // a disabled switch is intentional, not a failed live call
+  }
+  if (typeof window.RTCPeerConnection !== 'function') {
+    rt.failed = 'webrtc-unsupported';
+    return false;
+  }
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+    rt.failed = 'mic-blocked';
+    return false;
+  }
   v.engine = 'realtime';
   v.status = 'connecting'; v.error = null; render();
   rt.connecting = true;
@@ -1048,8 +1385,8 @@ async function startRealtimeCall() {
     mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     rt.micCalls++;
   } catch (e) {
-    rt.connecting = false; rt.failed = 'mic-blocked';
-    return false;   // the step-by-step path shows the blocked-microphone notice and turns typing on
+    rt.connecting = false; rt.failed = 'mic-blocked'; rt.failedDetail = e && e.message || '';
+    return false;   // the call carries on with the step-by-step interviewer and typed answers
   }
   rt.mic = mic;
   // The orb waveform reacts to the visitor's actual voice, on this same stream: no second
@@ -1060,8 +1397,8 @@ async function startRealtimeCall() {
   // NAT, mobile and corporate networks can complete the handshake. If a browser rejects the config
   // object at all, fall back to the unconfigured peer connection rather than losing the call.
   try { pc = new RTCPeerConnection(ICE_SERVERS); }
-  catch (e) { try { pc = new RTCPeerConnection(); } catch (e2) { cleanupRealtime(); rt.failed = 'webrtc'; return false; } }
-  if (!pc) { cleanupRealtime(); rt.failed = 'webrtc'; return false; }
+  catch (e) { try { pc = new RTCPeerConnection(); } catch (e2) { cleanupRealtime(); rt.failed = 'webrtc-unsupported'; rt.failedDetail = e2.message || ''; return false; } }
+  if (!pc) { cleanupRealtime(); rt.failed = 'webrtc-unsupported'; return false; }
   rt.pc = pc;
   armConnectionHealth(pc);
   const audioEl = document.createElement('audio');
@@ -1087,7 +1424,7 @@ async function startRealtimeCall() {
     });
   } catch (e) {}
   let dc = null;
-  try { dc = pc.createDataChannel('oai-events'); } catch (e) { cleanupRealtime(); rt.failed = 'datachannel'; return false; }
+  try { dc = pc.createDataChannel('oai-events'); } catch (e) { cleanupRealtime(); rt.failed = 'connection-failed'; rt.failedDetail = e.message || ''; return false; }
   rt.dc = dc;
   dc.onopen = () => {
     rt.live = true; rt.connecting = false; rt.dropped = false;
@@ -1104,14 +1441,14 @@ async function startRealtimeCall() {
       : null);
   };
   dc.onmessage = e => handleRealtimeEvent(e && e.data);
-  dc.onclose = () => { if (rt.live && !v.done && !rt.closing) dropRealtime('The live voice session closed.'); };
-  dc.onerror = () => { if (!rt.live) { rt.connecting = false; cleanupRealtime(); rt.failed = rt.failed || 'datachannel'; } };
+  dc.onclose = () => { if (rt.live && !v.done && !rt.closing) dropRealtime('connection-failed', 'The live voice session closed.'); };
+  dc.onerror = () => { if (!rt.live) { rt.connecting = false; cleanupRealtime(); rt.failed = rt.failed || 'connection-failed'; } };
   let offer = null;
   try {
     offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await waitForIce(pc, 4000);
-  } catch (e) { cleanupRealtime(); rt.failed = 'offer'; return false; }
+  } catch (e) { cleanupRealtime(); rt.failed = 'connection-failed'; rt.failedDetail = e.message || ''; return false; }
   const sdp = (pc.localDescription && pc.localDescription.sdp) || (offer && offer.sdp) || '';
   let res = null;
   try {
@@ -1119,8 +1456,20 @@ async function startRealtimeCall() {
       call_id: v.callId, sdp, client_name: (state.user && state.user.name) || '',
       answers: answersForUpload(), asked: v.asked, skipped: v.skipped, voice_captures: v.captures
     });
-  } catch (e) { cleanupRealtime(); rt.failed = e.message; return false; }
-  if (!res || !res.ok || !res.sdp) { cleanupRealtime(); rt.failed = (res && res.error) || 'connect-failed'; return false; }
+  } catch (e) {
+    cleanupRealtime();
+    rt.failed = clientRealtimeFailure(e);
+    rt.failedDetail = e.message || '';
+    rt.serverReported = !!(e.body && e.body.fallback_reason);
+    return false;
+  }
+  if (!res || !res.ok || !res.sdp) {
+    cleanupRealtime();
+    rt.failed = res && res.fallback_reason ? canonicalVoiceFallback(res.fallback_reason) : clientRealtimeFailure(res || {});
+    rt.failedDetail = (res && res.error) || '';
+    rt.serverReported = !!(res && res.fallback_reason);
+    return false;
+  }
   rt.callTicket = res.call_ticket || null;
   rt.opening = res.opening || null;
   rt.model = res.model || null; rt.voice = res.voice || null; rt.vad = res.turn_detection || null;
@@ -1131,13 +1480,15 @@ async function startRealtimeCall() {
   v.mode = 'realtime';
   if (res.warnings && res.warnings.length) v.warnings = (v.warnings || []).concat(res.warnings);
   try { await pc.setRemoteDescription({ type: 'answer', sdp: res.sdp }); }
-  catch (e) { cleanupRealtime(); rt.failed = 'answer'; return false; }
+  catch (e) { cleanupRealtime(); rt.failed = 'connection-failed'; rt.failedDetail = e.message || ''; return false; }
   /* The answer is applied, but a session that never brings the event channel up is not usable.
      Bounding the wait here is what turns "stuck on Connecting..." into the step-by-step fallback. */
   const opened = await waitForDataChannel(dc, RT_HEALTH.channelOpenMs);
   rt.connecting = false;
   if (!opened) {
-    if (!rt.failed) rt.failed = 'channel-timeout';
+    if (!rt.failed) {
+      rt.failed = dc && (dc.readyState === 'closed' || dc.readyState === 'closing') ? 'connection-failed' : 'handshake-timeout';
+    }
     cleanupRealtime();
     return false;
   }
@@ -1165,6 +1516,9 @@ function cleanupRealtime() {
   rt.teardown = true;
   clearHealthGrace();
   clearIdleWatchdog();
+  clearRealtimeSilenceTimers(true);
+  if (rt.responseCreateTimer) { clearTimeout(rt.responseCreateTimer); rt.responseCreateTimer = null; }
+  rt.responseCreatePending = false; rt.queuedResponse = null;
   if (rt.watchdog) { clearTimeout(rt.watchdog); rt.watchdog = null; }
   detachConnectionHealth(rt.pc);
   stopMicLevel();                       // closes the AudioContext and the analyser, not the mic track
@@ -1173,7 +1527,8 @@ function cleanupRealtime() {
   try { if (rt.mic) rt.mic.getTracks().forEach(t => t.stop()); } catch (e) {}
   try { if (rt.audioEl) { rt.audioEl.pause(); rt.audioEl.srcObject = null; if (rt.audioEl.parentNode) rt.audioEl.parentNode.removeChild(rt.audioEl); } } catch (e) {}
   rt.dc = null; rt.pc = null; rt.mic = null; rt.audioEl = null;
-  rt.live = false; rt.userSpeaking = false; rt.responseActive = false;
+  rt.live = false; rt.connecting = false; rt.userSpeaking = false; rt.responseActive = false;
+  rt.responseCreatePending = false; rt.callerFinishedAt = null;
   v.speaking = false; v.listening = false;
 }
 /* A fallback notice has to survive the automatic continuation turn that follows it, and that turn
@@ -1185,16 +1540,16 @@ function setFallbackNotice(msg) {
   v.rtNotice = String(msg || '');
 }
 /* The live session died mid-call: keep everything captured and carry on step by step. */
-function dropRealtime(reason) {
+function dropRealtime(reason, detail) {
   const v = voiceSync(); const rt = v.rt;
   if (!rt || rt.dropped) return;
   rt.dropped = true; rt.live = false;
-  const msg = String(reason || 'The live voice dropped.');
+  const code = recordVoiceFallback(reason || 'connection-failed', { reportToServer: true, showNotice: false });
   cleanupRealtime();
   v.rtFallback = true;
   v.provider = 'openai'; v.mode = 'openai'; v.engine = null;
-  setFallbackNotice(msg + ' The call carries on step by step from where you were, with everything you said kept.');
-  v.warnings = (v.warnings || []).concat([msg + ' Fell back to the step-by-step call.']);
+  setFallbackNotice(isVoiceDiagnosticsVisible() ? VOICE_FALLBACK_COPY[code] : '');
+  if (isVoiceDiagnosticsVisible() && detail) v.warnings = (v.warnings || []).concat([String(detail).slice(0, 240)]);
   v.status = 'ready';
   render();
   voiceTurn(null);
@@ -1205,7 +1560,11 @@ function handleRealtimeEvent(raw) {
   let ev = null;
   try { ev = JSON.parse(raw); } catch (e) { return; }
   if (!ev || !ev.type) return;
-  touchActivity();     // any traffic on the session means the call is not abandoned
+  const callerEvent = ev.type === 'input_audio_buffer.speech_started' ||
+    ev.type === 'input_audio_buffer.speech_stopped' ||
+    ev.type === 'conversation.item.input_audio_transcription.delta' ||
+    ev.type === 'conversation.item.input_audio_transcription.completed';
+  if (callerEvent) touchActivity(); // assistant check-ins do not reset the last-resort idle timer
   switch (ev.type) {
     case 'session.created':
     case 'session.updated': {
@@ -1214,11 +1573,21 @@ function handleRealtimeEvent(raw) {
       break;
     }
     case 'input_audio_buffer.speech_started':
-      rt.userSpeaking = true; v.status = 'listening'; v.speaking = false; v.interim = ''; rt.aiPartial = '';
+      rt.userSpeaking = true; rt.callerFinishedAt = null;
+      clearRealtimeSilenceTimers(true);
+      rt.queuedResponse = null;
+      // Stop local WebRTC playback immediately. With semantic_vad and interrupt_response=true,
+      // OpenAI cancels the response and truncates unplayed audio server-side for this WebRTC session;
+      // a client conversation.item.truncate is only needed when the client owns WebSocket playback.
+      try { if (rt.audioEl) rt.audioEl.muted = true; } catch (e) {}
+      v.status = 'listening'; v.speaking = false; v.interim = ''; rt.aiPartial = '';
       updateLiveLine(); render();
       break;
     case 'input_audio_buffer.speech_stopped':
-      rt.userSpeaking = false; v.status = 'thinking'; render();
+      rt.userSpeaking = false;
+      rt.callerFinishedAt = Date.now();
+      try { if (rt.audioEl) rt.audioEl.muted = !!v.muted; } catch (e) {}
+      v.status = 'thinking'; render();
       break;
     case 'conversation.item.input_audio_transcription.delta':
       if (ev.transcript) { v.interim = String(ev.transcript); updateLiveLine(); }
@@ -1227,14 +1596,29 @@ function handleRealtimeEvent(raw) {
       onRealtimeUserTurn(ev.transcript || '');
       break;
     case 'response.created':
-      rt.responseActive = true; rt.aiPartial = ''; v.status = 'speaking'; v.speaking = true; render();
+      rt.responseActive = true; rt.responseCreatePending = false;
+      if (rt.responseCreateTimer) { clearTimeout(rt.responseCreateTimer); rt.responseCreateTimer = null; }
+      rt.lastResponseHadSpeech = false; rt.lastResponseAskedQuestion = false;
+      rt.aiPartial = ''; v.status = 'speaking'; v.speaking = true; render();
+      break;
+    case 'response.output_audio.delta':
+      if (ev.delta) { rt.lastResponseHadSpeech = true; noteRealtimeSpeechStart(); }
       break;
     case 'response.output_audio_transcript.delta':
-      if (ev.delta) { rt.aiPartial += String(ev.delta); v.lastLine = rt.aiPartial; updateAiLine(); }
+      if (ev.delta) {
+        rt.lastResponseHadSpeech = true;
+        rt.aiPartial += String(ev.delta); v.lastLine = rt.aiPartial; updateAiLine();
+      }
       break;
-    case 'response.output_audio_transcript.done':
-      onRealtimeAiLine(ev.transcript || rt.aiPartial || '');
+    case 'response.output_audio_transcript.done': {
+      const transcript = String(ev.transcript || rt.aiPartial || '');
+      if (transcript.trim()) {
+        rt.lastResponseHadSpeech = true;
+        rt.lastResponseAskedQuestion = /[?？]/.test(transcript);
+      }
+      onRealtimeAiLine(transcript);
       break;
+    }
     case 'response.function_call_arguments.done':
       onRealtimeTool(ev.call_id || ev.item_id, ev.name, ev.arguments);
       break;
@@ -1242,14 +1626,25 @@ function handleRealtimeEvent(raw) {
       if (ev.item && ev.item.type === 'function_call') onRealtimeTool(ev.item.call_id || ev.item.id, ev.item.name, ev.item.arguments);
       break;
     case 'response.done': {
-      rt.responseActive = false; v.speaking = false;
+      rt.responseActive = false; rt.responseCreatePending = false; v.speaking = false;
+      if (rt.responseCreateTimer) { clearTimeout(rt.responseCreateTimer); rt.responseCreateTimer = null; }
       const r = ev.response || {};
       const detail = (r.status_details && (r.status_details.reason || r.status_details.type)) || '';
       if (r.status === 'failed' || (r.status === 'incomplete' && detail && detail !== 'interrupted')) {
         v.warnings = (v.warnings || []).concat(['The live model cut a reply short (' + (detail || r.status) + ').']);
       }
-      if (rt.closing && !v.done) { v.done = true; v.endedAt = new Date().toISOString(); v.status = 'complete'; }
-      else if (!v.done) v.status = rt.userSpeaking ? 'listening' : 'ready';
+      if (rt.closing && !v.done) {
+        if (rt.queuedResponse && !rt.userSpeaking) flushRealtimeResponse();
+        else if (rt.responseCreatePending) v.status = 'speaking';
+        else {
+          v.done = true; v.endedAt = new Date().toISOString(); v.status = 'complete';
+          rt.queuedResponse = null; clearRealtimeSilenceTimers(true);
+        }
+      } else if (!v.done) {
+        v.status = rt.userSpeaking ? 'listening' : 'ready';
+        if (rt.queuedResponse && !rt.userSpeaking) flushRealtimeResponse();
+        else if (rt.lastResponseHadSpeech && rt.lastResponseAskedQuestion && rt.silenceStage === 0) armRealtimeSilenceCheckIns();
+      }
       render();
       break;
     }
@@ -1259,7 +1654,7 @@ function handleRealtimeEvent(raw) {
       const err = ev.error || {};
       const msg = String(err.message || err.code || 'The live voice session reported an error.');
       v.warnings = (v.warnings || []).concat([msg]);
-      if (/session|expired|closed|not found|invalid_api_key|timeout/i.test(msg)) dropRealtime(msg);
+      if (/session|expired|closed|not found|invalid_api_key|timeout/i.test(msg)) dropRealtime(clientRealtimeFailure(new Error(msg)), msg);
       else render();
       break;
     }
@@ -1275,13 +1670,15 @@ function onRealtimeUserTurn(text) {
   rt.userLines.push(t);
   if (rt.userLines.length > 12) rt.userLines.shift();
   v.lastHeard = t; v.interim = '';
-  /* Attribute the answer to the question Otto is on, so Function A still sees it even if the model
-     forgets to call the tool. The server has the last word: a turn it judges off topic or empty is
-     stripped back out below, so noise never reaches the contract. */
-  const qid = v.currentQuestionId;
-  rt.pendingAttribution = { qid: qid, text: t };
-  if (qid) recordAnswer(qid, t, false);
-  v.transcript.push({ role: 'user', text: t, questionId: qid });
+  // Keep a pointer only so an off-topic turn can be marked in the transcript. Do not optimistically
+  // assign the words to the previously asked topic: one turn may answer several different topics,
+  // and the model supplies the correct topic id for each server-validated tool call.
+  rt.pendingAttribution = { qid: v.currentQuestionId, text: t };
+  const pause = /\b(?:hold on|hang on|give me (?:a|one) (?:moment|second|minute)|one moment|just a (?:moment|second|minute)|bear with me|can we (?:pause|wait|hold)|come back to this|not right now)\b/i;
+  const ready = /\b(?:i(?:'m| am) ready|ready now|let'?s continue|go ahead|we can continue|carry on)\b/i;
+  if (pause.test(t)) rt.pauseRequested = true;
+  else if (rt.pauseRequested && ready.test(t)) rt.pauseRequested = false;
+  v.transcript.push({ role: 'user', text: t, questionId: v.currentQuestionId });
   v.turns = (v.turns || 0) + 1;
   render();
 }
@@ -1296,25 +1693,10 @@ function onRealtimeAiLine(text) {
   v.transcript.push({ role: 'ai', text: t, questionId: v.currentQuestionId });
   render();
 }
-/* The current turn's optimistic attribution is held back from the server, so the server decides
-   whether it belongs in the answers at all. */
-function answersForUpload() {
-  const rt = voiceSync().rt;
-  const attr = rt && rt.pendingAttribution;
-  if (!attr || !attr.qid) return state.answers;
-  return state.answers.map(a => {
-    if (a.id !== attr.qid) return a;
-    let t = String(a.text || '');
-    if (t.indexOf(attr.text) >= 0) t = t.replace(attr.text, '').replace(/\s+/g, ' ').trim();
-    return { id: a.id, text: t };
-  });
-}
+/* Realtime answers enter this array only after the server tool has accepted the call. */
+function answersForUpload() { return state.answers; }
 function unrecordAttribution(attr) {
-  if (!attr || !attr.qid) return;
-  const a = state.answers.find(x => x.id === attr.qid);
-  if (a && String(a.text || '').indexOf(attr.text) >= 0) {
-    a.text = String(a.text).replace(attr.text, '').replace(/\s+/g, ' ').trim();
-  }
+  if (!attr || !attr.text) return;
   const lines = voiceSync().transcript;
   for (let i = lines.length - 1; i >= 0; i--) {
     if (lines[i].role === 'user' && lines[i].text === attr.text) { lines[i].ignored = true; break; }
@@ -1330,53 +1712,159 @@ function applyRealtimeState(st) {
   if (Array.isArray(st.voice_captures)) v.captures = st.voice_captures.slice(-60);
   if (st.capture) v.capture = st.capture;
 }
+function quietRealtimeCaptureNote(out, job, failed) {
+  const v = voiceSync();
+  const plan = v.plan || [];
+  const rejected = (out && Array.isArray(out.rejected)) ? out.rejected : [];
+  const topics = [];
+  rejected.forEach(r => {
+    const field = r && r.field;
+    const q = field && plan.find(x => Array.isArray(x.fields) && x.fields.indexOf(field) >= 0);
+    if (q && topics.indexOf(q.label) < 0) topics.push(q.label);
+  });
+  const qid = (out && out.question_id) || (job && job.args && job.args.question_id);
+  const current = plan.find(q => q.id === qid);
+  if (out && out.answer_quality === 'off_topic' && current && topics.indexOf(current.label) < 0) topics.push(current.label);
+  const stillNeeded = out && out.next && (out.next.kind === 'probe' || out.next.kind === 'callback')
+    ? (out.next.still_needed || []) : [];
+  const topicText = topics.length ? topics.join(', ') : (current ? current.label : 'the last topic');
+  let note;
+  if (failed) {
+    note = 'Quiet server-save update: validation did not complete for ' + topicText + '. Do not say it was saved. Keep the conversation moving; if this topic is still uncovered, ask for it naturally later. Do not create a separate spoken turn just for this note.';
+  } else if (rejected.length || (out && out.answer_quality === 'off_topic')) {
+    const detail = stillNeeded.length ? ' Still needed: ' + stillNeeded.join(', ') + '.' : '';
+    note = 'Quiet grounded-capture update: the server did not save the claimed value for ' + topicText + '.' + detail + ' Do not mention this check or treat the value as captured. At a natural point, ask only for the missing detail if that topic is not already answered or declined. Do not interrupt the current response or create a separate spoken turn.';
+  } else if (stillNeeded.length) {
+    note = 'Quiet follow-up reminder: ' + topicText + ' is still missing ' + stillNeeded.join(', ') + '. At a natural point ask one short question only for the missing detail; do not repeat anything already captured, and do not create a separate spoken turn now.';
+  } else if (out && out.close === true) {
+    note = 'Quiet progress update: all intake topics are covered. After your current short acknowledgement, thank the caller and close using end_call; do not ask another intake question.';
+  }
+  if (note) addRealtimeSystemNote(note);
+}
+function applyRealtimeToolResult(j, job) {
+  const v = voiceSync(); const rt = v.rt;
+  if (j && j.call_ticket) rt.callTicket = j.call_ticket;
+  const out = (j && j.output) || {};
+  if (j && j.state) applyRealtimeState(j.state);
+  if (Array.isArray(out.rejected)) {
+    rt.rejected += out.rejected.length;
+    if (out.rejected.length) {
+      const labels = out.rejected.map(r => r && (r.label || r.field)).filter(Boolean);
+      v.notice = 'Values refused as not said on the call: ' + out.rejected.length +
+        (labels.length ? ' (' + labels.join(', ') + ')' : '') + '.';
+    }
+  }
+  if (Array.isArray(out.accepted)) rt.accepted += out.accepted.length;
+  if (out.end_attempts) rt.endAttempts = out.end_attempts;
+  if (out.next && out.next.question_id && (out.next.kind === 'probe' || out.next.kind === 'callback')) {
+    v.currentQuestionId = out.next.question_id; v.pendingQuestionId = out.next.question_id;
+  }
+  if (out.next && out.next.kind === 'probe' && out.question_id) v.probes[out.question_id] = (v.probes[out.question_id] || 0) + 1;
+  if (out.close === true && job && job.name === 'end_call') rt.closing = true;
+  const attribution = job && job.attribution;
+  if (attribution && attribution.text === job.userTurn) {
+    if (out.answer_quality === 'off_topic' || (out.saved === false && out.answer_quality !== 'declined')) {
+      unrecordAttribution(attribution);
+    }
+    // A later caller turn may already have replaced the shared pointer while this validation ran.
+    // Clear it only when it still refers to this job; every queued job keeps its own attribution.
+    if (rt.pendingAttribution && rt.pendingAttribution.text === attribution.text) rt.pendingAttribution = null;
+  }
+  if (Array.isArray(j && j.warnings) && j.warnings.length) v.warnings = (v.warnings || []).concat(j.warnings);
+  quietRealtimeCaptureNote(out, job, false);
+  render();
+  refreshFieldStatus();
+}
+function queueRealtimeValidation(job) {
+  const v = voiceSync(); const rt = v.rt;
+  rt.pendingValidations++;
+  const previous = rt.validationQueue || Promise.resolve();
+  const task = previous.catch(() => {}).then(async () => {
+    try {
+      // Build from the latest server-confirmed state, not the snapshot from another tool call in
+      // this same caller turn. This serial client queue prevents parallel results overwriting one
+      // another while the model itself receives each function output immediately.
+      const j = await api.post('/api/voice/realtime/tool', {
+        call_id: v.callId, call_ticket: rt.callTicket, name: 'record_answer', arguments: job.args,
+        user_turn: job.userTurn, user_lines: job.userLines.slice(-4), ai_lines: job.aiLines.slice(-3),
+        answers: answersForUpload(), asked: v.asked, probes: v.probes, skipped: v.skipped,
+        voice_captures: v.captures, end_attempts: rt.endAttempts,
+        client_name: (state.user && state.user.name) || ''
+      });
+      applyRealtimeToolResult(j, job);
+    } catch (e) {
+      if (rt.pendingAttribution && rt.pendingAttribution.text === job.userTurn) rt.pendingAttribution = null;
+      v.notice = 'A save did not go through (' + e.message + '). The call carries on.';
+      quietRealtimeCaptureNote({ question_id: job.args.question_id }, job, true);
+      render();
+    } finally {
+      rt.pendingValidations = Math.max(0, rt.pendingValidations - 1);
+    }
+  });
+  rt.validationQueue = task.catch(() => {});
+  return rt.validationQueue;
+}
 async function onRealtimeTool(callId, name, argsRaw) {
   const v = voiceSync(); const rt = v.rt;
   if (!name) return;
   const key = String(callId || '') + ':' + name;
-  if (rt.handled[key]) return;   // the same call can arrive as arguments.done and as output_item.done
+  if (rt.handled[key]) return; // arguments.done and output_item.done can report the same call
   rt.handled[key] = true;
   rt.toolCalls++;
-  v.status = 'thinking'; render();
   let args = argsRaw;
   if (typeof args === 'string') { try { args = JSON.parse(args); } catch (e) { args = {}; } }
   if (!args || typeof args !== 'object') args = {};
-  let out = null;
+  v.status = 'thinking'; render();
+
+  if (name === 'record_answer') {
+    const question = (v.plan || []).find(q => q.id === args.question_id);
+    const nextTopic = (v.plan || []).find(q => q.id === args.next_topic_id);
+    if (nextTopic) { v.currentQuestionId = nextTopic.id; v.pendingQuestionId = nextTopic.id; }
+    const attr = rt.pendingAttribution;
+    if (attr && attr.text === rt.lastUserTurn && question) attr.qid = question.id;
+    const job = {
+      name: 'record_answer', args: Object.assign({}, args),
+      userTurn: String(rt.lastUserTurn || args.answer_text || '').slice(0, 4000),
+      attribution: attr && attr.text === rt.lastUserTurn ? { qid: question && question.id || attr.qid, text: attr.text } : null,
+      userLines: rt.userLines.slice(-4), aiLines: rt.aiLines.slice(-3)
+    };
+    // Acknowledge the function call to Realtime immediately. Grounding continues on our server in
+    // parallel; a refusal later becomes a quiet system item, not another spoken response.
+    rtSend({
+      type: 'conversation.item.create',
+      item: {
+        type: 'function_call_output', call_id: String(callId || ''),
+        output: JSON.stringify({
+          status: 'validation_pending', question_id: args.question_id || null,
+          next_topic_id: nextTopic ? nextTopic.id : null,
+          instruction: 'Validation is running privately. Acknowledge one specific detail from the caller and continue with one uncovered topic. Do not say any value has been saved.'
+        })
+      }
+    });
+    if (!rt.userSpeaking && !v.done) rtRespond();
+    queueRealtimeValidation(job); // deliberately not awaited
+    render();
+    return;
+  }
+
+  // Ending is deliberately server-gated (stop and required-field checks). Wait for any queued
+  // captures first so a parallel multi-topic turn cannot race its final call state.
+  try { await (rt.validationQueue || Promise.resolve()).catch(() => {}); } catch (e) {}
+  let out = null; let j = null;
   try {
-    const j = await api.post('/api/voice/realtime/tool', {
+    j = await api.post('/api/voice/realtime/tool', {
       call_id: v.callId, call_ticket: rt.callTicket, name, arguments: args,
       user_turn: rt.lastUserTurn, user_lines: rt.userLines.slice(-4), ai_lines: rt.aiLines.slice(-3),
       answers: answersForUpload(), asked: v.asked, probes: v.probes, skipped: v.skipped,
       voice_captures: v.captures, end_attempts: rt.endAttempts,
       client_name: (state.user && state.user.name) || ''
     });
-    if (j && j.call_ticket) rt.callTicket = j.call_ticket;
-    out = (j && j.output) || { instruction: 'Carry on with the next question on the intake set.' };
-    if (out.saved === false && rt.pendingAttribution) unrecordAttribution(rt.pendingAttribution);
-    rt.pendingAttribution = null;
-    if (j && j.state) applyRealtimeState(j.state);
-    if (Array.isArray(out.rejected)) {
-      rt.rejected += out.rejected.length;
-      if (out.rejected.length) {
-        const labels = out.rejected.map(r => r && (r.label || r.field)).filter(Boolean);
-        v.notice = 'Values refused as not said on the call: ' + out.rejected.length +
-          (labels.length ? ' (' + labels.join(', ') + ')' : '') + '.';
-      }
-    }
-    if (Array.isArray(out.accepted)) rt.accepted += out.accepted.length;
-    if (out.end_attempts) rt.endAttempts = out.end_attempts;
-    if (out.next && out.next.question_id) { v.currentQuestionId = out.next.question_id; v.pendingQuestionId = out.next.question_id; }
-    if (out.next && out.next.kind === 'probe' && out.question_id) v.probes[out.question_id] = (v.probes[out.question_id] || 0) + 1;
-    if (out.close === true) rt.closing = true;
-    if (name === 'end_call' && out.close !== false) rt.closing = true;
-    if (Array.isArray(j.warnings) && j.warnings.length) v.warnings = (v.warnings || []).concat(j.warnings);
+    applyRealtimeToolResult(j, { name, args, userTurn: rt.lastUserTurn });
+    out = (j && j.output) || { instruction: 'Carry on with the intake topics.' };
   } catch (e) {
-    rt.pendingAttribution = null;
-    out = { error: e.message, instruction: 'Carry on with the next question on the intake set.' };
+    out = { error: e.message, instruction: 'Carry on with the intake topics.' };
     v.notice = 'A save did not go through (' + e.message + '). The call carries on.';
   }
-  v.interim = '';
-  // Hand the result back to the session, then let it speak the next question the policy picked.
   rtSend({
     type: 'conversation.item.create',
     item: { type: 'function_call_output', call_id: String(callId || ''), output: JSON.stringify(out).slice(0, 3500) }
@@ -1392,17 +1880,19 @@ function sendRealtimeText(text) {
   const t = String(text || '').trim();
   if (!t) return;
   const qid = v.currentQuestionId;
+  clearRealtimeSilenceTimers(true);
+  touchActivity();
   rtSend({
     type: 'conversation.item.create',
     item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: t.slice(0, 1200) }] }
   });
   rt.lastUserTurn = t;
   rt.userLines.push(t);
-  recordAnswer(qid, t, false);
+  if (rt.userLines.length > 12) rt.userLines.shift();
+  rt.pendingAttribution = { qid: qid, text: t };
   v.transcript.push({ role: 'user', text: t, questionId: qid, typed: true });
   v.lastHeard = t;
-  rtRespond('They typed that answer instead of speaking it. Treat it exactly as if they had said it: call record_answer for ' +
-    (qid || 'the question you just asked') + ', then ask the next question.');
+  rtRespond('They typed that answer instead of speaking it. Treat it exactly as if they had said it. Record every distinct intake topic they answered, including volunteered topics, then continue with one uncovered topic.');
   render();
   refreshFieldStatus();
 }
@@ -1490,8 +1980,8 @@ async function afterTurn(res) {
   const v = voiceSync();
   await speakLine(res);
   if (v.done) { v.status = 'complete'; render(); return; }
-  if (v.listening) return;   // the user already tapped the microphone
-  if (v.handsFree && !v.typed && !v.micBlocked) await listenForAnswer();
+  if (v.listening || v.listenPending) return;   // a hands-free listen is already in progress
+  if (v.handsFree && !v.typed && !v.micBlocked && !v.micMuted) await listenForAnswer();
   else { v.status = 'ready'; render(); }
 }
 async function voiceTurn(userText) {
@@ -1549,15 +2039,24 @@ async function startCall() {
     const live = await startRealtimeCall();
     if (live) return;
     const rt = v.rt;
-    if (rt && rt.failed === 'mic-blocked') {
-      v.micBlocked = true; v.typed = true; v.status = 'ready';
-      v.notice = 'The microphone is blocked here (browsers block it inside preview iframes), so the live call cannot start. Open the site in its own tab for the continuous call, or type your answers below.';
-      render();
-      return;
-    }
-    if (rt && rt.failed) {
-      setFallbackNotice('The continuous voice call could not start (' + String(rt.failed).slice(0, 140) + '). Running the same call step by step instead.');
-      v.rtFallback = true;
+    if (rt && rt.failed && rt.failed !== 'realtime-disabled') {
+      const code = recordVoiceFallback(rt.failed, {
+        reportToServer: true,
+        serverReported: !!rt.serverReported,
+        showNotice: false
+      });
+      v.rtFallback = code !== 'no-key';
+      if (code === 'mic-blocked') {
+        v.micBlocked = true; v.micMuted = true; v.typed = true; v.typedFallback = true; v.status = 'ready';
+        setFallbackNotice(isVoiceDiagnosticsVisible() ? VOICE_FALLBACK_COPY[code] : '');
+        render();
+        // Still start the same interviewer. The typed answer field is ready, and afterTurn will not
+        // try to reopen a microphone that the browser has already denied.
+        if (v.opening) { const first = v.opening; v.opening = null; applyTurn(first); afterTurn(first); }
+        else voiceTurn(null);
+        return;
+      }
+      setFallbackNotice(isVoiceDiagnosticsVisible() ? VOICE_FALLBACK_COPY[code] : '');
     }
   }
   const run = res => { applyTurn(res); afterTurn(res); };
@@ -2083,32 +2582,33 @@ function fmtCaptured(v) {
 }
 function providerBadge() {
   const v = voiceSync();
-  if (v.mode === 'realtime') return '<span class="badge-mode openai">Live AI voice</span>';
-  const openai = v.mode === 'openai';
-  return '<span class="badge-mode ' + (openai ? 'openai' : 'simulated') + '">' +
-    (openai ? 'ChatGPT voice' : 'Simulated voice') + '</span>';
+  if (!v.cfg && !v.mode) return '';
+  if (wasRealtime(v)) return '<span class="badge-mode openai">Live voice</span>';
+  const openai = isOpenAIStepVoice(v);
+  return '<span class="badge-mode ' + (openai ? 'openai' : 'simulated') + '\">' +
+    (openai ? 'Step-by-step voice' : 'Browser voice (no API key)') + '</span>';
+}
+function isOpenAIStepVoice(v) {
+  v = v || voiceSync();
+  return v.mode === 'openai' || v.provider === 'openai' ||
+    v.provider === 'openai-realtime' || !!(v.cfg && v.cfg.provider === 'openai');
 }
 /* Was this call held over one continuous WebRTC session? The answer has to survive the hang-up
    (cleanupRealtime clears rt.live but keeps rt.startedAt) and must never be claimed for a call that
    fell back to the step-by-step engine. */
 function wasRealtime(v) {
   v = v || voiceSync();
+  if (v.rtFallback) return false;
   if (v.mode === 'realtime') return true;
-  return !!(v.rt && v.rt.startedAt && !v.rtFallback);
+  return !!(v.rt && v.rt.startedAt);
 }
-/* One line saying how the call was actually held. This is what the call head and the review screen
-   show, and it is the string that must never read "Simulated voice" for a live continuous call. */
+/* Use the same exact mode label in the call head and the review screen as in the mode badge.
+   Realtime model/voice/turn-detection details are displayed separately in the mode card. */
 function callModeLabel(v) {
   v = v || voiceSync();
-  if (wasRealtime(v)) {
-    const rt = v.rt || {};
-    return 'Live continuous AI voice' +
-      (rt.model ? ' &bull; ' + esc(rt.model) : '') +
-      (rt.voice ? ' &bull; voice ' + esc(rt.voice) : '') +
-      (rt.vad ? ' &bull; ' + esc(rt.vad) : '');
-  }
-  if (v.mode === 'openai') return v.rtFallback ? 'ChatGPT voice (the live call fell back to step by step)' : 'ChatGPT voice';
-  return 'Simulated voice';
+  if (wasRealtime(v)) return 'Live voice';
+  if (isOpenAIStepVoice(v)) return 'Step-by-step voice';
+  return 'Browser voice (no API key)';
 }
 function voiceOrbHtml(status, listening) {
   const st = esc(status || 'idle');
@@ -2214,9 +2714,9 @@ function callControls(started, total) {
       '<button class="btn btn-ghost" id="type-btn-pre">Type answers instead</button></div>';
   }
   let h = '<div class="call-row">';
-  h += '<button class="btn ' + (v.listening ? 'btn-dark' : 'btn-primary') + '" id="mic-btn" aria-pressed="' + (v.listening ? 'true' : 'false') + '"' +
-    (v.status === 'thinking' || v.done ? ' disabled' : '') + '>' +
-    (v.listening ? '&#9632; Stop and send' : '&#127908; Tap to answer') + '</button>';
+  h += '<button class="btn ' + (v.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" type="button" aria-pressed="' + (v.micMuted ? 'false' : 'true') + '"' +
+    (v.done ? ' disabled' : '') + ' title="Mute or unmute your microphone">' +
+    (v.micMuted ? 'Microphone muted' : 'Microphone live') + '</button>';
   h += '<button class="btn ' + (v.blockedAudio ? 'btn-primary' : 'btn-ghost') + '" id="repeat-btn">' + (v.blockedAudio ? '&#9654; Play' : 'Repeat') + '</button>';
   h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
   if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip</button>';
@@ -2319,19 +2819,26 @@ function bindCall() {
   const start = $('#start-call');
   if (start) start.onclick = () => startCall();
   const preType = $('#type-btn-pre');
-  if (preType) preType.onclick = () => { v.typed = true; v.startedAt = v.startedAt || new Date().toISOString(); render(); };
+  if (preType) preType.onclick = () => { v.typed = true; v.micMuted = true; v.startedAt = v.startedAt || new Date().toISOString(); render(); };
   const mic = $('#mic-btn');
   if (mic) mic.onclick = () => {
-    // On a live call the microphone is already open: the button mutes it, it does not start a turn.
+    // In both modes this control only mutes/unmutes. Silence detection sends the answer; no tap is
+    // needed to keep the conversation moving.
     if (v.rt && v.rt.live) { setRealtimeMicMuted(!v.rt.micMuted); render(); return; }
-    if (v.listening) { stopListening(); return; }
-    if (v.status === 'speaking') stopSpeaking();
-    listNow();
+    v.micMuted = !v.micMuted;
+    if (v.micMuted) stopListening();
+    else {
+      if (v.typed) { v.typed = false; v.typedFallback = false; v.micBlocked = false; }
+      if (v.status === 'speaking') stopSpeaking();
+    }
+    render();
+    if (!v.micMuted && v.startedAt && !v.done) listNow();
   };
   const micBack = $('#mic-back-btn');
   if (micBack) micBack.onclick = () => {
-    if (v.rt && v.rt.live) { v.typed = false; render(); return; }
-    stopListening(); v.typed = false; render(); listNow();
+    if (v.rt && v.rt.live) { v.typed = false; setRealtimeMicMuted(false); render(); return; }
+    stopListening(); v.typed = false; v.typedFallback = false; v.micBlocked = false; v.micMuted = false;
+    render(); listNow();
   };
   const stopSpeak = $('#stop-speak');
   if (stopSpeak) stopSpeak.onclick = () => { stopSpeaking(); v.status = v.done ? 'complete' : 'ready'; render(); };
@@ -2340,7 +2847,10 @@ function bindCall() {
   const typ = $('#type-btn');
   if (typ) typ.onclick = () => {
     stopListening();
-    v.typed = true; v.status = 'ready'; render();
+    v.typed = true;
+    if (v.rt && v.rt.live) setRealtimeMicMuted(true);
+    else v.micMuted = true;
+    v.status = 'ready'; render();
     const i = $('#intake-input'); if (i) i.focus();
   };
   const mute = $('#mute-btn');
@@ -2478,13 +2988,15 @@ function voiceMeta() {
   const end = v.endedAt ? new Date(v.endedAt) : new Date();
   const dur = Math.max(0, Math.round((end - new Date(v.startedAt)) / 1000));
   const rt = v.rt;
-  const realtime = v.mode === 'realtime' || (rt && rt.startedAt);
+  const realtime = wasRealtime(v);
+  const latency = summarizeRealtimeLatency(rt && rt.latencySamples);
   return {
     provider: v.provider, mode: v.mode,
     models: v.cfg ? v.cfg.models : null, tts_voice: v.cfg ? v.cfg.tts_voice : null,
     language: (v.cfg && v.cfg.language) || null,
     call_id: v.callId, started_at: v.startedAt, ended_at: v.endedAt,
     duration_s: dur, turns: v.turns,
+    median_ms: latency.median_ms, p90_ms: latency.p90_ms, turns_measured: latency.turns_measured,
     questions_asked: v.asked, probes: Object.keys(v.probes).length,
     required_missing_at_call_end: (v.capture && v.capture.missingRequired) || [],
     transcript_turns: v.transcript.length,
@@ -2496,6 +3008,7 @@ function voiceMeta() {
     captures_accepted: realtime ? (rt.accepted || 0) : null,
     captures_rejected: realtime ? (rt.rejected || 0) : null,
     fallback_to_turns: !!v.rtFallback,
+    fallback_reason: normalizeVoiceFallback(v.fallbackReason),
     audio_retained: false
   };
 }
