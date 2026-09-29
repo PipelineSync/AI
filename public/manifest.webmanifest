@@ -1,7 +1,7 @@
 {
   "name": "PipelineSync AI",
   "short_name": "PipelineSync",
-  "description": "Talk through your business with Otto, the AI interviewer, and get a HubSpot revenue operations blueprint.",
+  "description": "Talk through your business with Nova, the AI interviewer, and get a HubSpot revenue operations blueprint.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0A0E17",

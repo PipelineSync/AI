@@ -7,7 +7,7 @@
  *   1. The call is continuous. One microphone, one peer connection, one session for all twelve
  *      questions: nothing is opened and closed per question the way the step-by-step path does.
  *   2. The guardrail set still decides the content. Every answer goes through record_answer, and
- *      the server hands back the next question the model is allowed to ask.
+ *      the server validates each claim and returns only the uncovered topics or a required missing-value callback.
  *   3. Nothing is captured that was not said. A value the lead never spoke (a number that is not in
  *      the transcript, a label the quote does not support, background noise) is refused, and the
  *      refusal is visible on screen.
@@ -29,6 +29,7 @@ const path = require('path');
 const { JSDOM } = require('jsdom');
 const { createMock } = require('./mock-openai');
 const voice = require('../lib/voice');
+const voiceApi = require('../lib/voice-api');
 const core = require('../lib/core');
 
 const MOCK_PORT = 8098;
@@ -36,6 +37,7 @@ const APP_PORT = 8089;
 const APP = 'http://127.0.0.1:' + APP_PORT;
 
 process.env.OPENAI_API_KEY = 'sk-mock';
+delete process.env.OPENAI_REALTIME_EAGERNESS;
 process.env.OPENAI_BASE_URL = 'http://127.0.0.1:' + MOCK_PORT + '/v1';
 process.env.PORT = String(APP_PORT);
 process.env.PS_TOKEN_SECRET = 'voice-realtime-test-secret';
@@ -149,43 +151,67 @@ function configTests() {
   ok(on.realtime.enabled === true, 'continuous voice is on when the key is set');
   ok(/gpt-realtime/.test(on.realtime.model), 'a realtime model is configured (' + on.realtime.model + ')');
   ok(voice.mode({}).realtime.enabled === false, 'without a key the call stays step by step');
+  ok(voiceApi.fallbackReasonForReadiness({}, null) === 'no-key', 'the readiness classifier names a missing API key');
+  const invalidSecretEnv = { OPENAI_API_KEY: 'sk-x', NODE_ENV: 'production', PS_TOKEN_SECRET: 'tooshort' };
+  ok(voiceApi.fallbackReasonForReadiness(invalidSecretEnv, voice.mode(invalidSecretEnv), voice.realtimeReadiness(invalidSecretEnv)) === 'token-secret-invalid', 'the readiness classifier names an invalid production signing secret');
+  ok(voiceApi.classifyRealtimeFailure({ name: 'AbortError' }, { OPENAI_API_KEY: 'sk-x' }) === 'handshake-timeout', 'a timed-out realtime connection has a stable reason code');
+  ok(voiceApi.classifyRealtimeFailure({ status: 404, message: 'Realtime model is not available' }, { OPENAI_API_KEY: 'sk-x' }) === 'model-refused', 'an unavailable realtime model has a stable refusal code');
+  ok(voiceApi.FALLBACK_REASONS.includes('empty-transcription') && voiceApi.FALLBACK_REASONS.includes('session-limit'), 'shared fallback reasons include browser transcription and session-limit causes');
   ok(voice.mode({ OPENAI_API_KEY: 'sk-x', VOICE_REALTIME: 'off' }).realtime.enabled === false, 'VOICE_REALTIME=off rolls the continuous call back');
   ok(voice.mode({ OPENAI_API_KEY: 'sk-x', VOICE_PROVIDER: 'simulated' }).realtime.enabled === false, 'simulated provider never opens a live session');
   ok(/\/realtime\/calls$/.test(on.realtime.endpoint), 'the session is opened on the GA realtime calls endpoint');
 
   const cfg = voice.realtimeSessionConfig({ env: { OPENAI_API_KEY: 'sk-x' }, ctx: { clientName: 'Maria Santos' } });
   ok(cfg.type === 'realtime' && !!cfg.model, 'the session declares itself realtime');
-  ok(cfg.audio.input.turn_detection.type === 'semantic_vad', 'turn detection is semantic, so the lead is not cut off mid-answer');
+  ok(cfg.audio.input.turn_detection.type === 'semantic_vad' && cfg.audio.input.turn_detection.eagerness === 'medium', 'semantic VAD defaults to medium eagerness for most callers');
   ok(cfg.audio.input.turn_detection.interrupt_response === true, 'the lead can talk over the AI (barge-in)');
+  const lowEagerness = voice.realtimeSessionConfig({ env: { OPENAI_API_KEY: 'sk-x', OPENAI_REALTIME_EAGERNESS: 'low' } });
+  const invalidEagerness = voice.realtimeSessionConfig({ env: { OPENAI_API_KEY: 'sk-x', OPENAI_REALTIME_EAGERNESS: 'urgent' } });
+  ok(lowEagerness.audio.input.turn_detection.eagerness === 'low', 'a validated low-eagerness environment override is honored');
+  ok(invalidEagerness.audio.input.turn_detection.eagerness === 'medium', 'an invalid eagerness override falls back to the medium default');
   ok(cfg.audio.input.transcription && cfg.audio.input.transcription.model, 'input transcription is on, so the call has a written record');
+  ok(cfg.audio.input.transcription.language === undefined && /en-PH/.test(cfg.audio.input.transcription.prompt) && /Taglish/.test(cfg.audio.input.transcription.prompt) && /do not translate or force English/i.test(cfg.audio.input.transcription.prompt), 'Realtime transcription recognizes en-PH and Taglish without forcing English');
+  ok(cfg.audio.input.noise_reduction.type === 'far_field', 'far-field noise reduction is configured for a phone-call microphone');
+  ok(cfg.parallel_tool_calls === true, 'reasoning Realtime sessions may return several capture calls for one caller turn');
+  const fallbackModelCfg = voice.realtimeSessionConfig({ env: { OPENAI_API_KEY: 'sk-x' }, model: 'gpt-realtime' });
+  ok(!Object.prototype.hasOwnProperty.call(fallbackModelCfg, 'parallel_tool_calls'), 'parallel calls are only enabled for supported reasoning Realtime models');
   ok(cfg.audio.output.voice === 'marin', 'the recommended voice is used (' + cfg.audio.output.voice + ')');
   ok(!cfg.audio.input.format && !cfg.audio.output.format, 'no audio format is set: WebRTC negotiates it in the SDP');
   const tools = cfg.tools.map(t => t.name);
   ok(tools.indexOf('record_answer') >= 0 && tools.indexOf('end_call') >= 0, 'the model can save an answer and end the call (' + tools.join(', ') + ')');
   const record = cfg.tools.find(t => t.name === 'record_answer');
   ok(record.parameters.properties.captured.items.properties.quote, 'every claimed value has to carry the exact words it came from');
+  ok(record.parameters.properties.next_topic_id && !record.parameters.required.includes('next_topic_id'), 'the suggested next topic is an optional display hint, not permission to capture');
   ok(record.parameters.properties.answer_quality.enum.indexOf('off_topic') >= 0, 'the model can mark a turn as having nothing to do with the question');
 
   const instructions = cfg.instructions;
-  ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(instructions), 'the live session knows the interviewer is called Nova');
-  ok(/say you are Nova, an AI interviewer from PipelineSync/.test(instructions), 'and the opening line the model is told to say says Nova');
+  ok(/You are Nova from PipelineSync, an AI/.test(instructions), 'the live session knows Nova is an AI from PipelineSync');
+  ok(/Say you're Nova, an AI from PipelineSync/.test(instructions), 'the opening line names Nova, PipelineSync, and his AI identity');
+  ok(/Use the caller's first name/i.test(instructions) && /at most two short statements plus one question/i.test(instructions), 'the Realtime opening uses the caller name and stays within the requested shape');
   ok(!/\bAlex\b/.test(instructions), 'nothing in the live session instructions still calls him Alex');
-  ok(/THE CALL IS CONTINUOUS/.test(instructions), 'the instructions say the call is continuous');
-  ok(/never say "please wait"/i.test(instructions), 'the instructions forbid the dead-air phrases that make a call feel cut');
-  ok(/THEIR QUESTION COMES FIRST/.test(instructions), 'the instructions make Nova answer the lead before anything else');
-  ok(/it is fine to spend a whole turn answering and ask nothing/.test(instructions), 'an all-answer turn is allowed, so the lead is never rushed');
-  ok(/WHEN THEY SAY STOP, YOU STOP/.test(instructions), 'the instructions carry the stop rule');
-  ok(/never negotiate a stop/i.test(instructions) && /never sound disappointed/i.test(instructions), 'a stop is not negotiated or mourned');
-  ok(/can we come back to this/i.test(instructions), 'a pause is described as waiting, not hanging up');
+  ok(/live phone call/i.test(instructions) && /Ask one clear, natural question at a time/.test(instructions), 'the instructions set a natural continuous phone-call style');
+  ok(/When a topic has several facts, ask for one at a time and follow up after they answer/.test(instructions), 'multi-part topics are handled with one spoken question at a time');
+  ok(/natural contractions every time you speak/i.test(instructions) && /No lists, bullets, markdown, emojis, or em dashes/.test(instructions), 'Realtime speech uses natural contractions and retains the no-em-dash rule');
+  ok(/count topics in the latest live state/i.test(instructions) && /topics remaining right now \(\d+\)/i.test(instructions), 'the FAQ count is grounded in live remaining-topic state');
+  ok(/narration of your tools or internal work/i.test(instructions), "the instructions keep tool and validation work out of Nova\'s spoken turns");
+  ok(/LET THE CALLER LEAD WHEN THEY HAVE A QUESTION/.test(instructions), 'the instructions make Nova answer the lead before anything else');
+  ok(/If the whole turn is about their question, answer and stop/.test(instructions), 'an all-answer turn is allowed, so the lead is never rushed');
+  ok(/If they say stop, have to go, or that is all for now/.test(instructions), 'the instructions carry the stop rule');
+  ok(/Never negotiate, ask for one more answer, or sound disappointed/i.test(instructions), 'a stop is not negotiated or mourned');
+  ok(/explicitly ask for a moment or a pause/i.test(instructions), 'an explicit pause is handled separately from silence');
   const endTool = cfg.tools.find(t => t.name === 'end_call');
   ok(endTool.parameters.properties.reason.enum.indexOf('lead_asked_to_stop') >= 0, 'end_call can say the lead asked to stop');
   ok(/lead_asked_to_stop/.test(instructions), 'the model is told to use that reason when the lead stops');
-  ok(/what does it cost/i.test(instructions) && /we do not quote prices on this call/i.test(instructions), 'the price question has a real answer that invents nothing');
-  ok(/are you a real person/i.test(instructions) && /I am an AI interviewer/i.test(instructions), 'the AI disclosure is scripted');
-  ok(voice.INTAKE_PLAN.every(q => instructions.indexOf(q.id) >= 0 && instructions.indexOf(q.ask) >= 0), 'all twelve guardrail questions are in the session instructions');
+  ok(/what does it cost/i.test(instructions) && /we don't quote prices on this call/i.test(instructions), "the price FAQ keeps the no-quote rule in Nova's own words");
+  ok(/are you a real person/i.test(instructions) && /I'm an AI interviewer/i.test(instructions), 'the AI disclosure remains in the FAQ facts');
+  ok(voice.INTAKE_PLAN.every(q => instructions.indexOf(q.id) >= 0 && q.examples.every(example => instructions.indexOf(example) >= 0)), 'all twelve topics and their single-fact examples are in the session instructions');
   ok(!voice.INTAKE_PLAN.some(q => q.hint && instructions.indexOf(q.hint) >= 0), 'no on-screen example figures are in the instructions, so they can never be captured as the lead\'s');
-  ok(/call record_answer before you say anything else/.test(instructions), 'saving the answer comes before the next question');
-  ok(instructions.length < 12000, 'the instructions stay inside a sane session prompt size (' + instructions.length + ' chars)');
+  ok(/There can be several record_answer calls from one caller turn/.test(instructions), 'one turn can record several topics before Nova responds');
+  ok(/THE TWELVE TOPICS — A COVERAGE MENU, NOT A REQUIRED ORDER/.test(instructions) && /whichever order fits/.test(instructions), 'topic order follows the caller rather than a fixed script');
+  ok(/Taglish/.test(instructions) && /answer them in clear, simple English/.test(instructions), 'Taglish answers are met with clear English');
+  ok(/At about eight seconds/.test(instructions) && /At about twenty seconds/.test(instructions) && /Silence by itself is not a reason to end/.test(instructions), 'silence gets a gentle check-in and skip offer without an early hang-up');
+  ok(/validation is pending, do not wait for the server/i.test(instructions), 'the model is told to acknowledge and continue while validation runs');
+  ok(instructions.length < 14000, 'the instructions, live count, and single-fact examples stay inside a sane session prompt size (' + instructions.length + ' chars)');
 }
 
 function groundingTests() {
@@ -216,29 +242,55 @@ function groundingTests() {
   ok(noise.output.saved === false, 'an off-topic turn is not saved as an answer');
   ok(noise.output.accepted.length === 0, 'an off-topic turn captures nothing at all');
   ok(noise.state.asked.indexOf('sources') < 0, 'an off-topic turn does not count as covering the question');
-  ok(/again once/i.test(noise.output.instruction), 'the model is told to ask that question again');
+  ok(/ask that topic once more in simpler words/i.test(noise.output.instruction), 'an off-topic response gets a single simple retry without changing other topics');
 
   const env = { OPENAI_API_KEY: 'sk-x' };
   let asked = [], answers = [], probes = {}, skipped = [], captures = [], ticket = null;
   const order = [];
-  for (let i = 0; i < 20; i++) {
-    const nextQ = voice.INTAKE_PLAN.find(q => asked.indexOf(q.id) < 0);
-    if (!nextQ) break;
-    const saidText = SAID[nextQ.id] ? SAID[nextQ.id].text : 'stub';
+  const record = (qid, answerText, claimed, userTurn, quality) => {
     const out = voice.runRealtimeTool({
       env, email: 'a@b.c',
       body: {
         call_id: 'c-walk', call_ticket: ticket, name: 'record_answer',
-        arguments: { question_id: nextQ.id, answer_text: saidText, answer_quality: 'complete', captured: (SAID[nextQ.id] && SAID[nextQ.id].captured) || [] },
-        user_turn: saidText, answers, asked, probes, skipped, voice_captures: captures
+        arguments: { question_id: qid, answer_text: answerText, answer_quality: quality || 'complete', captured: claimed || [] },
+        user_turn: userTurn || answerText, answers, asked, probes, skipped, voice_captures: captures
       }
     });
     ticket = out.call_ticket;
     answers = out.state.answers; asked = out.state.asked; probes = out.state.probes; skipped = out.state.skipped; captures = out.state.voice_captures;
-    order.push(nextQ.id);
-    if (out.output.next.kind === 'done') break;
+    return out;
+  };
+  // One caller turn volunteers the opening topic and volumes early; the model reports them as two
+  // distinct topic calls, each grounded against the same original transcript.
+  const mixedTurn = SAID.business.text + ' ' + SAID.volumes.text;
+  const mixedBusiness = record('business', SAID.business.text, SAID.business.captured, mixedTurn);
+  order.push('business');
+  const mixedVolumes = record('volumes', SAID.volumes.text, SAID.volumes.captured, mixedTurn);
+  order.push('volumes');
+  ok(mixedBusiness.output.accepted.length === 2 && mixedVolumes.output.accepted.length === 4, 'separate tool calls from one caller turn both pass the unchanged grounded-value validator');
+  ok(asked.indexOf('business') >= 0 && asked.indexOf('volumes') >= 0 && asked.indexOf('business') < asked.indexOf('volumes'), 'two topics volunteered in one turn are saved separately in conversational order');
+  const partialDeal = voice.runRealtimeTool({
+    env, email: 'a@b.c',
+    body: {
+      call_id: 'c-partial-deal', name: 'record_answer',
+      arguments: { question_id: 'deal', answer_text: 'Three reps take calls.', answer_quality: 'complete', captured: [{ field: 'sales_reps_on_calls', value: '3', quote: 'Three reps take calls' }] },
+      user_turn: 'Three reps take calls.', answers: [], asked: [], probes: {}, skipped: [], voice_captures: []
+    }
+  });
+  ok(partialDeal.output.accepted.length === 1 && partialDeal.output.next.kind === 'probe' && /only about Typical deal size/i.test(partialDeal.output.instruction) && /Do not repeat a value/i.test(partialDeal.output.instruction) && !/Reps on calls/i.test(partialDeal.output.instruction), 'a partial topic follow-up names only its uncaptured fact');
+
+  const walk = ['sources', 'goal', 'products', 'deal', 'capture', 'fulfilment', 'owner', 'close', 'spend', 'headache'];
+  for (const qid of walk) {
+    const turn = SAID[qid];
+    if (turn.noise) {
+      const noiseOut = record(qid, turn.noise, [], turn.noise, 'off_topic');
+      ok(noiseOut.state.asked.indexOf(qid) < 0, 'off-topic noise does not mark ' + qid + ' as covered');
+    }
+    record(qid, turn.text, turn.captured || [], turn.text);
+    order.push(qid);
   }
-  ok(order.join(',') === voice.INTAKE_PLAN.map(q => q.id).join(','), 'the live call walked the twelve guardrail questions in order');
+  ok(order.length === 12 && new Set(order).size === 12, 'each of the 12 topics is covered at most once with no repeated topic');
+  ok(order.join(',') !== voice.INTAKE_PLAN.map(q => q.id).join(','), 'the guardrail walk accepts a conversation-led topic order');
   const finalCapture = voice.captureState(answers, captures);
   ok(finalCapture.missingRequired.length === 0, 'the three required figures were captured from spoken answers');
   ok(finalCapture.filledCount >= 18, 'the contract was filled from the spoken call (' + finalCapture.filledCount + '/' + finalCapture.totalCount + ' fields)');
@@ -412,7 +464,7 @@ async function routeTests(token) {
   ok(conn.ok === true && /v=0/.test(conn.sdp || ''), 'the server exchanges the offer and returns an SDP answer');
   ok(conn.provider === 'openai-realtime' && conn.mode === 'realtime', 'the client is told it is on the continuous path');
   ok(!!conn.call_ticket, 'a signed ticket comes back so the server can cap the call');
-  ok(conn.opening && conn.opening.question_id === 'business' && /what do you do/i.test(conn.opening.ask_now || ''), 'the guardrail set picked the opening question, not the model');
+  ok(conn.opening && conn.opening.question_id === 'business' && /what does your business do/i.test(conn.opening.ask_now || ''), 'the guardrail set picked the opening question, not the model');
   ok(!/sk-mock/.test(JSON.stringify(conn)), 'the connect response carries no credentials');
 
   const rtReq = mock.requests.filter(r => r.kind === 'realtime');
@@ -422,9 +474,9 @@ async function routeTests(token) {
   ok(/multipart\/form-data/.test(rtReq[0].contentType || ''), 'the session is opened as a multipart form (sdp + session)');
   const sentSession = rtReq[0].session;
   ok(sentSession && sentSession.type === 'realtime' && Array.isArray(sentSession.tools), 'the server, not the browser, owns the session config and its tools');
-  ok(sentSession && /THEIR QUESTION COMES FIRST/.test(sentSession.instructions || '') && /WHEN THEY SAY STOP, YOU STOP/.test(sentSession.instructions || ''),
+  ok(sentSession && /LET THE CALLER LEAD WHEN THEY HAVE A QUESTION/.test(sentSession.instructions || '') && /If they say stop, have to go/.test(sentSession.instructions || ''),
     'the session the server sent carries the answering and stopping rules');
-  ok(sentSession && sentSession.audio.input.turn_detection.type === 'semantic_vad', 'the session the server sent uses semantic turn detection');
+  ok(sentSession && sentSession.audio.input.turn_detection.type === 'semantic_vad' && sentSession.audio.input.turn_detection.eagerness === 'medium' && sentSession.audio.input.turn_detection.interrupt_response === true, 'the session the server sent uses the medium semantic VAD default with interruption enabled');
 
   const tool = await (await post('/api/voice/realtime/tool', {
     call_id: 'call-rt', call_ticket: conn.call_ticket, name: 'record_answer',
@@ -432,7 +484,8 @@ async function routeTests(token) {
     user_turn: SAID.business.text, answers: [], asked: [], probes: {}, skipped: [], voice_captures: []
   })).json();
   ok(tool.ok === true && tool.output.accepted.length === 2, 'the tool route validates and saves what was said');
-  ok(tool.output.next.question_id === 'products', 'the tool route hands back the next guardrail question');
+  ok(tool.output.next.kind === 'continue' && !tool.output.next.question_id && tool.output.next.topics.some(q => q.question_id === 'products'), 'the tool route returns remaining topics without fixing the next question');
+  ok(/Live state: 11 topics remain/.test(tool.output.instruction) && /never a fixed total/.test(tool.output.instruction), 'tool guidance supplies a live remaining-topic count for the FAQ');
   ok(tool.state.answers.find(a => a.id === 'business').text.indexOf('solar') >= 0, 'the spoken answer is stored for Function A');
 
   const unknown = await (await post('/api/voice/realtime/tool', { call_id: 'call-rt', name: 'delete_everything', arguments: {} })).json();
@@ -459,10 +512,10 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-/* index.html loads the brand components (the logo and Otto) before app.js. jsdom does not run the
+/* index.html loads the brand components (the logo and Nova) before app.js. jsdom does not run the
    document's own scripts, so they are evaluated here in the same order: without them app.js has no
    markup for the logo or the mascot. */
-const brandJs = ['Logo.js', 'Otto.js'].map(f =>
+const brandJs = ['Logo.js', 'Nova.js'].map(f =>
   fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 
 /* opts.hold          the fake model asks its question and then waits, so the call stays live and the
@@ -478,9 +531,35 @@ function bootBrowser(plan, opts) {
   const { document } = window;
   const errors = [];
   const fetched = [];
-  window.fetch = (p, o) => { try { fetched.push(String(p)); } catch (e) {} return fetch(new URL(p, APP).toString(), o); };
+  const apiRequests = [];
+  const validation = { started: 0, completed: 0 };
+  const latencyLogs = [];
+  window.console.info = (...args) => latencyLogs.push(args.join(' '));
+  window.fetch = (p, o) => {
+    const url = String(p);
+    let capturedRequestBody = null;
+    try { capturedRequestBody = JSON.parse(o && o.body || 'null'); } catch (e) {}
+    apiRequests.push({ url, method: (o && o.method) || 'GET', body: capturedRequestBody });
+    try { fetched.push(url); } catch (e) {}
+    if (opts.connectFailure && url.indexOf('/api/voice/realtime/connect') >= 0) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: false, fallback: 'turns', fallback_reason: 'model-refused', error: 'Mock Realtime model refusal' }) });
+    }
+    let requestBody = {};
+    try { requestBody = JSON.parse(o && o.body || '{}'); } catch (e) {}
+    const isRecordValidation = url.indexOf('/api/voice/realtime/tool') >= 0 && requestBody.name === 'record_answer';
+    if (isRecordValidation) validation.started++;
+    const send = () => fetch(new URL(p, APP).toString(), o).then(res => {
+      if (isRecordValidation) validation.completed++;
+      return res;
+    });
+    if (isRecordValidation && opts.validationDelay) {
+      return new Promise((resolve, reject) => setTimeout(() => send().then(resolve, reject), opts.validationDelay));
+    }
+    return send();
+  };
   window.addEventListener('error', e => errors.push(e.message));
   window.__PS_VOICE_TIMING__ = { silenceMs: 40, noSpeechMs: 200, maxListenMs: 600, speakFactorMs: 2, minSpeakMs: 5, maxSpeakMs: 60 };
+  if (opts.silenceTiming) window.__PS_REALTIME_SILENCE_TIMING__ = opts.silenceTiming;
 
   // Audio playback (the AI's side of the live call).
   let played = 0;
@@ -490,10 +569,11 @@ function bootBrowser(plan, opts) {
   // The microphone: opened once for the whole call. A real MediaStream hands back the same track
   // objects on every call, so this fake does too - which is what lets a test observe a mute.
   let micCalls = 0, tracksStopped = 0;
+  const micConstraints = [];
   const micTracks = [{ kind: 'audio', enabled: true, stop() { tracksStopped++; this.stopped = true; } }];
   const micStream = { getAudioTracks: () => micTracks, getTracks: () => micTracks };
   Object.defineProperty(window.navigator, 'mediaDevices', {
-    value: { getUserMedia: () => { micCalls++; return Promise.resolve(micStream); } },
+    value: { getUserMedia: constraints => { micCalls++; micConstraints.push(constraints); return Promise.resolve(micStream); } },
     configurable: true
   });
 
@@ -575,8 +655,8 @@ function bootBrowser(plan, opts) {
   window.RTCPeerConnection = FakePeerConnection;
   window.MediaStream = class { constructor(tracks) { this.tracks = tracks; } };
 
-  /* The fake model: it speaks the question the server handed it, listens, then reports the answer
-     through record_answer, exactly as the real realtime model does. */
+  /* The fake model follows a conversation-led order, records volunteered topics from one turn as
+     separate tools, and skips anything it already covered. */
   const emit = ev => { if (dc && dc.onmessage) dc.onmessage({ data: JSON.stringify(ev) }); };
   const quoted = text => { const m = String(text || '').match(/"([^"]+)"\s*(?:\.|,)?\s*$/); return m ? m[1] : ''; };
   const idForText = text => {
@@ -586,18 +666,41 @@ function bootBrowser(plan, opts) {
     const near = plan.find(q => t.indexOf(q.ask.toLowerCase().slice(0, 24)) >= 0 || (q.probe && t.indexOf(q.probe.toLowerCase().slice(0, 24)) >= 0));
     return near ? near.id : null;
   };
+  const topicOrder = opts.topicOrder || ['business', 'volumes', 'sources', 'goal', 'products', 'deal', 'capture', 'fulfilment', 'owner', 'close', 'spend', 'headache'];
   let lastOutput = null;
   let noiseDone = false;
   let closing = false;
+  let endRequested = false;
+  let mixedTurnUsed = false;
+  const completedTopics = [];
   const spokenLines = [];
+  const questionTopics = [];
+  const answerCalls = [];
+  const endCalls = [];
+  const timeline = [];
+  let nonblockingResumes = 0;
+  let fakeResponsesActive = 0, overlappingFakeResponses = 0;
+  const beginFakeResponse = () => {
+    fakeResponsesActive++;
+    if (fakeResponsesActive > 1) overlappingFakeResponses++;
+  };
+  const finishFakeResponse = () => {
+    fakeResponsesActive = Math.max(0, fakeResponsesActive - 1);
+    emit({ type: 'response.done', response: { status: 'completed' } });
+  };
   const answer = qid => {
+    const firstTurn = qid === 'business' && !mixedTurnUsed && opts.multiTopic !== false;
+    const topicIds = firstTurn ? ['business', 'volumes'] : [qid];
+    if (firstTurn) mixedTurnUsed = true;
     const turn = SAID[qid];
     if (!turn) return;
-    /* The real session reports every tool call twice: once when its arguments finish streaming and
-       once as an output item, with the same call id. The client must run it once. */
-    const toolCall = args => {
-      const callId = 'call_' + qid + '_' + Math.random().toString(36).slice(2, 7);
+    /* The real session reports each tool twice: once when its arguments finish streaming and once
+       as an output item. Duplicate events must be handled only once by the browser. */
+    const toolCall = (topicId, args) => {
+      const callId = 'call_' + topicId + '_' + Math.random().toString(36).slice(2, 7);
       const raw = JSON.stringify(args);
+      answerCalls.push({ question_id: topicId, answer_quality: args.answer_quality });
+      timeline.push({ type: 'answer', question_id: topicId, answer_quality: args.answer_quality });
       emit({ type: 'response.function_call_arguments.done', call_id: callId, name: 'record_answer', arguments: raw });
       emit({ type: 'response.output_item.done', item: { type: 'function_call', call_id: callId, name: 'record_answer', arguments: raw } });
     };
@@ -606,14 +709,25 @@ function bootBrowser(plan, opts) {
       emit({ type: 'input_audio_buffer.speech_started' });
       emit({ type: 'conversation.item.input_audio_transcription.completed', transcript: turn.noise });
       emit({ type: 'input_audio_buffer.speech_stopped' });
-      toolCall({ question_id: qid, answer_text: turn.noise, answer_quality: 'off_topic', captured: [] });
+      beginFakeResponse();
+      emit({ type: 'response.created' });
+      toolCall(qid, { question_id: qid, answer_text: turn.noise, answer_quality: 'off_topic', captured: [] });
+      finishFakeResponse();
       return;
     }
+    const turnText = topicIds.map(id => SAID[id].text).join(' ');
     emit({ type: 'input_audio_buffer.speech_started' });
-    emit({ type: 'conversation.item.input_audio_transcription.delta', transcript: turn.text.slice(0, 20) });
-    emit({ type: 'conversation.item.input_audio_transcription.completed', transcript: turn.text });
+    emit({ type: 'conversation.item.input_audio_transcription.delta', transcript: turnText.slice(0, 20) });
     emit({ type: 'input_audio_buffer.speech_stopped' });
-    toolCall({ question_id: qid, answer_text: turn.text, answer_quality: 'complete', captured: turn.captured || [] });
+    emit({ type: 'conversation.item.input_audio_transcription.completed', transcript: turnText });
+    beginFakeResponse();
+    emit({ type: 'response.created' });
+    for (const topicId of topicIds) {
+      const topicAnswer = SAID[topicId];
+      if (completedTopics.indexOf(topicId) < 0) completedTopics.push(topicId);
+      toolCall(topicId, { question_id: topicId, answer_text: topicAnswer.text, answer_quality: 'complete', captured: topicAnswer.captured || [] });
+    }
+    finishFakeResponse();
   };
 
   onClientEvent = async ev => {
@@ -622,6 +736,7 @@ function bootBrowser(plan, opts) {
       return;
     }
     if (ev.type !== 'response.create') return;
+    beginFakeResponse();
     const instruction = (ev.response && ev.response.instructions) || '';
     await sleep(5);
     if (lastOutput && lastOutput.close === true) {
@@ -630,36 +745,52 @@ function bootBrowser(plan, opts) {
       emit({ type: 'response.output_audio_transcript.delta', delta: 'That is everything I need.' });
       emit({ type: 'response.output_audio_transcript.done', transcript: 'That is everything I need, thank you. You can review and correct what we captured now.' });
       spokenLines.push('That is everything I need, thank you.');
-      emit({ type: 'response.done', response: { status: 'completed' } });
+      finishFakeResponse();
       lastOutput = null;
       return;
     }
-    if (lastOutput && lastOutput.next && lastOutput.next.kind === 'done' && !closing) {
-      emit({ type: 'response.function_call_arguments.done', call_id: 'call_end', name: 'end_call', arguments: JSON.stringify({ reason: 'the intake set is complete' }) });
+    if (!opts.hold && completedTopics.length === 12 && !endRequested) {
+      endRequested = true;
+      endCalls.push({ reason: 'complete' });
+      emit({ type: 'response.created' });
+      emit({ type: 'response.function_call_arguments.done', call_id: 'call_end', name: 'end_call', arguments: JSON.stringify({ reason: 'complete' }) });
+      finishFakeResponse();
       lastOutput = null;
       return;
     }
-    const say = quoted(instruction) || (lastOutput && lastOutput.next && lastOutput.next.ask_now) || '';
-    const qid = idForText(say) || (lastOutput && lastOutput.next && lastOutput.next.question_id) || 'business';
+    let say = '';
+    let courtesy = false;
+    if (/Take your time/i.test(instruction)) { say = 'Take your time.'; courtesy = true; }
+    else if (/Would you like to skip this one/i.test(instruction)) { say = 'No rush. Would you like to skip this one?'; courtesy = true; }
+    else say = quoted(instruction) || (lastOutput && lastOutput.next && lastOutput.next.ask_now) || '';
+    let qid = idForText(say) || (lastOutput && lastOutput.next && lastOutput.next.question_id) || null;
+    if (!qid && !courtesy) qid = topicOrder.find(id => completedTopics.indexOf(id) < 0) || null;
     emit({ type: 'response.created' });
     emit({ type: 'response.output_audio_transcript.delta', delta: say.slice(0, 12) });
     emit({ type: 'response.output_audio_transcript.done', transcript: say });
     spokenLines.push(say);
-    emit({ type: 'response.done', response: { status: 'completed' } });
-    const askedNow = qid;
+    if (!courtesy && qid) {
+      questionTopics.push(qid);
+      timeline.push({ type: 'question', question_id: qid });
+      if (validation.completed < validation.started) nonblockingResumes++;
+    }
+    finishFakeResponse();
     lastOutput = null;
     await sleep(5);
-    // With `hold` the model asks its question and then waits, so the call stays live and the
-    // controls can be driven by the test instead of the call running to the end on its own.
-    if (!closing && !opts.hold) answer(askedNow);
+    // A courtesy line waits for a real caller turn; a question in ordinary full-call scenarios gets
+    // the scripted answer automatically. `hold` keeps the live session available for control tests.
+    if (!closing && !opts.hold && !courtesy && qid) answer(qid);
   };
 
   brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
   return {
-    window, document, sent, calls, errors, spokenLines, micTracks, fetched, audio,
+    window, document, sent, calls, errors, spokenLines, micTracks, fetched, apiRequests, audio, validation, latencyLogs,
+    questionTopics, answerCalls, completedTopics, endCalls, timeline,
     emit, fireConnectionState,
-    micCalls: () => micCalls, tracksStopped: () => tracksStopped, played: () => played
+    micCalls: () => micCalls, micConstraints: () => micConstraints.slice(), tracksStopped: () => tracksStopped, played: () => played,
+    nonblockingResumes: () => nonblockingResumes,
+    overlappingResponses: () => overlappingFakeResponses
   };
 }
 
@@ -667,7 +798,7 @@ async function browserTests(token) {
   section('continuous call: a whole discovery call over one WebRTC session');
   const sessRes = await (await fetch(APP + '/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })).json();
   const rtBefore = mock.requests.filter(r => r.kind === 'realtime').length;
-  const page = bootBrowser(sessRes.plan);
+  const page = bootBrowser(sessRes.plan, { validationDelay: 60 });
   const { document, calls, errors } = page;
   await sleep(150);
 
@@ -683,15 +814,26 @@ async function browserTests(token) {
   ok(calls.offers === 1, 'one SDP offer for the whole call: nothing is renegotiated per question');
   ok(calls.channelsClosed === 0, 'the event channel stayed open from the first question to the last');
   ok(page.micCalls() === 1, 'the microphone was opened once, not once per question (' + page.micCalls() + ')');
+  const micAudioConstraints = (page.micConstraints()[0] || {}).audio || {};
+  ok(micAudioConstraints.echoCancellation === true && micAudioConstraints.noiseSuppression === true && micAudioConstraints.autoGainControl === true, 'the live microphone requests echo cancellation, noise suppression, and automatic gain control');
   ok(page.tracksStopped() === 0, 'the microphone was never released mid-call, so the call is not cut');
   const rtReq = mock.requests.filter(r => r.kind === 'realtime').length - rtBefore;
   ok(rtReq === 1, 'one realtime session was opened server-side for the whole call (' + rtReq + ')');
   ok(page.played() >= 1, 'the AI voice played from the live media track');
-  ok(/Live AI voice/.test(document.body.textContent), 'the screen says the call is live');
+  ok((document.querySelector('.badge-mode') || {}).textContent === 'Live voice', 'the screen shows the exact live-voice badge');
+  ok((document.querySelector('#call-mode') || {}).textContent === 'Live voice', 'the call header shows only the exact live-voice mode label');
   ok(page.spokenLines.length >= 12, 'every question was spoken in one continuous call (' + page.spokenLines.length + ' lines)');
 
-  const asked = page.spokenLines.map(l => l.toLowerCase());
-  ok(sessRes.plan.every(q => asked.some(line => line.indexOf(q.ask.toLowerCase().slice(0, 24)) >= 0 || line.indexOf(String(q.probe || '').toLowerCase().slice(0, 24)) >= 0)), 'all twelve guardrail questions were asked, in one session');
+  const coveredTopics = page.answerCalls.filter(call => call.answer_quality === 'complete' || call.answer_quality === 'declined').map(call => call.question_id);
+  ok(coveredTopics.length === 12 && new Set(coveredTopics).size === 12, 'all twelve topics are covered at most once, in one session');
+  ok(coveredTopics[0] === 'business' && coveredTopics[1] === 'volumes' && coveredTopics.join(',') !== voice.INTAKE_PLAN.map(q => q.id).join(','), 'one caller turn captures two volunteered topics and the conversation follows a non-scripted order');
+  const questionCounts = page.questionTopics.reduce((counts, id) => { counts[id] = (counts[id] || 0) + 1; return counts; }, {});
+  ok(Object.keys(questionCounts).filter(id => questionCounts[id] > 1).every(id => page.answerCalls.some(call => call.question_id === id && call.answer_quality === 'off_topic')), 'a topic is not asked again after capture; the only retry follows an uncaptured off-topic turn');
+  const answeredAt = id => page.timeline.findIndex(event => event.type === 'answer' && event.question_id === id && event.answer_quality !== 'off_topic');
+  ok(coveredTopics.every(id => { const at = answeredAt(id); return at >= 0 && !page.timeline.slice(at + 1).some(event => event.type === 'question' && event.question_id === id); }), 'no already captured topic is asked again later in the call');
+  ok(page.nonblockingResumes() > 0, 'Nova asks the next question while server grounding validation is still pending');
+  ok(page.overlappingResponses() === 0, 'queued tool replies never create overlapping Realtime responses');
+  ok(page.validation.completed === page.validation.started, 'all queued server validations finish before end_call closes the full-call test');
   ok(!!document.querySelector('#structure-btn'), 'the live call reached the end of the intake set');
   ok(document.querySelectorAll('.bubble.user').length >= 12, 'every spoken answer is in the transcript');
   ok(document.querySelectorAll('.bubble.user.ignored').length >= 1, 'the turn that had nothing to do with the question is marked, not captured');
@@ -707,7 +849,7 @@ async function browserTests(token) {
   document.querySelector('#structure-btn').click();
   for (let i = 0; i < 60 && !document.querySelector('#confirm-fields'); i++) await sleep(100);
   ok(!!document.querySelector('#confirm-fields'), 'the live call structures into the review screen');
-  ok(/Live continuous AI voice/.test(document.querySelector('.call-summary').textContent), 'the review screen records that the call was continuous');
+  ok((document.querySelector('.call-summary .badge-mode') || {}).textContent === 'Live voice', 'the review screen records the exact live mode badge');
 
   const outboxFields = await (await fetch(APP + '/api/extract', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -717,7 +859,7 @@ async function browserTests(token) {
   ok(outboxFields.fields.monthly_lead_volume === 55 && outboxFields.fields.close_rate === 22, 'lead volume and close rate spoken in words are captured');
 
   // Hanging up releases the microphone.
-  ok(page.tracksStopped() >= 1 || true, 'the microphone is released when the call ends');
+  ok(page.tracksStopped() >= 1, 'the microphone is released when the call ends');
   return page;
 }
 
@@ -762,6 +904,26 @@ async function controlsTests() {
   ok(!!document.querySelector('#mute-btn') && /Speaker on/.test(document.querySelector('#mute-btn').textContent), 'the speaker control is separate from the microphone, and says it is on');
   ok(!!document.querySelector('#conn-state'), 'the connection state is on screen during a live call');
 
+  /* ---- WebRTC interruption: mute local playback; let the server cancel and truncate ---- */
+  const audioEl = document.querySelector('audio');
+  const outgoingBeforeInterrupt = page.sent.length;
+  page.emit({ type: 'input_audio_buffer.speech_started', item_id: 'caller-interrupt' });
+  ok(audioEl && audioEl.muted === true, "caller speech immediately mutes Nova\'s local WebRTC audio");
+  ok(!page.sent.slice(outgoingBeforeInterrupt).some(event => event.type === 'conversation.item.truncate' || event.type === 'response.cancel'), 'the WebRTC client does not send WebSocket-only truncate/cancel events; the Realtime server owns interruption truncation');
+  page.emit({ type: 'input_audio_buffer.speech_stopped', item_id: 'caller-interrupt' });
+  ok(audioEl && audioEl.muted === false, "Nova\'s audio unmutes when the caller finishes speaking");
+  page.emit({ type: 'response.output_audio.delta', delta: 'dGVzdA==' });
+  const latencyLine = page.latencyLogs.find(line => /caller-finish-to-nova-start_ms=\d+ target=<1000/.test(line)) || '';
+  const latencyMs = Number((latencyLine.match(/start_ms=(\d+)/) || [])[1]);
+  ok(Number.isFinite(latencyMs) && latencyMs < 1000, 'caller-finish-to-Nova-speech latency is logged against the under-one-second target (' + latencyMs + ' ms)');
+  for (let i = 0; i < 2; i++) {
+    page.emit({ type: 'input_audio_buffer.speech_started', item_id: 'caller-latency-' + i });
+    page.emit({ type: 'input_audio_buffer.speech_stopped', item_id: 'caller-latency-' + i });
+    page.emit({ type: 'response.output_audio.delta', delta: 'dGVzdA==' });
+  }
+  const latencySamples = page.latencyLogs.filter(line => /caller-finish-to-nova-start_ms=\d+ target=<1000/.test(line));
+  ok(latencySamples.length === 3, 'each caller-finish-to-first-Nova-audio hand-off is retained as its own sample');
+
   /* ---- the orb waveform follows the visitor's real microphone ---- */
   ok(page.audio.contexts === 1, 'one AudioContext was opened for the level meter (' + page.audio.contexts + ')');
   ok(page.micCalls() === 1, 'the level meter reused the call\'s microphone stream: no second permission prompt');
@@ -801,7 +963,6 @@ async function controlsTests() {
   ok(page.micTracks[0].enabled === false, 'muting the microphone disables the live audio track');
   ok(/Microphone muted/.test(document.querySelector('#mic-btn').textContent), 'the microphone button says it is muted');
   ok(document.querySelector('#mic-btn').getAttribute('aria-pressed') === 'false', 'the microphone button reports its state to a screen reader');
-  const audioEl = document.querySelector('audio');
   ok(audioEl && audioEl.muted === false, 'muting the microphone does not mute the AI voice');
   document.querySelector('#mic-btn').click();
   await sleep(80);
@@ -830,7 +991,10 @@ async function controlsTests() {
   await sleep(400);
   ok(page.audio.frames === framesAtEnd, 'no orphaned animation loop keeps reading the microphone after the call (' + page.audio.frames + ' frames)');
   ok(!!document.querySelector('#confirm-fields'), 'ending the call by hand carries on into the review screen');
-  ok(/Live continuous AI voice/.test(document.querySelector('.call-summary').textContent), 'a call ended by hand is still recorded as a live continuous call');
+  const completedProgress = page.apiRequests.find(request => /\/api\/lead\/progress$/.test(request.url) && request.body && request.body.status === 'discovery_completed');
+  const latencyMeta = completedProgress && completedProgress.body && completedProgress.body.voice_meta;
+  ok(latencyMeta && Number.isFinite(latencyMeta.median_ms) && Number.isFinite(latencyMeta.p90_ms) && latencyMeta.turns_measured === 3, 'the completion metadata carries median, p90, and the measured-turn count');
+  ok((document.querySelector('.call-summary .badge-mode') || {}).textContent === 'Live voice', 'a call ended by hand is still recorded with the exact live mode badge');
   ok(page.errors.length === 0, 'no runtime errors on the controls path' + (page.errors.length ? ': ' + page.errors[0] : ''));
 }
 
@@ -847,24 +1011,26 @@ async function healthTests() {
   page.emit({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'We install solar systems for homeowners in Ilocos.' });
   await sleep(120);
   ok(document.querySelectorAll('.bubble.user').length >= 1, 'the answer is on the transcript while the call is live');
-  ok(/Live AI voice/.test(document.body.textContent), 'the screen says the call is live');
+  ok((document.querySelector('.badge-mode') || {}).textContent === 'Live voice', 'the exact badge shows the call is live');
 
   // A hiccup: the browser reports 'disconnected', which usually recovers by itself.
   page.fireConnectionState('disconnected');
   await sleep(150);
-  ok(/Live AI voice/.test(document.body.textContent), 'a momentary disconnection does not end the call');
+  ok((document.querySelector('.badge-mode') || {}).textContent === 'Live voice', 'a momentary disconnection does not end the live mode badge');
   ok(page.calls.pcClosed === 0, 'the peer connection is left open during the grace period');
   ok(/reconnecting/i.test(document.querySelector('#conn-state').textContent), 'the screen says the connection is recovering, not that it is dead');
 
   page.fireConnectionState('connected');
   await sleep(150);
   ok(/connected/i.test(document.querySelector('#conn-state').textContent), 'the connection state on screen recovers');
-  ok(/Live AI voice/.test(document.body.textContent), 'the call is still live after the recovery');
+  ok((document.querySelector('.badge-mode') || {}).textContent === 'Live voice', 'the exact live badge remains after recovery');
 
   // A terminal failure: the live session is over, but the call is not.
   page.fireConnectionState('failed');
-  for (let i = 0; i < 80 && /Live AI voice/.test(document.body.textContent); i++) await sleep(50);
-  ok(!/Live AI voice/.test(document.body.textContent), 'a failed connection ends the live session');
+  for (let i = 0; i < 80 && (document.querySelector('.badge-mode') || {}).textContent === 'Live voice'; i++) await sleep(50);
+  ok((document.querySelector('.badge-mode') || {}).textContent !== 'Live voice', 'a failed connection ends the live session mode');
+  ok((document.querySelector('.badge-mode') || {}).textContent === 'Step-by-step voice', 'the badge changes to the exact step-by-step mode after a live fallback');
+  ok((document.querySelector('#call-mode') || {}).textContent === 'Step-by-step voice', 'the call header changes to the exact step-by-step mode after a live fallback');
   ok(page.calls.pcClosed >= 1, 'the peer connection is closed once the failure is terminal');
   ok(page.micTracks[0].stopped === true, 'the microphone is released when the live session fails');
   ok(/carries on step by step/i.test(document.body.textContent), 'the visitor is told the call carries on, with everything they said kept');
@@ -873,6 +1039,22 @@ async function healthTests() {
   await sleep(600);
   ok(/carries on step by step/i.test(document.body.textContent), 'the notice is still on screen after the next question arrives, so the visitor is not left wondering');
   ok(page.errors.length === 0, 'no runtime errors when the connection fails' + (page.errors.length ? ': ' + page.errors[0] : ''));
+}
+
+async function silenceTests() {
+  section('continuous call: silence check-ins do not end the conversation');
+  const token = await loginFor('Silence Tester', 'silence@pipelinesync.ai');
+  const sessRes = await (await fetch(APP + '/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })).json();
+  const page = bootBrowser(sessRes.plan, { hold: true, silenceTiming: { checkInMs: 35, skipMs: 100 } });
+  await sleep(150);
+  ok(await waitLive(page), 'the live call is up before silence is tested');
+  for (let i = 0; i < 40 && (!page.spokenLines.includes('Take your time.') || !page.spokenLines.some(line => /Would you like to skip this one/i.test(line))); i++) await sleep(20);
+  ok(page.spokenLines.includes('Take your time.'), 'the first quiet check-in says “Take your time”');
+  ok(page.spokenLines.some(line => /No rush\. Would you like to skip this one\?/i.test(line)), 'the later quiet check-in offers to skip');
+  ok(page.endCalls.length === 0 && !!page.document.querySelector('#end-call-btn'), 'silence alone does not hang up; the long idle watchdog remains the last resort');
+  ok(page.errors.length === 0, 'no runtime errors during silence check-ins' + (page.errors.length ? ': ' + page.errors[0] : ''));
+  page.document.querySelector('#end-call-btn').click();
+  await sleep(100);
 }
 
 async function pageExitTests() {
@@ -910,6 +1092,21 @@ async function fallbackTests() {
   const cfg = voice.mode({});
   ok(cfg.provider === 'simulated', 'with no key the call still runs on the built-in policy');
 
+  console.log('  Checking that a refused live connection renders the step-by-step controls...');
+  const failedToken = await loginFor('Fallback Tester', 'connect-fallback@pipelinesync.ai');
+  const failedSession = await (await fetch(APP + '/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: failedToken }) })).json();
+  const failedPage = bootBrowser(failedSession.plan, { connectFailure: true, hold: true });
+  await sleep(150);
+  failedPage.document.getElementById('demo-btn').click();
+  await sleep(300);
+  failedPage.document.getElementById('consent-cb').click();
+  failedPage.document.getElementById('consent-go').click();
+  for (let i = 0; i < 80 && !failedPage.document.querySelector('#skip-btn'); i++) await sleep(50);
+  ok((failedPage.document.querySelector('.badge-mode') || {}).textContent === 'Step-by-step voice', 'a refused Realtime handshake shows the exact step-by-step mode');
+  ok((failedPage.document.querySelector('#call-mode') || {}).textContent === 'Step-by-step voice', 'the call header switches to the step-by-step label after a refused handshake');
+  ok(!!failedPage.document.querySelector('#skip-btn') && !failedPage.document.querySelector('#end-call-btn'), 'a refused handshake replaces live-only controls with step-by-step controls');
+  ok(failedPage.errors.length === 0, 'no runtime errors after a refused Realtime handshake' + (failedPage.errors.length ? ': ' + failedPage.errors[0] : ''));
+
   const dom = new JSDOM(html, { url: APP + '/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   const { document } = window;
@@ -940,10 +1137,11 @@ async function fallbackTests() {
   for (let i = 0; i < 60 && spoken.length === 0 && played.length === 0; i++) await sleep(100);
   ok(spoken.length + played.length >= 1, 'the call still speaks when WebRTC is missing (' +
     spoken.length + ' synthesised, ' + played.length + ' spoken by the model)');
-  ok(/step by step|Turn by turn|Ask one question/i.test(document.body.textContent) || !/Live AI voice/.test(document.body.textContent),
+  ok(/step by step|Turn by turn|Ask one question/i.test(document.body.textContent) ||
+    (document.querySelector('.badge-mode') || {}).textContent !== 'Live voice',
     'the screen falls back to the step by step call');
   ok(errors.length === 0, 'no runtime errors when WebRTC is missing' + (errors.length ? ': ' + errors[0] : ''));
-  ok(!/Live AI voice/.test(document.body.textContent), 'the screen does not claim a live session it does not have');
+  ok((document.querySelector('.badge-mode') || {}).textContent !== 'Live voice', 'the screen does not claim a live session it does not have');
 }
 
 (async () => {
@@ -960,6 +1158,7 @@ async function fallbackTests() {
   await routeTests(login.token);
   await browserTests(login.token);
   await controlsTests();
+  await silenceTests();
   await pageExitTests();
   await healthTests();
   await fallbackTests();

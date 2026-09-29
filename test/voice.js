@@ -159,7 +159,9 @@ function noKeyTests() {
   ok(cfg.provider === 'simulated' && cfg.mode === 'simulated', 'simulated mode when the key is missing');
   ok(/OPENAI_API_KEY/.test(cfg.why), 'the reason names the missing key');
   const said = voice.simulatedSay({ step: voice.nextStep({ answers: [], asked: [], probes: {} }), asked: [], lastAnswer: null });
-  ok(/PipelineSync/.test(said) && /Simulated voice/.test(said), 'the simulated opener explains itself');
+  ok(/^Hi, I'm Nova, an AI from PipelineSync\./.test(said) && /five to ten minutes/.test(said) && /skip anything/.test(said), 'the simulated opening identifies Nova and sets the call length and skip option');
+  const namedOpening = voice.simulatedSay({ step: voice.nextStep({ answers: [], asked: [], probes: {} }), asked: [], lastAnswer: null, clientName: 'Maria Santos' });
+  ok(/^Hi Maria, I'm Nova, an AI from PipelineSync\./.test(namedOpening) && (namedOpening.match(/\?/g) || []).length === 1 && (namedOpening.match(/[.!?](?:\s|$)/g) || []).length === 3 && !namedOpening.includes('—'), "the opening uses the caller's name, stays within two statements plus one question, and has no em dash");
 
   const forced = voice.mode({ OPENAI_API_KEY: 'sk-x', VOICE_PROVIDER: 'simulated' });
   ok(forced.mode === 'simulated', 'VOICE_PROVIDER=simulated forces the built-in interviewer even with a key');
@@ -169,6 +171,8 @@ function noKeyTests() {
   ok(/free/i.test((voice.faqAnswerFor('What does this cost me?') || {}).say || ''), 'the built-in engine answers a price question from the scripted FAQ');
   ok(/AI interviewer/i.test((voice.faqAnswerFor('Am I talking to a robot?') || {}).say || ''), 'the built-in engine discloses what it is');
   ok(voice.faqAnswerFor('Twelve closed installs a month') === null, 'an ordinary answer is not mistaken for a question');
+  const countAnswer = voice.faqAnswerFor('How many questions are left?', { asked: ['business', 'products'], answers: [], probes: {}, skipped: [] });
+  ok(/10 topics left/.test(countAnswer.say), 'the built-in FAQ counts only the topics still open in the current state');
 }
 
 async function builtinInteractiveTests() {
@@ -179,7 +183,13 @@ async function builtinInteractiveTests() {
   });
   ok(/free/i.test(turn.say) && turn.deferred === true, 'the built-in engine answers the lead');
   ok(turn.ask.id === 'products' && turn.ask.kind === 'deferred', 'the question it did not reach stays pending, not spent');
-  ok(/Simulated voice/.test(turn.say) === false, 'the FAQ answer is spoken as an answer, without the opening note');
+  ok(!/^Hi(?: \w+)?, I'm Nova/i.test(turn.say), 'the FAQ answer is spoken first without restarting the opening greeting');
+
+  const counted = await voice.runTurn({
+    env: {}, email: 'owner@example.com',
+    body: { answers: [], asked: ['business', 'products'], probes: {}, skipped: [], last_answer: 'How many questions are left?', call_id: 'call-sim-count', with_audio: false }
+  });
+  ok(/10 topics left/.test(counted.say) && counted.deferred === true, 'runTurn passes the current state to its live-count FAQ answer');
 
   const next = await voice.runTurn({
     env: {}, email: 'owner@example.com',
@@ -192,6 +202,7 @@ async function builtinInteractiveTests() {
     body: { answers: [{ id: 'business', text: 'We install solar.' }], asked: ['business'], probes: {}, last_answer: 'Can we stop here, please?', call_id: 'call-sim3', with_audio: false }
   });
   ok(stopped.done === true && stopped.stop_requested === true && stopped.ask.id === null, 'a stop ends the built-in call too, with the figures still open');
+  ok(/we'll stop here/i.test(stopped.say) && /you've told me/i.test(stopped.say), 'the stop acknowledgement uses natural contractions');
 }
 
 async function interactiveTests() {
@@ -252,7 +263,19 @@ async function interactiveTests() {
   const prompts = require('../lib/prompts');
   ok(JSON.stringify(prompts.REALTIME_FAQ) === JSON.stringify(voice.REALTIME_FAQ), 'the production FAQ copy matches the one the server runs');
   ok(JSON.stringify(prompts.INTAKE_PLAN) === JSON.stringify(voice.INTAKE_PLAN), 'the production intake plan matches the one the server runs');
-  ok(/THEIR QUESTION COMES FIRST/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE) && /WHEN THEY SAY STOP, YOU STOP/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE),
+  ok(voice.INTAKE_PLAN.every(q => Array.isArray(q.examples) && q.examples.length >= 1 && q.examples.length <= 3 && q.examples.every(example => example.length <= 100 && (example.match(/\?/g) || []).length === 1)), 'each topic has one to three short single-question examples');
+  const livePromptMessages = voice.buildMessages({
+    step: voice.nextStep({ answers: [], asked: ['business', 'products'], probes: {}, skipped: [] }),
+    asked: ['business', 'products'], answers: [], probes: {}, skipped: [], voiceCaptures: [],
+    transcript: [], lastAnswer: null, capture: voice.captureState([], []), clientName: 'Maria Santos'
+  });
+  const livePromptState = JSON.parse(livePromptMessages[1].content);
+  ok(livePromptState.topics_remaining_count === 10 && livePromptState.topics_remaining.length === 10, 'the step prompt carries a live count and list of remaining topics');
+  ok(livePromptState.faq.every(f => typeof f.facts_to_get_across === 'string' && !Object.prototype.hasOwnProperty.call(f, 'say')), 'FAQ prompt entries are facts to convey, not fixed lines to say');
+  const faqFacts = JSON.stringify(livePromptState.faq);
+  ok(/free/i.test(faqFacts) && /don't quote prices/i.test(faqFacts) && /human reviews/i.test(faqFacts) && /privacy@pipelinesync\.ai/i.test(faqFacts) && /stop anytime/i.test(faqFacts), 'FAQ facts retain free/no-quote, human-review, privacy-contact, and stop-anytime details');
+  ok(/natural contractions every time/i.test(livePromptMessages[0].content) && /em dashes/i.test(livePromptMessages[0].content), 'the step prompt requires natural contractions and keeps the no-em-dash rule');
+  ok(/LET THE CALLER LEAD WHEN THEY HAVE A QUESTION/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE) && /If they say stop, have to go/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE),
     'the production realtime template carries the answer-first and stop rules');
   ok(/deferred: true/.test(prompts.STEP_BY_STEP_TEMPLATE) && /stop_requested: true/.test(prompts.STEP_BY_STEP_TEMPLATE),
     'the production step-by-step template carries both flags');
@@ -261,10 +284,13 @@ async function interactiveTests() {
   const fs = require('fs');
   const voiceSrc = fs.readFileSync(require.resolve('../lib/voice.js'), 'utf8');
   const promptsSrc = fs.readFileSync(require.resolve('../lib/prompts.js'), 'utf8');
-  ok(/I am Nova from PipelineSync/.test(voice.INTAKE_PLAN[0].ask), 'the opening line introduces Nova by name');
+  const openingStep = voice.nextStep({ answers: [], asked: [], probes: {} });
+  const openingMessages = voice.buildMessages({ step: openingStep, asked: [], answers: [], transcript: [], lastAnswer: null, capture: voice.captureState([], []), clientName: 'Maria Santos' });
+  ok(/Hi <name>, I'm Nova, an AI from PipelineSync/.test(openingMessages[0].content) && /"caller_first_name":"Maria"/.test(openingMessages[1].content), "the opening prompt introduces Nova as an AI and supplies the caller's first name");
+  ok(!/\b(?:hi|hello)\b/i.test(voice.INTAKE_PLAN[0].ask) && !/last one/i.test(voice.INTAKE_PLAN.find(q => q.id === 'goal').ask), 'the business topic has no greeting and the goal has no last-question lead-in');
   ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Nova on both voice paths');
   ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Nova');
-  ok(/say you are Nova, an AI interviewer from PipelineSync/.test(voiceSrc), 'the realtime opening instruction says Nova');
+  ok(/Say you're Nova, an AI from PipelineSync/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE), "the realtime opening instruction states Nova\'s PipelineSync and AI identity");
   ok(!/\bAlex\b/.test(voiceSrc) && !/\bAlex\b/.test(promptsSrc), 'the interviewer is never called anything else in the voice layer');
 
   const schema = voice.turnSchema().schema;
@@ -278,13 +304,23 @@ function clampTests() {
   const meta = clampVoiceMeta({
     provider: 'openai', mode: 'openai', models: { chat: 'gpt-4o-mini', tts: 'gpt-4o-mini-tts', stt: 'gpt-4o-transcribe' },
     tts_voice: 'alloy', call_id: 'call-1', started_at: '2026-01-01T00:00:00Z', ended_at: '2026-01-01T00:04:00Z',
-    duration_s: 240, turns: 14, questions_asked: PLAN_ORDER, probes: 2,
+    duration_s: 240, turns: 14, median_ms: 420.6, p90_ms: 811.2, turns_measured: 9, questions_asked: PLAN_ORDER, probes: 2,
     required_missing_at_call_end: [], transcript_turns: 28, audio_retained: true,
+    fallback_to_turns: true, fallback_reason: 'empty-transcription',
     secret: 'should not survive'
   });
   ok(meta.audio_retained === false, 'audio_retained is forced false');
   ok(meta.secret === undefined, 'unknown fields are dropped');
   ok(meta.turns === 14 && meta.duration_s === 240, 'known fields survive');
+  ok(meta.median_ms === 421 && meta.p90_ms === 811 && meta.turns_measured === 9, 'latency aggregates survive the lead metadata clamp');
+  ok(meta.fallback_reason === 'empty-transcription', 'the canonical fallback reason survives the lead metadata clamp');
+  ok(clampVoiceMeta({ fallback_reason: 'untrusted-code' }).fallback_reason === null, 'unknown fallback reasons are discarded');
+  const lead = core.makeLeadPayload('qa@example.com', 'QA Tester', {}, {
+    meta: { vertical: 'solar', verticalLabel: 'Solar' }, stack: { tier: 'starter' },
+    pipeline: { label: 'Example pipeline' }, kbReferences: []
+  }, meta);
+  ok(lead.voice_call.fallback_reason === 'empty-transcription', 'the lead exposes the reason as voice_call.fallback_reason');
+  ok(lead.voice_call.median_ms === 421 && lead.voice_call.p90_ms === 811 && lead.voice_call.turns_measured === 9, 'the lead exposes caller-to-Nova latency aggregates in voice_call');
   ok(clampVoiceMeta(null) === null, 'empty metadata stays null');
 }
 
@@ -305,8 +341,14 @@ async function httpTests() {
   ok(sess.required_fields.length === 3, 'session lists the three required fields');
   ok(sess.provider === 'simulated' || sess.provider === 'openai', 'session reports which provider is live');
   ok(sess.max_audio_bytes > 0, 'session tells the client the audio ceiling');
+  ok(sess.realtime.fallback_reason === 'no-key', 'session identifies the missing live-mode API key with its canonical reason');
+  const fallbackResponse = await post('/api/voice/fallback', { call_id: 'call-fallback', reason: 'empty-transcription' });
+  const fallbackBody = await fallbackResponse.json();
+  ok(fallbackResponse.status === 200 && fallbackBody.fallback_reason === 'empty-transcription', 'the shared client fallback route accepts and echoes a canonical reason');
+  const invalidFallback = await post('/api/voice/fallback', { reason: 'not-a-reason' });
+  ok(invalidFallback.status === 400, 'the fallback route rejects unknown reason codes');
 
-  // Drive a full call the way the browser does: answer whatever it asks, in order.
+  // Drive a full call through every topic; the assertions below do not require a fixed order.
   let asked = [], probes = {}, turns = 0, ticket = null, lastLine = '', capture = null;
   for (let i = 0; i < 30; i++) {
     const qid = asked.length ? asked[asked.length - 1] : null;
@@ -325,7 +367,7 @@ async function httpTests() {
   ok(lastLine.length > 0, 'the closing line is spoken');
   if (sess.mode === 'simulated') ok(/, QA[.!,]/.test(lastLine), 'the closing line uses the name the client entered (' + JSON.stringify(lastLine.slice(0, 48)) + ')');
   ok(capture && capture.missingRequired.length === 0, 'the three required fields were captured by the end');
-  ok(asked.join(',') === PLAN_ORDER.join(','), 'guardrail questions were asked once each, in order');
+  ok(new Set(asked).size === asked.length && PLAN_ORDER.every(id => asked.includes(id)), 'each guardrail topic is covered at most once; the call order is not a QA requirement');
 
   const more = await (await post('/api/voice/turn', { call_id: 'call-http', call_ticket: ticket, answers: fullAnswers(), asked: PLAN_ORDER, probes: {}, last_answer: 'nothing more', with_audio: false })).json();
   ok(more.ok === true, 'extra turns are accepted while under the cap');

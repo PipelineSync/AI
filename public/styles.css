@@ -73,8 +73,8 @@
   --steel-soft: #EAF0FA;
 
   /* PipelineSync AI brand tokens (brand sheet, section 1). These are the brand's own values and
-     do not change with the theme: navy is Otto's head, steel his arms, sync-orange the accent used
-     for primary buttons and live indicators, sky the waveform, mist the light circle Otto always
+     do not change with the theme: navy is Nova's head, steel his arms, sync-orange the accent used
+     for primary buttons and live indicators, sky the waveform, mist the light circle Nova always
      stands on when the surface is dark. void is the app background and stays exactly as it was. */
   --navy-brand: #0C2B5E;
   --navy-2: #2E5580;          /* alias of steel-deep, for older callers */
@@ -3481,7 +3481,7 @@ body.entry-screen .gate {
 }
 
 /* Landscape tablets and laptops: the two-column gate is taller than a 768-900px
-   viewport (Otto's greeting + the form card add up to ~980px), and the entry is
+   viewport (Nova's greeting + the form card add up to ~980px), and the entry is
    locked to one screen with overflow hidden - so without this the card's start
    button and note simply fall off the bottom. On short desktop heights the hero
    figure, paddings and margins scale with the viewport, the grid row is pinned
@@ -4044,7 +4044,7 @@ body.app-screen[data-stage="done"] .done-card {
     padding: 0.5rem 0.65rem;
     gap: 0.4rem;
   }
-  body.app-screen[data-stage="intake"] .otto-question {
+  body.app-screen[data-stage="intake"] .nova-question {
     font-size: clamp(0.95rem, 3.6vw, 1.15rem);
   }
   body.app-screen[data-stage="intake"] .call .line.you.empty {
@@ -4566,7 +4566,7 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
    PipelineSync AI brand: the logo lockup
    -----------------------------------------------------------------------------
    Everything the logo component needs to sit correctly on this dark theme.
-   The mascot (public/components/brand/Otto.js) is part of the brand sheet but is
+   The mascot (public/components/brand/Nova.js) is part of the brand sheet but is
    no longer rendered in this UI, so only the logo's rules live here:
      * The logo is never recoloured or stretched: the component fixes its own
        aspect ratio, and these rules only set the room it takes.
@@ -4588,57 +4588,57 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
 .brand-logo > span { min-width: 0; }
 
 /* --- Live call: the question and waveform ----------------------------------- */
-.otto-live {
+.nova-live {
   width: 100%;
   max-width: 860px;
   margin: 0 auto;
   text-align: left;
 }
-.otto-live-main {
+.nova-live-main {
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.4rem;
 }
-.otto-question {
+.nova-question {
   font-family: var(--font-display);
   font-size: clamp(1.05rem, 2.3vw, 1.5rem);
   font-weight: 600;
   line-height: 1.35;
   color: var(--ink);
 }
-.otto-live-main .line.you { width: auto; max-width: 100%; font-size: 0.875rem; padding: 0.6rem 0.85rem; }
+.nova-live-main .line.you { width: auto; max-width: 100%; font-size: 0.875rem; padding: 0.6rem 0.85rem; }
 
 /* The waveform under the question: #8FB0D0 -> #FF7A1A bars. */
-.otto-wave {
+.nova-wave {
   display: flex;
   align-items: flex-end;
   gap: 4px;
   height: 32px;
   margin-top: 0.15rem;
 }
-.otto-wave-bar {
+.nova-wave-bar {
   display: block;
   width: 3px;
   border-radius: 99px;
   background: linear-gradient(180deg, var(--sky) 0%, var(--sync-orange) 100%);
   transform-origin: 50% 100%;
-  animation: ottoWave 1.1s ease-in-out infinite alternate;
+  animation: novaWave 1.1s ease-in-out infinite alternate;
 }
-@keyframes ottoWave {
+@keyframes novaWave {
   from { transform: scaleY(0.28); }
   to   { transform: scaleY(1); }
 }
 /* With nothing being said the bars rest instead of dancing. */
-.call:not(.otto-wave-live) .otto-wave-bar { animation: none; transform: scaleY(0.45); opacity: 0.6; }
+.call:not(.nova-wave-live) .nova-wave-bar { animation: none; transform: scaleY(0.45); opacity: 0.6; }
 
 /* The call orb leads the panel: the presence meter on top, the voice subtitles below it. */
-.otto-stepper { display: flex; justify-content: center; }
+.nova-stepper { display: flex; justify-content: center; }
 
 /* --- Loading: the animated mark on its white card ------------------------- */
-.otto-splash { display: flex; justify-content: center; margin: 0 0 1.25rem; }
-.otto-splash-card {
+.nova-splash { display: flex; justify-content: center; margin: 0 0 1.25rem; }
+.nova-splash-card {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4649,28 +4649,28 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(143, 176, 208, 0.35);
 }
 /* --- Results: the delivered blueprint gains a hairline of brand orange ---- */
-.doc.otto-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), var(--sh-2), 0 0 0 1px rgba(255, 122, 26, 0.28); }
+.doc.nova-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), var(--sh-2), 0 0 0 1px rgba(255, 122, 26, 0.28); }
 
 /* --- Empty state ---------------------------------------------------------- */
-.otto-empty {
+.nova-empty {
   max-width: 560px;
   margin: clamp(1.5rem, 4vw, 3rem) auto;
   text-align: center;
 }
-.otto-empty h2 { margin: 0 0 1.25rem; }
+.nova-empty h2 { margin: 0 0 1.25rem; }
 
 /* --- Toast ---------------------------------------------------------------- */
 .toast-txt { min-width: 0; }
 
 /* --- The live call panel on a phone --------------------------------------- */
 @media (max-width: 899px) {
-  .otto-live { text-align: center; }
-  .otto-live-main { align-items: center; text-align: center; }
-  .otto-wave { justify-content: center; min-height: 32px; }
-  .otto-live-main .line.you { text-align: left; }
+  .nova-live { text-align: center; }
+  .nova-live-main { align-items: center; text-align: center; }
+  .nova-wave { justify-content: center; min-height: 32px; }
+  .nova-live-main .line.you { text-align: left; }
   /* Keep the call screen inside a phone viewport. */
-  .otto-stepper .voice-orb-container { width: 122px; height: 122px; margin: 0 auto; }
-  .otto-stepper .orb { width: 92px; height: 92px; }
+  .nova-stepper .voice-orb-container { width: 122px; height: 122px; margin: 0 auto; }
+  .nova-stepper .orb { width: 92px; height: 92px; }
 }
 
 /* --- Narrow headers: the wordmark yields to the mark ----------------------
@@ -4693,9 +4693,9 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
 }
 
 /* --- Light theme ---------------------------------------------------------- */
-body[data-theme="light"] .otto-question { color: #0C2B5E; }
-body[data-theme="light"] .otto-splash-card { box-shadow: 0 12px 36px rgba(15, 47, 82, 0.22), 0 0 0 1px rgba(62, 104, 146, 0.2); }
-body[data-theme="light"] .doc.otto-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--sh-2), 0 0 0 1px rgba(232, 102, 10, 0.35); }
+body[data-theme="light"] .nova-question { color: #0C2B5E; }
+body[data-theme="light"] .nova-splash-card { box-shadow: 0 12px 36px rgba(15, 47, 82, 0.22), 0 0 0 1px rgba(62, 104, 146, 0.2); }
+body[data-theme="light"] .doc.nova-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--sh-2), 0 0 0 1px rgba(232, 102, 10, 0.35); }
 
 /* --- Abuse protections: Turnstile widget and demo persona loader (DEMO_MODE) --- */
 .cf-turnstile { margin: 12px 0; min-height: 65px; }
@@ -4711,5 +4711,5 @@ body[data-theme="light"] .doc.otto-celebrate { box-shadow: inset 0 1px 0 rgba(25
 
 /* --- Reduced motion: no dancing bars --------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
-  .otto-wave-bar { animation: none; transform: scaleY(0.6); }
+  .nova-wave-bar { animation: none; transform: scaleY(0.6); }
 }

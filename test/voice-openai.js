@@ -39,10 +39,10 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-/* index.html loads the brand components (the logo and Otto) before app.js. jsdom does not run the
+/* index.html loads the brand components (the logo and Nova) before app.js. jsdom does not run the
    document's own scripts, so they are evaluated here in the same order: without them app.js has no
    markup for the logo or the mascot. */
-const brandJs = ['Logo.js', 'Otto.js'].map(f =>
+const brandJs = ['Logo.js', 'Nova.js'].map(f =>
   fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 
 function bootBrowser() {
@@ -52,6 +52,7 @@ function bootBrowser() {
   const played = [];
   const spoken = [];
   const errors = [];
+  const micConstraints = [];
   window.fetch = (p, o) => fetch(new URL(p, APP).toString(), o);
   window.addEventListener('error', e => errors.push(e.message));
   window.__PS_VOICE_TIMING__ = { silenceMs: 60, noSpeechMs: 300, maxListenMs: 1500, speakFactorMs: 4, minSpeakMs: 10, maxSpeakMs: 150 };
@@ -86,12 +87,12 @@ function bootBrowser() {
     close() { return Promise.resolve(); }
   };
   Object.defineProperty(window.navigator, 'mediaDevices', {
-    value: { getUserMedia: () => Promise.resolve({ getTracks: () => [{ stop() {} }] }) },
+    value: { getUserMedia: constraints => { micConstraints.push(constraints); return Promise.resolve({ getTracks: () => [{ stop() {} }] }); } },
     configurable: true
   });
   brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
-  return { window, document, played, spoken, errors };
+  return { window, document, played, spoken, errors, micConstraints };
 }
 
 (async () => {
@@ -112,7 +113,7 @@ function bootBrowser() {
 
   const turn = await (await post('/api/voice/turn', { call_id: 'call-1', answers: [], asked: [], probes: {}, with_audio: true })).json();
   ok(!!turn.audio_base64 && turn.audio_mime === 'audio/mpeg' && turn.speak_with_browser === false, 'the turn comes back with OpenAI speech audio');
-  ok(/what do you do/i.test(turn.say || ''), 'the spoken line asks the guardrail question');
+  ok(/what does your business do/i.test(turn.say || ''), 'the spoken line asks the guardrail question');
   ok(turn.ask.id === 'business', 'the guardrail set decides what is asked');
 
   const speech = await (await post('/api/voice/speak', { text: 'Hello from the mock voice.' })).json();
@@ -133,7 +134,7 @@ function bootBrowser() {
   // ---- the browser holds the call, speaking and hearing through OpenAI ----------
   mock.reset();   // the call starts from the first demo answer again
   const page = bootBrowser();
-  const { document, played, errors } = page;
+  const { document, played, errors, micConstraints } = page;
   await sleep(200);
   document.getElementById('demo-btn').click();
   await sleep(400);
@@ -142,7 +143,9 @@ function bootBrowser() {
   await sleep(1200);
   ok(played.length >= 1, 'the browser played OpenAI speech audio as soon as the disclaimer was agreed');
   ok(!document.querySelector('#start-call'), 'the call began on agreement, with no separate start button');
-  ok(/ChatGPT voice/.test(document.body.textContent), 'the screen shows ChatGPT as the voice provider');
+  ok((document.querySelector('.badge-mode') || {}).textContent === 'Step-by-step voice', 'the screen shows the exact step-by-step voice badge');
+  ok((document.querySelector('#call-mode') || {}).textContent === 'Step-by-step voice', 'the call header shows only the exact step-by-step mode label');
+  ok(micConstraints.length > 0 && micConstraints.every(c => c.audio && c.audio.echoCancellation === true && c.audio.noiseSuppression === true && c.audio.autoGainControl === true), 'step-by-step recording requests echo cancellation, noise suppression, and automatic gain control');
 
   for (let i = 0; i < 80 && !document.querySelector('#structure-btn'); i++) await sleep(250);
   ok(!!document.querySelector('#structure-btn'), 'the ChatGPT-voiced call reached the end of the intake set');

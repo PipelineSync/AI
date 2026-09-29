@@ -36,6 +36,7 @@ async function runGenerate(token, fields) {
 const deliver = F('deliver.js').handler;
 const outbox = F('outbox.js').handler;
 const voiceFn = F('voice.js').handler;
+const leadProgress = F('lead.js').handler;
 const health = F('health.js').handler;
 
 const personas = require('./personas.json');
@@ -128,6 +129,47 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
   ok(startHs && startHs.mocked === true && startHs.ok === false, 'start reports hubspot:{ok:false, mocked:true} when no token');
   const T = JSON.parse(lg.body).token;
 
+  // Lead-progress metadata is clamped before the Netlify path stores it in Supabase.
+  {
+    const leadId = '22222222-2222-4222-8222-222222222222';
+    const ownerId = '11111111-1111-4111-8111-111111111111';
+    const oldEnv = {
+      SUPABASE_URL: process.env.SUPABASE_URL,
+      SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      PIPELINESYNC_WORKSPACE_OWNER_ID: process.env.PIPELINESYNC_WORKSPACE_OWNER_ID
+    };
+    const oldFetch = globalThis.fetch;
+    const dbCalls = [];
+    try {
+      process.env.SUPABASE_URL = 'https://example.supabase.co';
+      process.env.SUPABASE_SECRET_KEY = 'server-only-test-secret';
+      process.env.PIPELINESYNC_WORKSPACE_OWNER_ID = ownerId;
+      globalThis.fetch = async (url, init) => {
+        const call = { url: String(url), method: (init && init.method) || 'GET', body: init && init.body ? JSON.parse(init.body) : null };
+        dbCalls.push(call);
+        return call.method === 'GET' && call.url.includes('pipeline_lead_sessions') ? hsRes(200, []) : hsRes(200, [{ id: leadId }]);
+      };
+      const authPayload = Object.assign({}, core.verifyToken(T), { lead_id: leadId });
+      const tokenWithLead = core.signToken(authPayload);
+      const progress = await leadProgress({
+        httpMethod: 'POST', path: '/api/lead/progress',
+        body: JSON.stringify({ token: tokenWithLead, status: 'discovery_completed', voice_meta: {
+          provider: 'openai-realtime', median_ms: 420, p90_ms: 890, turns_measured: 7, untrusted: 'drop me'
+        } })
+      });
+      const sessionWrite = dbCalls.find(call => call.method === 'POST' && call.url.includes('pipeline_lead_sessions'));
+      ok(progress.statusCode === 200, 'Netlify lead progress accepts the completed-call metadata');
+      ok(sessionWrite && sessionWrite.body.voice_metadata.median_ms === 420 && sessionWrite.body.voice_metadata.p90_ms === 890 && sessionWrite.body.voice_metadata.turns_measured === 7, 'Supabase session metadata preserves median, p90, and measured turns');
+      ok(sessionWrite && sessionWrite.body.voice_metadata.untrusted === undefined, 'the Netlify progress path drops unrecognized voice metadata before persistence');
+    } finally {
+      globalThis.fetch = oldFetch;
+      for (const [key, value] of Object.entries(oldEnv)) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+  }
+
   const alias = await login({ httpMethod: 'POST', path: '/api/auth/login', body: JSON.stringify({ name: 'Allen Reyes', email: 'allen@pipelinesync.ai' }) });
   ok(alias.statusCode === 200 && JSON.parse(alias.body).token, 'the login function still serves the entry gate (alias)');
 
@@ -183,6 +225,8 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
   const vturn = await voiceFn({ httpMethod: 'POST', path: '/api/voice/turn', body: JSON.stringify({ token: T, call_id: 'sim-1', answers: [], asked: [], probes: {}, with_audio: false }) });
   const vj = JSON.parse(vturn.body);
   ok(vturn.statusCode === 200 && vj.ask.id === 'business', 'voice function serves a turn and the guardrail question');
+  const fallback = await voiceFn({ httpMethod: 'POST', path: '/api/voice/fallback', body: JSON.stringify({ token: T, call_id: 'netlify-fallback', reason: 'mic-blocked' }) });
+  ok(fallback.statusCode === 200 && JSON.parse(fallback.body).fallback_reason === 'mic-blocked', 'Netlify records the same canonical client fallback reason as the local server');
   const vsub = await voiceFn({ httpMethod: 'POST', path: '/.netlify/functions/voice', queryStringParameters: { op: 'speak' }, body: JSON.stringify({ token: T, text: 'Testing.' }) });
   ok(vsub.statusCode === 200, 'voice function resolves its sub-route from the function path');
   const vno = await voiceFn({ httpMethod: 'POST', path: '/api/voice/turn', body: JSON.stringify({}) });

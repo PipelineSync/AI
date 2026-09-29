@@ -46,5 +46,17 @@ function response(status, body) {
   await leads.updateLead(leadId, { email: 'NEW@EXAMPLE.COM', status: 'discovery_started' }, { env, fetchImpl: existingFetch });
   assert.strictEqual(calls[0].body.email_normalized, 'new@example.com');
 
+  calls.length = 0;
+  const latencyMetadata = { median_ms: 420, p90_ms: 890, turns_measured: 7, audio_retained: false };
+  const sessionFetch = async (url, opts) => {
+    const body = opts.body ? JSON.parse(opts.body) : null;
+    calls.push({ url, opts, body });
+    if (opts.method === 'GET') return response(200, []);
+    return response(201, [{ id: '33333333-3333-4333-8333-333333333333', lead_id: leadId, status: 'completed' }]);
+  };
+  await leads.saveSession(leadId, { status: 'completed', voice_metadata: latencyMetadata }, { env, fetchImpl: sessionFetch });
+  const sessionInsert = calls.find(call => call.opts.method === 'POST' && call.url.includes('pipeline_lead_sessions'));
+  assert.deepStrictEqual(sessionInsert.body.voice_metadata, latencyMetadata, 'voice latency aggregates persist in pipeline_lead_sessions.voice_metadata');
+
   console.log('SUPABASE LEAD STORAGE CHECKS PASSED');
 })().catch(err => { console.error(err); process.exit(1); });

@@ -86,9 +86,9 @@ Site configuration → **Environment variables** → **Add a variable**:
 | `AI_GENERATE_DEADLINE_MS` | `60000` (default) | Total deadline ms for `runGenerate` (blueprint generation). |
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
-`OPENAI_REALTIME_VAD`, `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`,
-`OPENAI_REALTIME_MAX_TOOLS`, `OPENAI_REALTIME_TIMEOUT_MS`, `OPENAI_REALTIME_CONNECT_PER_MIN`,
-`OPENAI_REALTIME_MAX_CONCURRENT`, `OPENAI_REALTIME_DAILY_MAX`, `OPENAI_REALTIME_IDLE_MIN`,
+`OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`, `OPENAI_REALTIME_MAX_TOOLS`, `OPENAI_REALTIME_TIMEOUT_MS`,
+`OPENAI_REALTIME_CONNECT_PER_MIN`, `OPENAI_REALTIME_MAX_CONCURRENT`,
+`OPENAI_REALTIME_DAILY_MAX`, `OPENAI_REALTIME_IDLE_MIN`,
 `VOICE_PROVIDER`, `OPENAI_CHAT_MODEL`, `OPENAI_TTS_MODEL`, `OPENAI_TTS_VOICE`, `OPENAI_STT_MODEL`,
 `VOICE_STT`, `VOICE_LANGUAGE`, `VOICE_LOCALE`, `VOICE_MAX_TURNS`, `OPENAI_BASE_URL`) and everything
 else about the voice layer is documented in `docs/VOICE_SETUP.md` (all of them are commented out in
@@ -166,7 +166,7 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
    client has finished a thought, so nothing is cut between questions and the client can talk over
    the AI. The model words the questions; the guardrail set in `lib/voice.js` still chooses them, and
    the server re-checks every value the model claims against the words it quotes before it is
-   captured. Otto also answers the client's own questions ("what is PipelineSync?", "how much does it
+   captured. Nova also answers the client's own questions ("what is PipelineSync?", "how much does it
    cost?", "are you an AI?", "what happens next?", "can we stop?") from a scripted FAQ that invents no
    number, and their question comes first: he answers it before returning to the intake set, a turn
    that is all answer is a correct turn (the question he did not reach stays pending, `deferred`), and
@@ -192,27 +192,27 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
 8. **Lead captured** (Function D, live when `HUBSPOT_ACCESS_TOKEN` is set, otherwise `[hubspot-mock]` log line) - a lead with all answers and a blueprint reference is pushed to HubSpot when live, otherwise logged as `[hubspot-mock] lead push: ...`; when HubSpot is live, the contact note also records whether the email went out.
 9. **Book a call** - live when `SCHEDULER_LINK` is set, otherwise fallback request picker (the real embed uses the configured HubSpot Meetings scheduler link).
 
-## The brand: the logo and Otto
+## The brand: the logo and Nova
 
-The logo and Otto the mascot are components, in `public/components/brand/`:
+The logo and Nova the mascot are components, in `public/components/brand/`:
 
 | Component | File | Used for |
 |---|---|---|
 | `LogoMark({ variant, size, animated })` | `Logo.js` | the S mark on its own; `animated` adds the flowing dots for loading screens |
 | `Logo({ variant, size })` | `Logo.js` | mark + wordmark lockup |
-| `Otto({ pose, avatar, size })` | `Otto.js` | the mascot, six poses, optional head-only avatar crop |
-| `OttoAvatar({ pose, size, ring })` | `Otto.js` | the head-only figure with an optional orange ring; paints no background of its own |
+| `Nova({ pose, avatar, size })` | `Nova.js` | the mascot, six poses, optional head-only avatar crop |
+| `NovaAvatar({ pose, size, ring })` | `Nova.js` | the head-only figure with an optional orange ring; paints no background of its own |
 
-They are the brand sheet's React components (`components/brand/Logo.tsx`, `components/brand/Otto.tsx`)
+They are the brand sheet's React components (`components/brand/Logo.tsx`, `components/brand/Nova.tsx`)
 ported to the technology this prototype ships: `public/app.js` is plain HTML/CSS/JS with no build
 step, so the components return markup strings that the app injects with the rest of its markup. The
 SVG geometry, colours, stroke widths, view boxes and the inline animation CSS are the same markup.
 `index.html` loads the two files before `app.js`.
 
-Otto's pose is never a new flag: it is read from state the app already tracks, so the voice flow is
+Nova's pose is never a new flag: it is read from state the app already tracks, so the voice flow is
 untouched.
 
-| The app is | Otto is | Where |
+| The app is | Nova is | Where |
 |---|---|---|
 | on the start screen | `hello` (200px) | next to "Start strategy session", with his greeting |
 | reading the disclaimer | `hello`, avatar (96px) | the consent card |
@@ -225,18 +225,20 @@ untouched.
 | showing the transcript | `sync`, avatar (32px) | the AI's chat bubbles and the call header |
 
 His copy is the brand sheet's five lines (`greeting`, `listening`, `loading`, `success`, `error`),
-read from `window.PSBrand.OTTO_COPY` so the mascot and the app cannot drift apart.
+read from `window.PSBrand.NOVA_COPY` so the mascot and the app cannot drift apart.
 
 The live call screen puts his avatar on the left with the orange pulsing ring and, on the right, the
-"OTTO · QUESTION X OF Y" label, the question in large type, and the animated waveform (nine bars in a
+"NOVA · QUESTION X OF Y" label, the question in large type, and the animated waveform (nine bars in a
 `#8FB0D0` → `#FF7A1A` gradient). Every control, the progress track, the captured-signals sidebar and
 the transcript are unchanged.
 
-> **One name, said and seen.** Otto is what the client reads on screen *and* what they hear on the
-> call: the identity line in `lib/voice.js` (`realtimeInstructions()`, `buildMessages()`), the first
-> question's greeting, and `MASTER_INTERVIEW_IDENTITY` in `lib/prompts.js` all say "I am Otto from
-> PipelineSync". Nothing else about the spoken content changed — the 12 questions, the FAQ answers
-> and the call rules are word for word what they were, so the rename is a name and nothing more.
+**One name, said and seen.** Nova is what the client reads on screen *and* what they hear on the
+call. The step-by-step identity and first greeting, `MASTER_INTERVIEW_IDENTITY` in `lib/prompts.js`,
+and the Realtime opening all identify Nova as an AI from PipelineSync. The opening uses the caller's
+first name when available, stays within two short statements and one question, and says the call
+usually takes five to ten minutes. Realtime keeps the 12 topic examples and FAQ facts while using
+flexible topic order, concise phone-call turns, grounded multi-topic capture, Taglish-aware English
+replies, and gentle silence check-ins.
 
 ## UI and responsive design
 
@@ -254,10 +256,10 @@ scaled-down desktop.
 
 Design rules that `node test/ui-design.js` enforces:
 
-- **Colour is the brand mark** - the brand sheet's palette: navy `#0C2B5E` (Otto's head), steel
+- **Colour is the brand mark** - the brand sheet's palette: navy `#0C2B5E` (Nova's head), steel
   `#3E6892` (his arms), steel-deep `#2E5580`, sync-orange `#FF7A1A` (primary buttons, live
   indicators), sky `#8FB0D0` (soft accents and the waveform) and mist `#E8EFF7` (the light circle
-  Otto stands on). These are declared as tokens (`--navy-brand`, `--steel-brand`, `--steel-deep`,
+  Nova stands on). These are declared as tokens (`--navy-brand`, `--steel-brand`, `--steel-deep`,
   `--sync-orange`, `--sky`, `--mist`) alongside the design system's own compatibility tokens, not in
   place of them: the background stays `#0A0E17` (`--bg`, `--void`). Orange is the one fill that
   carries white text, because the brand sheet specifies it for primary buttons; every other pair is
@@ -273,23 +275,23 @@ Design rules that `node test/ui-design.js` enforces:
   a restyle cannot silently drop a style the UI depends on.
 - **Preferences respected**: `prefers-reduced-motion` stops the orb pulse and the spinners,
   `forced-colors` mode gets real borders, and the print stylesheet prints just the blueprint.
-- **The logo and Otto are components, not artwork.** `public/components/brand/Logo.js` and
-  `public/components/brand/Otto.js` are the brand sheet's `components/brand/{Logo,Otto}.tsx` ported
+- **The logo and Nova are components, not artwork.** `public/components/brand/Logo.js` and
+  `public/components/brand/Nova.js` are the brand sheet's `components/brand/{Logo,Nova}.tsx` ported
   to this no-build layer: same SVG markup, same geometry, same colours, same six poses, returned as
   markup strings instead of React elements. Nothing else in the app draws them, and neither is ever
   redrawn, recoloured or stretched (`logoTile()` fixes the mark's own 440x590 aspect ratio; every
-  Otto figure is sized by `width`/`height` from the same 300x300 view box).
+  Nova figure is sized by `width`/`height` from the same 300x300 view box).
 - **A light mark never sits on a dark surface.** The light variant is navy `#0C2B5E` and steel
   `#3E6892`, so on the topbar and the entry-gate hero it measures **1.2:1** and **3.4:1** and
   disappears. Two shapes are allowed and the design check enforces both: the light variant inside a
   white plate (`.logo-plate`, `logoTile()`, the 160px splash card) or the dark variant (white and
   sky), which is what the topbar and the call orb use. For decks and slides, `public/logo-on-dark.svg`
   is the same treatment as a standalone file.
-- **Otto is transparent artwork: nothing paints behind him.** No plate, no circle, no ground
-  shadow - `.otto-fig-card` (and every other figure wrapper) only reserves his space, and
-  `OttoAvatar` draws just the optional orange ring, so the app's own surface shows through on dark,
+- **Nova is transparent artwork: nothing paints behind him.** No plate, no circle, no ground
+  shadow - `.nova-fig-card` (and every other figure wrapper) only reserves his space, and
+  `NovaAvatar` draws just the optional orange ring, so the app's own surface shows through on dark,
   on light and in an export. His pose always comes from state the app already tracks
-  (`ottoPoseNow()` reads the voice status and the stage) - never a new flag. His figures reserve a
+  (`novaPoseNow()` reads the voice status and the stage) - never a new flag. His figures reserve a
   fixed box, so a pose change cannot shift the layout, and his motion stops under
   `prefers-reduced-motion`.
 - **Accessibility is in the markup, not bolted on**: skip link, `aria-current="step"` on the rail,
@@ -354,20 +356,26 @@ Run each demo persona from the intake sidebar, then check the blueprint:
       button and no text box
 - [ ] The call is continuous: one WebRTC session and one microphone open for the whole call, no
       record/stop/play cycle between questions, and the client can interrupt the AI
-- [ ] Otto answers the client's own questions (product, price, "are you an AI?", next step) briefly
+- [ ] Nova answers the client's own questions (product, price, "are you an AI?", next step) briefly
       and honestly, and their question comes first: a turn that is all answer is fine, and the
       question he did not get to stays pending ("deferred") instead of being skipped
 - [ ] When the client says stop, or that they have to go, the call ends at once, whatever is still
       missing; a request to pause makes him wait instead of hanging up
-- [ ] Every one of the 12 questions is asked out loud exactly once, in order, with a probe only when
-      an answer arrived without its figures
+- [ ] Each of the 12 topics is covered at most once; Nova may follow the caller's conversational
+      order, skips volunteered/captured topics, and never asks again for a topic already answered
+- [ ] A short, specific acknowledgement and one natural question follow each caller turn; multiple
+      volunteered topics from one turn are captured separately without waiting for server validation
+- [ ] Caller interruptions stop Nova's audio immediately; quiet at about 8 seconds gets "Take your
+      time", at about 20 seconds Nova offers a skip, and silence does not trigger an early hang-up
+      (the existing long idle wrap-up remains only as a last resort)
 - [ ] Nothing is captured that the client did not say: every value carries the exact quoted words,
       figures lifted from on-screen examples are refused, and an off-topic turn captures nothing
 - [ ] The three required fields (deal size, monthly lead volume, close rate) are captured on the call;
       anything still unstated is flagged on the review screen and blocks generation
 - [ ] The lead payload records how the call ran (`voice_call`: provider, models, `transport`,
       realtime model/voice/turn detection, turns, probes, captures accepted and rejected,
-      missing required figures at the end) and `audio_retained: false`
+      `median_ms`, `p90_ms`, `turns_measured`, missing required figures at the end) and
+      `audio_retained: false`
 - [ ] No keys in the browser; PDF generated server-side; disclaimer + privacy notice before data
 - [ ] The emailed PDF goes to the session address only: typing a different address in the unlock form
       does not redirect the attachment
@@ -382,7 +390,7 @@ node test/voice.js       # voice policy, capture state, the grounded-capture gat
                          # and the routes
 node test/voice-openai.js# the whole step-by-step ChatGPT path against a mock OpenAI endpoint
 node test/voice-realtime.js # a whole continuous call in jsdom: fake WebRTC, fake model, mock
-                         # endpoint - one session, twelve questions, grounded captures, fallback
+                         # endpoint - one session, flexible topic coverage, grounded captures, fallback
 node test/ui-smoke.js    # drives the real frontend through the voice-first journey (jsdom);
                          # proves the AI speaks before any text input appears, and that a blocked
                          # microphone falls back to typing without losing the journey
@@ -395,9 +403,9 @@ node test/netlify-sim.js # invokes the Netlify functions with Lambda-style event
 node test/pdfcheck.js    # validates PDF xref structure of generated samples
 node test/ui-design.js   # design-system checks: the stylesheet parses, every class the app and the
                          # brand components render has a rule, the tokens clear WCAG AA, touch targets
-                         # stay 44px, the brand tokens and icons are in place, the six Otto poses and
+                         # stay 44px, the brand tokens and icons are in place, the six Nova poses and
                          # his five copy lines are intact, the pose map follows the real call state,
-                         # and neither the logo nor Otto is ever rendered bare on a dark surface
+                         # and neither the logo nor Nova is ever rendered bare on a dark surface
 npm run test:all         # everything above
 ```
 
@@ -440,7 +448,7 @@ pipelinesync/
   public/index.html      shell (no CDN, works offline; includes pdfmake for client-side PDF)
   public/components/brand/Logo.js  the logo components: LogoMark (the S mark, with the animated
                          flowing-dot variant for loading screens) and Logo (mark + wordmark)
-  public/components/brand/Otto.js  Otto the mascot: six poses (sync, hello, listen, speak, think,
+  public/components/brand/Nova.js  Nova the mascot: six poses (sync, hello, listen, speak, think,
                          party), the avatar crop, his five copy lines and his animation CSS
   public/logo.svg        brand mark as vector (faithful redraw of the logo-only.png artwork),
                          transparent: use it on light backgrounds

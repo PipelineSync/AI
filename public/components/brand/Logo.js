@@ -83,7 +83,7 @@
     '</span>';
   }
 
-  /* Brand palette, shared with Otto.js and with the CSS tokens in styles.css. */
+  /* Brand palette, shared with Nova.js and with the CSS tokens in styles.css. */
   var BRAND = {
     navy: '#0C2B5E', steel: '#3E6892', steelDeep: '#2E5580',
     syncOrange: '#FF7A1A', syncOrangeHover: '#E8660A', sky: '#8FB0D0', mist: '#E8EFF7', void: '#0A0E17'

@@ -12,10 +12,10 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-/* index.html loads the brand components (the logo and Otto) before app.js. jsdom does not run the
+/* index.html loads the brand components (the logo and Nova) before app.js. jsdom does not run the
    document's own scripts, so they are evaluated here in the same order: without them app.js has no
-   markup for the logo. */
-const brandJs = ['Logo.js', 'Otto.js'].map(f =>
+   markup for the logo or the mascot. */
+const brandJs = ['Logo.js', 'Nova.js'].map(f =>
   fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -46,16 +46,24 @@ const QMAP = [
 ];
 
 /* A jsdom page wired the way the sandbox preview would be, with the microphone and voice faked. */
-function boot(withMic, baseOverride) {
+function boot(withMic, baseOverride, opts) {
+  opts = opts || {};
   const pageBase = baseOverride || BASE;
   const dom = new JSDOM(html, { url: pageBase + '/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   const { document } = window;
   const spoken = [];
   const errors = [];
-  window.fetch = (p, o) => fetch(new URL(p, pageBase).toString(), o);
+  const fallbackPosts = [];
+  let recognitionStarts = 0;
+  window.fetch = (p, o) => {
+    if (String(p).indexOf('/api/voice/fallback') >= 0) {
+      try { fallbackPosts.push(JSON.parse(o && o.body || '{}')); } catch (e) {}
+    }
+    return fetch(new URL(p, pageBase).toString(), o);
+  };
   window.addEventListener('error', e => { errors.push(e.message); });
-  window.__PS_VOICE_TIMING__ = { silenceMs: 50, noSpeechMs: 400, maxListenMs: 1500, speakFactorMs: 4, minSpeakMs: 10, maxSpeakMs: 120 };
+  window.__PS_VOICE_TIMING__ = Object.assign({ silenceMs: 50, noSpeechMs: 400, maxListenMs: 1500, speakFactorMs: 4, minSpeakMs: 10, maxSpeakMs: 120 }, opts.timing || {});
   // Faked spoken voice: the AI can also receive OpenAI audio, in which case Audio fires onended.
   const speechTimes = [];
   window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
@@ -85,7 +93,17 @@ function boot(withMic, baseOverride) {
   if (withMic) {
     window.SpeechRecognition = class {
       constructor() { this.lang = ''; this.interimResults = false; this.continuous = false; }
-      start() { const self = this; setTimeout(() => { if (self.onresult) self.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: answerNow() + ' ' }], { isFinal: true })] }); setTimeout(() => { if (self.onend) self.onend(); }, 20); }, 30); }
+      start() {
+        recognitionStarts++;
+        const self = this;
+        if (opts.emptyTranscriptions) {
+          setTimeout(() => { if (self.onerror) self.onerror({ error: 'no-speech' }); if (self.onend) self.onend(); }, 2);
+          return;
+        }
+        const resultDelay = Number.isFinite(Number(opts.recognitionDelayMs))
+          ? Math.max(0, Number(opts.recognitionDelayMs)) : 30;
+        setTimeout(() => { if (self.onresult) self.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: answerNow() + ' ' }], { isFinal: true })] }); setTimeout(() => { if (self.onend) self.onend(); }, 20); }, resultDelay);
+      }
       stop() { if (this.onend) this.onend(); }
     };
   } else {
@@ -96,7 +114,7 @@ function boot(withMic, baseOverride) {
   }
   brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
-  return { window, document, spoken, errors, speechTimes };
+  return { window, document, spoken, errors, speechTimes, fallbackPosts, recognitionStarts: () => recognitionStarts };
 }
 
 /* Dispatch a postMessage the way the HubSpot Meetings iframe would. jsdom's MessageEvent
@@ -132,7 +150,7 @@ async function passGate(page, details) {
   ok(!!document.querySelector('#start-form button[type=submit]'), 'the gate has one submit action');
   // Brand: the lockup in the hero. The mascot stays off the start screen: no figure, no greeting line.
   ok(!!document.querySelector('.gate-brand .brand-logo svg[aria-label="PipelineSync AI"]'), 'the entry gate carries the brand lockup');
-  ok(!document.querySelector('.gate-card svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto does not greet the visitor on the start screen');
+  ok(!document.querySelector('.gate-card svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not greet the visitor on the start screen');
   ok(!/Hi, I'm Nova\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
     'and his greeting line is gone from the start screen');
   const themeToggle = document.querySelector('#theme-toggle');
@@ -244,20 +262,21 @@ async function reachCall(page, details) {
   // Brand: the header lockup on every screen, and the live call panel the brand sheet specifies.
   // The mascot no longer appears anywhere: no figure on the panel, no avatar on the bubbles.
   ok(!!d1.querySelector('.topbar .brand-logo svg[aria-label="PipelineSync AI"]'), 'the header carries the logo lockup on the call screen');
-  ok(!d1.querySelector('.call svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto is not on the call screen');
+  ok(!d1.querySelector('.call svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova is not on the call screen');
   ok(!d1.querySelector('#call-progress') && !d1.querySelector('#call-bar') && !d1.querySelector('.side-toggle-count'),
     'no question counter on the call screen: the conversation leads');
-  ok(d1.querySelectorAll('.otto-wave .otto-wave-bar').length === 9, 'the animated waveform sits under the question');
+  ok(d1.querySelectorAll('.nova-wave .nova-wave-bar').length === 9, 'the animated waveform sits under the question');
   // The waveform follows the live state, which alternates while the call runs, so the test
   // samples the call rather than reading one instant of it.
-  for (let i = 0; i < 60 && !d1.querySelector('.call.otto-wave-live'); i++) await sleep(25);
-  ok(!!d1.querySelector('.call.otto-wave-live'), 'the call goes live while the AI is speaking or listening');
+  for (let i = 0; i < 60 && !d1.querySelector('.call.nova-wave-live'); i++) await sleep(25);
+  ok(!!d1.querySelector('.call.nova-wave-live'), 'the call goes live while the AI is speaking or listening');
   ok(d1.querySelectorAll('.bubble-av').length === 0, "the AI's transcript bubbles carry no avatar");
   ok(!!d1.querySelector('#mic-btn') || !!d1.querySelector('#type-btn'), 'the in-call controls are on screen straight after agreement');
   ok(p1.spoken.length >= 1, 'the AI spoke its first line out loud (' + JSON.stringify((p1.spoken[0] || '').slice(0, 60)) + '...)');
-  ok(/what do you do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
+  ok(/what does your business do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
   ok(/PipelineSync/.test(p1.spoken[0] || ''), 'the AI introduces itself on the first line (AI disclosure on the call)');
-  ok(/ChatGPT voice|Simulated voice/.test(d1.body ? d1.body.textContent : d1.body.textContent), 'the screen states which voice provider is live');
+  ok((d1.querySelector('.badge-mode') || {}).textContent === 'Browser voice (no API key)', 'the no-key call shows the exact browser-voice badge');
+  ok((d1.querySelector('#call-mode') || {}).textContent === 'Browser voice (no API key)', 'the call header repeats only the exact browser-voice mode label');
   ok(!!d1.querySelector('.orb.listening, .orb.speaking, .orb.thinking, .orb.ready'), 'the call UI shows the live call state');
 
   // With a working microphone the call alternates between the AI speaking and listening, so the
@@ -265,13 +284,41 @@ async function reachCall(page, details) {
   let waveLiveSeen = false;
   // The listener window is short (the faked recogniser answers in ~50ms), so this samples finely.
   for (let i = 0; i < 400 && !d1.querySelector('#structure-btn'); i++) {
-    if (d1.querySelector('.call.otto-wave-live')) waveLiveSeen = true;
+    if (d1.querySelector('.call.nova-wave-live')) waveLiveSeen = true;
     await sleep(25);
   }
   ok(waveLiveSeen, 'the waveform follows the call while it runs');
   ok(!!d1.querySelector('#structure-btn'), 'the AI worked through the intake set and closed the call');
   ok(p1.spoken.length >= 12, 'the AI spoke every question (' + p1.spoken.length + ' lines)');
+  ok(p1.recognitionStarts() >= 12, 'step-by-step speech automatically starts another microphone listen without a tap');
   ok(d1.querySelectorAll('.bubble.user').length >= 12, 'the transcript holds the spoken answers');
+  console.log('\nScenario 1b: Stop and send submits the live utterance');
+  const pStop = boot(true, null, {
+    recognitionDelayMs: 120,
+    timing: { silenceMs: 700, noSpeechMs: 1200, maxListenMs: 1800, recognitionRestartMs: 1000 }
+  });
+  await reachCall(pStop, { name: 'Sam Cruz', email: 'sam-stop@example.ph' });
+  const dStop = pStop.document;
+  const firstAnswer = SOLAR.business;
+  let answerVisible = false;
+  for (let i = 0; i < 80 && !answerVisible; i++) {
+    answerVisible = (dStop.querySelector('#you-line') || {}).textContent === firstAnswer;
+    if (!answerVisible) await sleep(25);
+  }
+  ok(answerVisible, 'the active listener shows the answer before the visitor taps Stop and send');
+  const stopAndSend = dStop.querySelector('#mic-btn');
+  ok(!!stopAndSend && /Stop and send/.test(stopAndSend.textContent), 'the hands-free call offers Stop and send while listening');
+  pStop.window.__askOnce = 'Can we stop here, please?';
+  if (stopAndSend) stopAndSend.click();
+  let stopCallEnded = false;
+  for (let i = 0; i < 120 && !stopCallEnded; i++) {
+    stopCallEnded = !!dStop.querySelector('#structure-btn');
+    if (!stopCallEnded) await sleep(25);
+  }
+  const stoppedState = pStop.window.__PS_VOICE_STATE__();
+  ok(stopCallEnded && stoppedState.done && stoppedState.stopped, 'Stop and send submits the current answer; the next spoken stop ends the call');
+  ok(stoppedState.answers.some(a => a.id === 'business' && a.text === firstAnswer), 'Stop and send preserves the answer in captured fields');
+  ok(!stoppedState.answers.some(a => /Can we stop here/.test(a.text)), 'the later stop instruction is never stored as an answer');
   ok(d1.querySelectorAll('.bubble.ai').length >= 12, 'the transcript holds the AI lines');
   const details = d1.querySelector('#transcript-wrap');
   ok(!!details && !details.open, 'the transcript stays collapsed: the call is voice, not chat');
@@ -283,7 +330,7 @@ async function reachCall(page, details) {
   d1.getElementById('structure-btn').click();
   await sleep(3200);
   ok(!!d1.querySelector('#confirm-fields'), 'review screen rendered from the call transcript');
-  ok(/ChatGPT voice|Simulated voice/.test(d1.querySelector('.call-summary').textContent), 'the review screen records how the call was run');
+  ok((d1.querySelector('.call-summary .badge-mode') || {}).textContent === 'Browser voice (no API key)', 'the review screen records the exact browser-voice mode');
   const nullBadges = d1.querySelectorAll('.nullbadge').length;
   console.log('  (review shows ' + nullBadges + ' "Not stated" badges)');
   const reviewInputs = Array.from(d1.querySelectorAll('[data-key], [data-prod], [data-src]'))
@@ -299,8 +346,8 @@ async function reachCall(page, details) {
   await sleep(500);
   const loaderStep = d1.querySelector('#loader-step');
   ok(!!loaderStep, 'the generation loader shows a progress state');
-  ok(!!d1.querySelector('.otto-splash-card svg'), 'the loading screen shows the animated brand mark on its white card');
-  ok(!d1.querySelector('.loader svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto does not appear on the loading screen');
+  ok(!!d1.querySelector('.nova-splash-card svg'), 'the loading screen shows the animated brand mark on its white card');
+  ok(!d1.querySelector('.loader svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not appear on the loading screen');
   ok(!d1.querySelector('.doc'), 'the blueprint is not rendered while the job is still running');
   for (let i = 0; i < 60 && !d1.querySelector('.doc'); i++) await sleep(250);
   
@@ -308,7 +355,7 @@ async function reachCall(page, details) {
   ok(!!d1.querySelector('.coa-item'), 'cost of inaction items rendered');
   ok(d1.querySelectorAll('.chip.kb').length > 5, 'KB reference chips rendered');
   ok(!d1.querySelector('.doc').textContent.includes('\u2014'), 'no em dashes in the blueprint view');
-  ok(!d1.querySelector('.doc svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto does not celebrate at the top of the results');
+  ok(!d1.querySelector('.doc svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not celebrate at the top of the results');
 
   d1.getElementById('unlock-btn').click();
   await sleep(100);
@@ -323,7 +370,7 @@ async function reachCall(page, details) {
   d1.getElementById('un-go').click();
   await sleep(1400);
   ok(!!d1.querySelector('.success-card'), 'delivery success card shown');
-  ok(!!d1.querySelector('.doc.otto-celebrate'), 'the delivered blueprint marks the result as the celebration state');
+  ok(!!d1.querySelector('.doc.nova-celebrate'), 'the delivered blueprint marks the result as the celebration state');
   // The delivered blueprint offers the server PDF again, so that button raises the download toast.
   d1.getElementById('redownload-btn').click();
   await sleep(60);
@@ -462,6 +509,23 @@ async function reachCall(page, details) {
   ok(!!d2.querySelector('#done-download-btn'), 'the download button is available on the success path too');
   ok(p2.errors.length === 0, 'no runtime errors across the typed journey' + (p2.errors.length ? ': ' + p2.errors[0] : ''));
 
+  console.log('\nScenario 3b: two empty browser transcriptions switch automatically to typing');
+  const emptyPage = boot(true, BASE, {
+    emptyTranscriptions: true,
+    timing: { silenceMs: 10, noSpeechMs: 35, maxListenMs: 60, emptyRetryMs: 1, recognitionRestartMs: 2, recognitionRestartWindowMs: 1000, maxRapidRecognitionRestarts: 2 }
+  });
+  await sleep(200);
+  emptyPage.document.getElementById('demo-btn').click();
+  await sleep(300);
+  emptyPage.document.getElementById('consent-cb').click();
+  emptyPage.document.getElementById('consent-go').click();
+  for (let i = 0; i < 60 && !emptyPage.document.querySelector('#intake-input'); i++) await sleep(25);
+  ok(!!emptyPage.document.querySelector('#intake-input'), 'two consecutive empty transcriptions automatically enable typed answers');
+  ok(/two answers.*typed answers/i.test(emptyPage.document.body.textContent), 'the empty-transcription fallback announces why it switched');
+  ok(emptyPage.recognitionStarts() <= 8, 'browser recognition restarts respect the configured cap (' + emptyPage.recognitionStarts() + ' starts)');
+  ok(emptyPage.fallbackPosts.some(post => post.reason === 'empty-transcription'), 'the client reports empty-transcription to the shared server route');
+  ok(emptyPage.errors.length === 0, 'no runtime errors during the empty-transcription fallback' + (emptyPage.errors.length ? ': ' + emptyPage.errors[0] : ''));
+
   console.log('\nScenario 4: the lead asks something, then stops the call');
   const p4 = boot(true);
   /* The first thing the lead says is a question, not an answer, and the very next thing is a stop.
@@ -470,8 +534,10 @@ async function reachCall(page, details) {
   p4.window.__askOnce = 'How much does this cost me, all in?';
   await reachCall(p4, { name: 'Nena Cruz', email: 'nena@example.ph' });
   const d4 = p4.document;
-  p4.window.__askOnce = 'Can we stop here, please?';
   const aiBubbles = () => Array.from(d4.querySelectorAll('#transcript-wrap .bubble.ai .bubble-txt')).map(b => b.textContent);
+  const faqPattern = /free, and (?:there is|there's) nothing to buy/i;
+  for (let i = 0; i < 100 && !aiBubbles().some(t => faqPattern.test(t)); i++) await sleep(25);
+  p4.window.__askOnce = 'Can we stop here, please?';
   let ended = false;
   for (let i = 0; i < 200 && !ended; i++) {
     ended = !!d4.getElementById('structure-btn');
@@ -479,7 +545,7 @@ async function reachCall(page, details) {
   }
   ok(ended, 'a stop from the lead ends the call on the spot');
   const lines = aiBubbles();
-  const faqLine = lines.filter(t => /free, and there is nothing to buy/i.test(t))[0] || '';
+  const faqLine = lines.filter(t => faqPattern.test(t))[0] || '';
   ok(!!faqLine, 'a question from the lead is answered from the scripted FAQ (' + (faqLine || lines.slice(-1)[0] || '').slice(0, 60) + '...)');
   ok(!!faqLine && !/\?/.test(faqLine), 'the answering turn asks nothing back');
   ok(!!faqLine && !/what do you do, and who do you sell to/i.test(faqLine), 'and it does not smuggle the intake question in behind the answer');
@@ -617,7 +683,7 @@ async function reachCall(page, details) {
     const { JSDOM } = require('jsdom');
     const htmlLocal = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8').replace(/<script src="app.js"><\/script>/, '');
     const appJsLocal = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'app.js'), 'utf8');
-    const brandJsLocal = ['Logo.js', 'Otto.js'].map(f => fs.readFileSync(require('path').join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
+    const brandJsLocal = ['Logo.js', 'Nova.js'].map(f => fs.readFileSync(require('path').join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
     const dom = new JSDOM(htmlLocal, { url: pageBase + '/', runScripts: 'outside-only', pretendToBeVisual: true });
     const { window } = dom;
     const { document } = window;

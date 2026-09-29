@@ -16,7 +16,7 @@ const core = require('./lib/core');
 const leads = require('./lib/supabase-leads');
 const hubspot = require('./lib/hubspot');
 const voice = require('./lib/voice');
-const { handleVoice, clampVoiceMeta, rateLimitFor } = require('./lib/voice-api');
+const { handleVoice, clampVoiceMeta, rateLimitFor, logFallback } = require('./lib/voice-api');
 const anthropic = require('./lib/anthropic');
 const aiPipeline = require('./lib/ai-pipeline');
 const blueprintSchema = require('./lib/blueprint-schema');
@@ -190,7 +190,7 @@ function outboxPage(res) {
   const banner = hubEnabled
     ? '<p style="background:#ecfdf5;border:1px solid #6ee7b7;padding:10px;border-radius:8px">✅ HubSpot live push is <b>enabled</b> (HUBSPOT_ACCESS_TOKEN is set). New delivers create a real Contact + Deal. Mock entries below are from before the token was set or from failed pushes.</p>'
     : '<p style="background:#fffbeb;border:1px solid #fcd34d;padding:10px;border-radius:8px">⚠️ HubSpot live push is <b>disabled</b> (no HUBSPOT_ACCESS_TOKEN). Deliveries are logged as <code>[hubspot-mock]</code> and shown here only. Set HUBSPOT_ACCESS_TOKEN and restart to go live.</p>';
-  const html = '<!doctype html><meta charset="utf-8"><title>HubSpot outbox (dev)</title><style>body{font:14px/1.5 system-ui;background:#f6f7f9;margin:0;padding:24px}h1{font-size:18px}table{border-collapse:collapse;background:#fff;width:100%;max-width:1100px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}pre{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;max-width:1100px}</style><h1>HubSpot lead outbox (local dev)</h1>' + banner + '<p>Every deliver step pushes a lead here and to the console. On Netlify the same payload is logged to the function logs. The <b>voice_call</b> block records how the discovery call was run (provider, models, turns, and whether the three required fields were still missing when the call ended). When live, the HubSpot contact ID replaces the mock ID.</p><table><tr><th>#</th><th>Email</th><th>HubSpot ID</th><th>Industry</th><th>Discovery call</th><th>PDF emailed</th><th>Pushed at</th></tr>' + rows + '</table><h2>Raw payloads</h2><pre>' + escHtml(JSON.stringify(hubSpotOutbox, null, 2)) + '</pre>';
+  const html = '<!doctype html><meta charset="utf-8"><title>HubSpot outbox (dev)</title><style>body{font:14px/1.5 system-ui;background:#f6f7f9;margin:0;padding:24px}h1{font-size:18px}table{border-collapse:collapse;background:#fff;width:100%;max-width:1100px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}pre{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;max-width:1100px}</style><h1>HubSpot lead outbox (local dev)</h1>' + banner + '<p>Every deliver step pushes a lead here and to the console. On Netlify the same payload is logged to the function logs. The <b>voice_call</b> block records how the discovery call was run (provider, models, turns, caller-finish-to-Nova latency aggregates, and whether the three required fields were still missing when the call ended). When live, the HubSpot contact ID replaces the mock ID.</p><table><tr><th>#</th><th>Email</th><th>HubSpot ID</th><th>Industry</th><th>Discovery call</th><th>PDF emailed</th><th>Pushed at</th></tr>' + rows + '</table><h2>Raw payloads</h2><pre>' + escHtml(JSON.stringify(hubSpotOutbox, null, 2)) + '</pre>';
   res.writeHead(200, Object.assign({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders()));
   res.end(html);
 }
@@ -308,8 +308,10 @@ async function handleApi(req, res, url) {
     const perMinute = parseInt(process.env.VOICE_RATE_PER_MIN, 10) || rateLimitFor(sub);
     const rl = checkRateLimit('voice:' + sub + ':' + ip, perMinute, 60 * 1000);
     if (!rl.allowed) {
+      const fallbackReason = sub === 'realtime/connect' ? 'session-limit' : undefined;
+      if (fallbackReason) logFallback(fallbackReason, '', 'server-rate-limit');
       res.writeHead(429, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(rl.retryAfter) }, securityHeaders()));
-      return res.end(JSON.stringify({ error: 'Too many voice requests. Wait ' + rl.retryAfter + 's and try again.' }));
+      return res.end(JSON.stringify({ error: 'Too many voice requests. Wait ' + rl.retryAfter + 's and try again.', fallback_reason: fallbackReason }));
     }
     let body;
     try { body = await readBody(req, 8 * 1024 * 1024); }
@@ -339,7 +341,7 @@ async function handleApi(req, res, url) {
       await leads.saveSession(payload.lead_id, {
         status: status === 'discovery_completed' ? 'completed' : 'in_progress',
         answers: Array.isArray(authBody.answers) ? authBody.answers : undefined,
-        voice_metadata: authBody.voice_meta || undefined,
+        voice_metadata: clampVoiceMeta(authBody.voice_meta) || undefined,
         started_at: status === 'discovery_started' ? now : undefined,
         completed_at: status === 'discovery_completed' ? now : undefined
       }, { env: process.env });
