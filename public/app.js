@@ -1719,7 +1719,7 @@ function applyRealtimeState(st) {
   if (st.probes && typeof st.probes === 'object') v.probes = Object.assign({}, st.probes);
   if (Array.isArray(st.skipped)) v.skipped = st.skipped.slice();
   if (Array.isArray(st.voice_captures)) v.captures = st.voice_captures.slice(-60);
-  if (st.capture) v.capture = st.capture;
+  if (st.capture) { v.capture = st.capture; captureGen++; }
 }
 function quietRealtimeCaptureNote(out, job, failed) {
   const v = voiceSync();
@@ -1960,7 +1960,8 @@ function buildTurnBody(lastAnswer) {
    be played inside the click that starts the call (browsers only allow sound from that gesture). */
 function applyTurn(res) {
   const v = voiceSync();
-  v.callTicket = res.call_ticket; v.turns = res.turn; v.capture = res.capture;
+  v.callTicket = res.call_ticket; v.turns = res.turn;
+  v.capture = res.capture; captureGen++;
   v.warnings = res.warnings || [];
   v.provider = res.provider; v.mode = res.mode;
   if (Array.isArray(res.voice_captures)) v.captures = res.voice_captures;
@@ -2129,7 +2130,7 @@ function finishCall() {
   cleanupRealtime();
   if (!wasLive) { startExtraction(); return; }
   sendRealtimeEnd(v, false).then(j => {
-    if (j && j.capture) v.capture = j.capture;
+    if (j && j.capture) { v.capture = j.capture; captureGen++; }
     if (j && Array.isArray(j.voice_captures)) v.captures = j.voice_captures;
     if (j && j.provider) { v.provider = j.provider; v.mode = j.mode; }
     startExtraction();
@@ -2663,7 +2664,10 @@ function callSidebar() {
   const labels = (v.cfg && v.cfg.field_labels) || FIELD_LABELS;
   const status = (v.capture && v.capture.status) || {};
   const fields = (v.capture && v.capture.fields) || {};
-  const missingReq = (v.capture && v.capture.missingRequired) || (v.startedAt ? REQUIRED : []);
+  /* Until a capture state exists, nothing is known to be captured: the card lists the required
+     figures as pending rather than claiming they were captured (which a reload used to do, even
+     with the answers that feed them sitting right there). */
+  const missingReq = v.capture ? v.capture.missingRequired : REQUIRED;
   const heard = (v.capture && v.capture.heard) || {};
   const chips = Object.keys(FIELD_LABELS).map(k => {
     const st = status[k] || 'pending';
@@ -2872,11 +2876,24 @@ function afterCallRender() {
 }
 
 /* ---------------- capture status and hand-off to Function A ---------------- */
+/* Extract responses are tagged and dropped when they are no longer the latest: a live call can
+   have several in flight, and an older response landing after a newer one would roll the captured
+   signals panel backwards (values flipping back to "not yet" mid-call). `captureGen` counts every
+   capture state the call itself writes, so an extract computed before the latest turn or tool
+   result can never overwrite it. */
+let fieldStatusSeq = 0;
+let captureGen = 0;
 async function refreshFieldStatus() {
   const v = voiceSync();
   if (!state.answers.length) return;
+  const seq = ++fieldStatusSeq;
+  const gen = captureGen;
+  const answersSnapshot = state.answers;
   try {
-    const j = await api.post('/api/extract', { answers: state.answers });
+    const j = await api.post('/api/extract', { answers: answersSnapshot });
+    // The answers moved on (a later turn, a live tool result, or a newer refresh) while this
+    // extract was in flight: what it computed is older than what the panel already shows.
+    if (seq !== fieldStatusSeq || gen !== captureGen || answersSnapshot !== state.answers) return;
     const f = j.fields;
     const st = {};
     Object.keys(FIELD_LABELS).forEach(k => {
@@ -2896,7 +2913,9 @@ async function refreshFieldStatus() {
     state.fieldError = null;
     render();
   } catch (e) {
-    // Keep the hardening intent: a failed live preview is surfaced, not swallowed.
+    // Keep the hardening intent: a failed live preview is surfaced, not swallowed. A stale
+    // failure must not overwrite the note from a newer refresh either.
+    if (seq !== fieldStatusSeq) return;
     state.fieldError = 'Could not update the live capture list: ' + e.message;
   }
 }
@@ -2938,6 +2957,11 @@ async function startExtraction() {
       ' captured=' + v.capture.filledCount + '/' + v.capture.totalCount +
       ' missing_required=' + JSON.stringify(v.capture.missingRequired || []) + ' audio_retained=false');
   }
+  await continueExtraction();
+}
+/* The structuring pass itself (Function A), split out from startExtraction so a reload that lands
+   on the "Structuring your signals" loader can pick the pass back up instead of hanging there. */
+async function continueExtraction() {
   state.stage = 'extracting';
   // Real state only: the loader reflects the in-flight request, never a timed animation.
   state.progress = { label: 'Structuring your answers', percent: null };
@@ -2951,6 +2975,53 @@ async function startExtraction() {
     state.stage = 'intake';
     render();
     toast(e.message, true);
+    // The answers themselves are still here: rebuild the live capture list from them, so the
+    // visitor sees everything already captured instead of an empty panel.
+    refreshFieldStatus();
+  }
+}
+/* Re-attach to a blueprint job after a reload: the job record still holds the finished document,
+   so the loader resumes on real server progress and the blueprint pops in when it is read. */
+async function resumeGeneration(jobId, thenStage) {
+  state.progress = state.progress || { label: 'Working', percent: null };
+  state.stage = 'generating';
+  render();
+  try {
+    const bp = await pollGeneration(jobId);
+    state.blueprint = bp.blueprint;
+    state.blueprintSource = bp.source || null;
+    if (bp.fields) state.fields = bp.fields;
+    state.stage = (thenStage === 'booking' || thenStage === 'done') ? thenStage : 'blueprint';
+    state.progress = null;
+    render();
+  } catch (e) {
+    state.progress = null;
+    state.stage = state.fields ? 'review' : 'consent';
+    render();
+    toast(e.message, true);
+  }
+}
+/* A reload mid-journey must come back with what was already captured. The saved answers are the
+   record of the call so far: topics already answered are not asked again (and their text is never
+   appended twice), the captured-signals panel is rebuilt from them, and a structuring pass that the
+   reload interrupted is continued rather than abandoned on its loader. */
+function resumeJourneyAfterReload() {
+  const v = voiceSync();
+  if (state.answers.length) {
+    const answered = state.answers.filter(a => String(a.text || '').trim()).map(a => a.id);
+    if (answered.length && !v.asked.length) v.asked = answered;
+  }
+  if (state.stage === 'intake') { refreshFieldStatus(); return; }
+  if (state.stage === 'extracting') { continueExtraction(); return; }
+  if (state.stage === 'review' && !state.fields && state.answers.length) { continueExtraction(); return; }
+  const needsBlueprint = state.stage === 'generating' || state.stage === 'blueprint' ||
+    state.stage === 'booking' || state.stage === 'done';
+  if (needsBlueprint && !state.blueprint) {
+    if (state.jobId) { resumeGeneration(state.jobId, state.stage); return; }
+    // Nothing left to rebuild the document from: back to the last screen that still has its data.
+    state.progress = null;
+    state.stage = state.fields ? 'review' : (state.answers.length ? 'intake' : 'consent');
+    render();
   }
 }
 
@@ -4246,6 +4317,8 @@ function boot() {
     const restored = restoreJourneyState();
     if (!restored) {
       state.stage = 'consent';
+    } else {
+      resumeJourneyAfterReload();
     }
   }
   render();

@@ -739,6 +739,49 @@ async function reachCall(page, details) {
   ok(!!p8.document.querySelector('#consent-go'), 'unknown stage falls back to consent, never empty');
   ok(p8.errors.length === 0, 'no runtime errors on unknown stage fallback');
 
+  // A reload mid-call must not blank the captured-signals panel. The answers survive in the
+  // journey state, so the panel is rebuilt from them, and the required-figures card never claims
+  // figures that were not captured.
+  const journeyIntake = JSON.stringify({
+    stage: 'intake',
+    answers: [
+      { id: 'business', text: 'We install residential and commercial solar systems for homeowners and small businesses in Ilocos.' },
+      { id: 'products', text: 'Residential install at 1,200,000 pesos' },
+      { id: 'deal', text: 'About 1,500,000 a deal, and three reps take calls' }
+    ],
+    fields: null, jobId: null
+  });
+  const p9 = bootWithStorage(false, BASE, { ps_token: testToken, ps_user: JSON.stringify({ name: 'Reload Test', email: 'reload@test.com' }) }, { ps_journey: journeyIntake });
+  await new Promise(r => setTimeout(r, 900));
+  ok(p9.document.querySelectorAll('.side-chip.filled').length >= 5,
+    'a reload mid-call rebuilds the captured-signals panel from the saved answers (' +
+    p9.document.querySelectorAll('.side-chip.filled').length + ' fields)');
+  ok(/Needed for blueprint/.test(p9.document.body.textContent),
+    'the required-figures card still lists what is pending after a reload');
+  ok(!/Required numbers captured/.test(p9.document.body.textContent),
+    'the panel never claims required figures it does not have');
+  ok(p9.errors.length === 0, 'no runtime errors on mid-call reload' + (p9.errors.length ? ': ' + p9.errors[0] : ''));
+
+  // A reload while the "Structuring your signals" pass is in flight must pick that pass back up
+  // instead of hanging on the loader forever.
+  const journeyExtracting = JSON.stringify({
+    stage: 'extracting',
+    answers: [
+      { id: 'business', text: 'We install residential and commercial solar systems for homeowners and small businesses in Ilocos.' },
+      { id: 'deal', text: 'About 1,500,000 a deal, and three reps take calls' },
+      { id: 'volumes', text: '55 leads a month, I close 12, so about 22 percent, and three weeks from first call to signed' }
+    ],
+    fields: null, jobId: null
+  });
+  const p10 = bootWithStorage(false, BASE, { ps_token: testToken, ps_user: JSON.stringify({ name: 'Reload Test', email: 'reload@test.com' }) }, { ps_journey: journeyExtracting });
+  for (let i = 0; i < 50 && !p10.document.querySelector('#confirm-fields'); i++) await new Promise(r => setTimeout(r, 100));
+  ok(!!p10.document.querySelector('#confirm-fields'),
+    'a reload during the structuring pass finishes it and renders the review screen');
+  ok(!p10.document.querySelector('.loader'), 'the structuring loader does not hang after a reload');
+  const volInput = p10.document.querySelector('[data-key="monthly_lead_volume"]');
+  ok(!!volInput && String(volInput.value) === '55', 'the review screen is populated from the saved answers');
+  ok(p10.errors.length === 0, 'no runtime errors on extraction reload' + (p10.errors.length ? ': ' + p10.errors[0] : ''));
+
   console.log('\n' + (failures === 0 ? 'UI SMOKE TEST PASSED' : failures + ' UI FAILURES'));
   process.exit(failures === 0 ? 0 : 1);
 })().catch(e => { console.error('UI smoke error:', e); process.exit(1); });
