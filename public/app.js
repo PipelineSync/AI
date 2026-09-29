@@ -776,6 +776,7 @@ function listenBrowser(attemptId) {
     try { rec.start(); }
     catch (e) { return failMic(); }
     v.listening = true;
+    render(); // the main call UI labels the override "Stop and send" only once listening is active
     noSpeechTimer = setTimeout(() => {
       if (transcript()) finish(transcript());
       else finish('');
@@ -852,6 +853,7 @@ function listenOpenAI(attemptId) {
         v.stopListening = cancel;
         v.finishListening = finish;
         v.listening = true;
+        render(); // keep the main call UI's stop/send control in sync with the live recorder
         const AC = window.AudioContext || window.webkitAudioContext;
         if (AC) {
           try {

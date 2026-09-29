@@ -100,7 +100,9 @@ function boot(withMic, baseOverride, opts) {
           setTimeout(() => { if (self.onerror) self.onerror({ error: 'no-speech' }); if (self.onend) self.onend(); }, 2);
           return;
         }
-        setTimeout(() => { if (self.onresult) self.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: answerNow() + ' ' }], { isFinal: true })] }); setTimeout(() => { if (self.onend) self.onend(); }, 20); }, 30);
+        const resultDelay = Number.isFinite(Number(opts.recognitionDelayMs))
+          ? Math.max(0, Number(opts.recognitionDelayMs)) : 30;
+        setTimeout(() => { if (self.onresult) self.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: answerNow() + ' ' }], { isFinal: true })] }); setTimeout(() => { if (self.onend) self.onend(); }, 20); }, resultDelay);
       }
       stop() { if (this.onend) this.onend(); }
     };
@@ -290,6 +292,33 @@ async function reachCall(page, details) {
   ok(p1.spoken.length >= 12, 'the AI spoke every question (' + p1.spoken.length + ' lines)');
   ok(p1.recognitionStarts() >= 12, 'step-by-step speech automatically starts another microphone listen without a tap');
   ok(d1.querySelectorAll('.bubble.user').length >= 12, 'the transcript holds the spoken answers');
+  console.log('\nScenario 1b: Stop and send submits the live utterance');
+  const pStop = boot(true, null, {
+    recognitionDelayMs: 120,
+    timing: { silenceMs: 700, noSpeechMs: 1200, maxListenMs: 1800, recognitionRestartMs: 1000 }
+  });
+  await reachCall(pStop, { name: 'Sam Cruz', email: 'sam-stop@example.ph' });
+  const dStop = pStop.document;
+  const firstAnswer = SOLAR.business;
+  let answerVisible = false;
+  for (let i = 0; i < 80 && !answerVisible; i++) {
+    answerVisible = (dStop.querySelector('#you-line') || {}).textContent === firstAnswer;
+    if (!answerVisible) await sleep(25);
+  }
+  ok(answerVisible, 'the active listener shows the answer before the visitor taps Stop and send');
+  const stopAndSend = dStop.querySelector('#mic-btn');
+  ok(!!stopAndSend && /Stop and send/.test(stopAndSend.textContent), 'the hands-free call offers Stop and send while listening');
+  pStop.window.__askOnce = 'Can we stop here, please?';
+  if (stopAndSend) stopAndSend.click();
+  let stopCallEnded = false;
+  for (let i = 0; i < 120 && !stopCallEnded; i++) {
+    stopCallEnded = !!dStop.querySelector('#structure-btn');
+    if (!stopCallEnded) await sleep(25);
+  }
+  const stoppedState = pStop.window.__PS_VOICE_STATE__();
+  ok(stopCallEnded && stoppedState.done && stoppedState.stopped, 'Stop and send submits the current answer; the next spoken stop ends the call');
+  ok(stoppedState.answers.some(a => a.id === 'business' && a.text === firstAnswer), 'Stop and send preserves the answer in captured fields');
+  ok(!stoppedState.answers.some(a => /Can we stop here/.test(a.text)), 'the later stop instruction is never stored as an answer');
   ok(d1.querySelectorAll('.bubble.ai').length >= 12, 'the transcript holds the AI lines');
   const details = d1.querySelector('#transcript-wrap');
   ok(!!details && !details.open, 'the transcript stays collapsed: the call is voice, not chat');
