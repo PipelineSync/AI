@@ -47,11 +47,11 @@ ok(/body\.entry-screen \.gate\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh
 ok(/classList\.toggle\(['"]entry-screen['"]/.test(appJs),
   'the one-screen lock is scoped to the entry instead of trapping long blueprint content');
 
-/* The brand components (the logo and Otto) render markup into the same screens, so they are part
+/* The brand components (the logo and Nova) render markup into the same screens, so they are part
    of the check. Their animation classes ship inside the components' own inline <style> (the brand
    sheet specifies the components as written), so a class is covered if the stylesheet has a rule
    for it or the component's own CSS defines it. */
-const brandSrcs = ['Logo.js', 'Otto.js'].map(f =>
+const brandSrcs = ['Logo.js', 'Nova.js'].map(f =>
   fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 const brandCss = brandSrcs.join('\n');
 const sources = [appJs].concat(brandSrcs);
@@ -162,7 +162,7 @@ section('the brand mark is never bare on a dark surface');
    Anything else - a light mark on a dark surface - is what this check exists to stop. */
 ok(!/function logoMark\(/.test(appJs), 'the old inline logoMark() is gone: the brand component draws the mark');
 const lightMarks = (appJs.match(/LogoMark\(\{[^}]*variant:\s*'light'[^}]*\}\)/g) || []);
-const platedLight = lightMarks.filter(c => /logoTile|ottoSplashHtml|Splash/.test(appJs.slice(Math.max(0, appJs.indexOf(c) - 400), appJs.indexOf(c))));
+const platedLight = lightMarks.filter(c => /logoTile|novaSplashHtml|Splash/.test(appJs.slice(Math.max(0, appJs.indexOf(c) - 400), appJs.indexOf(c))));
 ok(lightMarks.length > 0 && platedLight.length === lightMarks.length,
   'every light-variant mark is inside a light plate or the splash card (' + platedLight.length + '/' + lightMarks.length + ')');
 ok(/LogoMark\(\{ variant: 'dark', size: 24 \}\)/.test(appJs), 'the call orb carries the dark variant, not the light one');
@@ -194,13 +194,13 @@ ok(manifest.theme_color === '#0A0E17' && manifest.background_color === '#0A0E17'
 ok(manifest.icons.some(i => /512/.test(i.sizes)), 'the manifest carries the 512px app icon');
 
 /* ------------------------------------------------------------------ */
-section('the brand components and Otto');
+section('the brand components and Nova');
 
 /* The components are the brand sheet's React components ported to this no-build layer, so the file
    that ships them is checked here: the six poses, the two views, the unchanged SVG markup and the
    rules that must not drift. */
 const logoJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Logo.js'), 'utf8');
-const ottoJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Otto.js'), 'utf8');
+const novaJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Nova.js'), 'utf8');
 
 ok(/viewBox="20 20 440 590"/.test(logoJs) && /stroke-width="55"/.test(logoJs) && /<rect[^>]*fill="#FF7A1A"/.test(logoJs),
   'Logo.js keeps the brand sheet geometry (the 440x590 mark, 55px strokes, the orange dot)');
@@ -210,54 +210,54 @@ ok(/role="img" aria-label="PipelineSync AI"/.test(logoJs), 'the logo svg keeps r
 ok(/@media \(prefers-reduced-motion:reduce\)/.test(logoJs), 'the animated mark honours reduced motion');
 
 for (const pose of ['sync', 'hello', 'listen', 'speak', 'think', 'party']) {
-  ok(new RegExp(pose + ':\\s*\\{').test(ottoJs), 'Otto.js defines the "' + pose + '" pose');
+  ok(new RegExp(pose + ':\\s*\\{').test(novaJs), 'Nova.js defines the "' + pose + '" pose');
 }
-ok(/'\+ \(avatar \? '66 36 168 168' : '0 0 300 300'\) \+'|avatar \? '66 36 168 168' : '0 0 300 300'/.test(ottoJs),
-  'Otto keeps both view boxes (the full figure and the head-only avatar crop)');
-/* Otto is transparent artwork: nothing may paint behind him, or the app's own surface (dark, light
+ok(/'\+ \(avatar \? '66 36 168 168' : '0 0 300 300'\) \+'|avatar \? '66 36 168 168' : '0 0 300 300'/.test(novaJs),
+  'Nova keeps both view boxes (the full figure and the head-only avatar crop)');
+/* Nova is transparent artwork: nothing may paint behind him, or the app's own surface (dark, light
    or an export) stops showing through. */
-ok(!/<circle cx="150" cy="120" r="84"/.test(ottoJs) && !/background:' \+ MIST/.test(ottoJs),
+ok(!/<circle cx="150" cy="120" r="84"/.test(novaJs) && !/background:' \+ MIST/.test(novaJs),
   'the avatar draws no circle or plate behind the head');
-ok(!/ellipse cx="150" cy="286"/.test(ottoJs), 'the full figure draws no ground shadow');
-ok(/role="img" aria-label="/.test(ottoJs), 'Otto keeps role=img and his aria-label');
-ok(/@media \(prefers-reduced-motion:reduce\)\{\[class\^="otto-"\]/.test(ottoJs), "Otto's animation CSS honours reduced motion");
-ok(/#0C2B5E/.test(ottoJs) && /#3E6892/.test(ottoJs) && /#FF7A1A/.test(ottoJs) && /#8FB0D0/.test(ottoJs) && /#E8EFF7/.test(ottoJs),
-  "Otto's palette is the brand palette and nothing else");
+ok(!/ellipse cx="150" cy="286"/.test(novaJs), 'the full figure draws no ground shadow');
+ok(/role="img" aria-label="/.test(novaJs), 'Nova keeps role=img and his aria-label');
+ok(/@media \(prefers-reduced-motion:reduce\)\{\[class\^="nova-"\]/.test(novaJs), "Nova's animation CSS honours reduced motion");
+ok(/#0C2B5E/.test(novaJs) && /#3E6892/.test(novaJs) && /#FF7A1A/.test(novaJs) && /#8FB0D0/.test(novaJs) && /#E8EFF7/.test(novaJs),
+  "Nova's palette is the brand palette and nothing else");
 
 /* Rules from the brand sheet, asserted on the real rendering code. */
-ok(/window.innerWidth[\s\S]{0,80}< 420 \? 104/.test(appJs.slice(appJs.indexOf('function ottoLiveSize'), appJs.indexOf('function ottoLiveSize') + 300)),
+ok(/window.innerWidth[\s\S]{0,80}< 420 \? 104/.test(appJs.slice(appJs.indexOf('function novaLiveSize'), appJs.indexOf('function novaLiveSize') + 300)),
   'the live avatar never drops below 96px on a small phone');
-const poseFn = appJs.slice(appJs.indexOf('function ottoPoseNow'), appJs.indexOf('function ottoPoseNow') + 900);
+const poseFn = appJs.slice(appJs.indexOf('function novaPoseNow'), appJs.indexOf('function novaPoseNow') + 900);
 ok(/status === 'speaking'[\s\S]*?'speak'/.test(poseFn) && /v.listening[\s\S]*?'listen'/.test(poseFn) && /'thinking'[\s\S]*?'think'/.test(poseFn) && /'blueprint'[\s\S]*?'party'/.test(poseFn),
   'the pose follows the real state: speaking, listening, thinking, celebrating');
 ok(/stage === 'extracting'|stage === 'generating'/.test(poseFn), 'the loader states think too');
-ok(/\.otto-live-fig \{ flex: 0 0 auto/.test(css) && /\.otto-party-fig \{ flex: 0 0 auto/.test(css) && /\.otto-hello-fig \{ flex: 0 0 auto/.test(css),
-  "Otto's figures reserve their space, so a pose change cannot shift the layout");
-const figCardRule = (css.match(/\.otto-fig-card \{[^}]*\}/) || [''])[0];
+ok(/\.nova-live-fig \{ flex: 0 0 auto/.test(css) && /\.nova-party-fig \{ flex: 0 0 auto/.test(css) && /\.nova-hello-fig \{ flex: 0 0 auto/.test(css),
+  "Nova's figures reserve their space, so a pose change cannot shift the layout");
+const figCardRule = (css.match(/\.nova-fig-card \{[^}]*\}/) || [''])[0];
 ok(figCardRule && !/background/.test(figCardRule) && !/box-shadow/.test(figCardRule),
-  "Otto's sizing wrapper paints nothing, so the app's surface stays behind him");
-ok(/\.otto-ringing > span \{ animation: ottoRing/.test(css) && /box-shadow: 0 0 0 3px var\(--sync-orange\)/.test(css),
+  "Nova's sizing wrapper paints nothing, so the app's surface stays behind him");
+ok(/\.nova-ringing > span \{ animation: novaRing/.test(css) && /box-shadow: 0 0 0 3px var\(--sync-orange\)/.test(css),
   'the active-speaker ring is the brand orange');
-ok(/\.otto-wave-bar \{[^}]*linear-gradient\(180deg, var\(--sky\) 0%, var\(--sync-orange\) 100%\)/.test(css),
+ok(/\.nova-wave-bar \{[^}]*linear-gradient\(180deg, var\(--sky\) 0%, var\(--sync-orange\) 100%\)/.test(css),
   'the waveform is the #8FB0D0 -> #FF7A1A gradient');
-ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,200}\.otto-wave-bar \{ animation: none/.test(css),
+ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,200}\.nova-wave-bar \{ animation: none/.test(css),
   'the waveform stops under reduced motion');
-ok(/ottoWaveHtml\('otto-wave'\)/.test(appJs) && /<div class="otto-wave"/.test(appJs),
+ok(/novaWaveHtml\('nova-wave'\)/.test(appJs) && /<div class="nova-wave"/.test(appJs),
   'the waveform is rendered under the live question');
 
-/* Otto's copy: the five lines, exactly as the brand sheet words them. */
-ok(/const OTTO_COPY = window\.PSBrand\.OTTO_COPY;/.test(appJs), "the app reads Otto's copy from the brand component");
+/* Nova's copy: the five lines, exactly as the brand sheet words them. */
+ok(/const NOVA_COPY = window\.PSBrand\.NOVA_COPY;/.test(appJs), "the app reads Nova's copy from the brand component");
 for (const line of [
-  "Hi, I'm Otto. Let's map how your deals actually move.",
+  "Hi, I'm Nova. Let's map how your deals actually move.",
   "Take your time. I'm connecting the dots as you talk.",
   "One sec, I'm linking your pipeline stages together.",
   "Your blueprint's ready. Eight arms, zero loose ends.",
   "Hmm, I lost that thread. Mind saying it again?"
 ]) {
-  ok(ottoJs.indexOf(JSON.stringify(line).slice(1, -1)) >= 0, 'Otto says: ' + line.slice(0, 42) + '...');
+  ok(novaJs.indexOf(JSON.stringify(line).slice(1, -1)) >= 0, 'Nova says: ' + line.slice(0, 42) + '...');
 }
 ok(!/\bAlex\b/.test(appJs), 'the UI no longer calls the interviewer Alex');
-ok(/<b>Otto<\/b>/.test(appJs) && /id="call-progress"/.test(appJs), 'the call screen names Otto and tracks question progress');
+ok(/<b>Nova<\/b>/.test(appJs) && /id="call-progress"/.test(appJs), 'the call screen names Nova and tracks question progress');
 
 /* ------------------------------------------------------------------ */
 section('touch targets on phones');

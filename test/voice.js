@@ -159,9 +159,9 @@ function noKeyTests() {
   ok(cfg.provider === 'simulated' && cfg.mode === 'simulated', 'simulated mode when the key is missing');
   ok(/OPENAI_API_KEY/.test(cfg.why), 'the reason names the missing key');
   const said = voice.simulatedSay({ step: voice.nextStep({ answers: [], asked: [], probes: {} }), asked: [], lastAnswer: null });
-  ok(/^Hi, I'm Otto, an AI from PipelineSync\./.test(said) && /five to ten minutes/.test(said) && /skip anything/.test(said), 'the simulated opening identifies Otto and sets the call length and skip option');
+  ok(/^Hi, I'm Nova, an AI from PipelineSync\./.test(said) && /five to ten minutes/.test(said) && /skip anything/.test(said), 'the simulated opening identifies Nova and sets the call length and skip option');
   const namedOpening = voice.simulatedSay({ step: voice.nextStep({ answers: [], asked: [], probes: {} }), asked: [], lastAnswer: null, clientName: 'Maria Santos' });
-  ok(/^Hi Maria, I'm Otto, an AI from PipelineSync\./.test(namedOpening) && (namedOpening.match(/\?/g) || []).length === 1 && (namedOpening.match(/[.!?](?:\s|$)/g) || []).length === 3 && !namedOpening.includes('—'), "the opening uses the caller's name, stays within two statements plus one question, and has no em dash");
+  ok(/^Hi Maria, I'm Nova, an AI from PipelineSync\./.test(namedOpening) && (namedOpening.match(/\?/g) || []).length === 1 && (namedOpening.match(/[.!?](?:\s|$)/g) || []).length === 3 && !namedOpening.includes('—'), "the opening uses the caller's name, stays within two statements plus one question, and has no em dash");
 
   const forced = voice.mode({ OPENAI_API_KEY: 'sk-x', VOICE_PROVIDER: 'simulated' });
   ok(forced.mode === 'simulated', 'VOICE_PROVIDER=simulated forces the built-in interviewer even with a key');
@@ -183,7 +183,7 @@ async function builtinInteractiveTests() {
   });
   ok(/free/i.test(turn.say) && turn.deferred === true, 'the built-in engine answers the lead');
   ok(turn.ask.id === 'products' && turn.ask.kind === 'deferred', 'the question it did not reach stays pending, not spent');
-  ok(!/^Hi(?: \w+)?, I'm Otto/i.test(turn.say), 'the FAQ answer is spoken first without restarting the opening greeting');
+  ok(!/^Hi(?: \w+)?, I'm Nova/i.test(turn.say), 'the FAQ answer is spoken first without restarting the opening greeting');
 
   const counted = await voice.runTurn({
     env: {}, email: 'owner@example.com',
@@ -286,11 +286,11 @@ async function interactiveTests() {
   const promptsSrc = fs.readFileSync(require.resolve('../lib/prompts.js'), 'utf8');
   const openingStep = voice.nextStep({ answers: [], asked: [], probes: {} });
   const openingMessages = voice.buildMessages({ step: openingStep, asked: [], answers: [], transcript: [], lastAnswer: null, capture: voice.captureState([], []), clientName: 'Maria Santos' });
-  ok(/Hi <name>, I'm Otto, an AI from PipelineSync/.test(openingMessages[0].content) && /"caller_first_name":"Maria"/.test(openingMessages[1].content), "the opening prompt introduces Otto as an AI and supplies the caller's first name");
+  ok(/Hi <name>, I'm Nova, an AI from PipelineSync/.test(openingMessages[0].content) && /"caller_first_name":"Maria"/.test(openingMessages[1].content), "the opening prompt introduces Nova as an AI and supplies the caller's first name");
   ok(!/\b(?:hi|hello)\b/i.test(voice.INTAKE_PLAN[0].ask) && !/last one/i.test(voice.INTAKE_PLAN.find(q => q.id === 'goal').ask), 'the business topic has no greeting and the goal has no last-question lead-in');
-  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Otto on both voice paths');
-  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Otto');
-  ok(/Say you're Otto, an AI from PipelineSync/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE), "the realtime opening instruction states Otto\'s PipelineSync and AI identity");
+  ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Nova on both voice paths');
+  ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Nova');
+  ok(/Say you're Nova, an AI from PipelineSync/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE), "the realtime opening instruction states Nova\'s PipelineSync and AI identity");
   ok(!/\bAlex\b/.test(voiceSrc) && !/\bAlex\b/.test(promptsSrc), 'the interviewer is never called anything else in the voice layer');
 
   const schema = voice.turnSchema().schema;
@@ -320,7 +320,7 @@ function clampTests() {
     pipeline: { label: 'Example pipeline' }, kbReferences: []
   }, meta);
   ok(lead.voice_call.fallback_reason === 'empty-transcription', 'the lead exposes the reason as voice_call.fallback_reason');
-  ok(lead.voice_call.median_ms === 421 && lead.voice_call.p90_ms === 811 && lead.voice_call.turns_measured === 9, 'the lead exposes caller-to-Otto latency aggregates in voice_call');
+  ok(lead.voice_call.median_ms === 421 && lead.voice_call.p90_ms === 811 && lead.voice_call.turns_measured === 9, 'the lead exposes caller-to-Nova latency aggregates in voice_call');
   ok(clampVoiceMeta(null) === null, 'empty metadata stays null');
 }
 

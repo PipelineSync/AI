@@ -185,16 +185,16 @@ function configTests() {
   ok(record.parameters.properties.answer_quality.enum.indexOf('off_topic') >= 0, 'the model can mark a turn as having nothing to do with the question');
 
   const instructions = cfg.instructions;
-  ok(/You are Otto from PipelineSync, an AI/.test(instructions), 'the live session knows Otto is an AI from PipelineSync');
-  ok(/Say you're Otto, an AI from PipelineSync/.test(instructions), 'the opening line names Otto, PipelineSync, and his AI identity');
+  ok(/You are Nova from PipelineSync, an AI/.test(instructions), 'the live session knows Nova is an AI from PipelineSync');
+  ok(/Say you're Nova, an AI from PipelineSync/.test(instructions), 'the opening line names Nova, PipelineSync, and his AI identity');
   ok(/Use the caller's first name/i.test(instructions) && /at most two short statements plus one question/i.test(instructions), 'the Realtime opening uses the caller name and stays within the requested shape');
   ok(!/\bAlex\b/.test(instructions), 'nothing in the live session instructions still calls him Alex');
   ok(/live phone call/i.test(instructions) && /Ask one clear, natural question at a time/.test(instructions), 'the instructions set a natural continuous phone-call style');
   ok(/When a topic has several facts, ask for one at a time and follow up after they answer/.test(instructions), 'multi-part topics are handled with one spoken question at a time');
   ok(/natural contractions every time you speak/i.test(instructions) && /No lists, bullets, markdown, emojis, or em dashes/.test(instructions), 'Realtime speech uses natural contractions and retains the no-em-dash rule');
   ok(/count topics in the latest live state/i.test(instructions) && /topics remaining right now \(\d+\)/i.test(instructions), 'the FAQ count is grounded in live remaining-topic state');
-  ok(/narration of your tools or internal work/i.test(instructions), "the instructions keep tool and validation work out of Otto\'s spoken turns");
-  ok(/LET THE CALLER LEAD WHEN THEY HAVE A QUESTION/.test(instructions), 'the instructions make Otto answer the lead before anything else');
+  ok(/narration of your tools or internal work/i.test(instructions), "the instructions keep tool and validation work out of Nova\'s spoken turns");
+  ok(/LET THE CALLER LEAD WHEN THEY HAVE A QUESTION/.test(instructions), 'the instructions make Nova answer the lead before anything else');
   ok(/If the whole turn is about their question, answer and stop/.test(instructions), 'an all-answer turn is allowed, so the lead is never rushed');
   ok(/If they say stop, have to go, or that is all for now/.test(instructions), 'the instructions carry the stop rule');
   ok(/Never negotiate, ask for one more answer, or sound disappointed/i.test(instructions), 'a stop is not negotiated or mourned');
@@ -202,11 +202,11 @@ function configTests() {
   const endTool = cfg.tools.find(t => t.name === 'end_call');
   ok(endTool.parameters.properties.reason.enum.indexOf('lead_asked_to_stop') >= 0, 'end_call can say the lead asked to stop');
   ok(/lead_asked_to_stop/.test(instructions), 'the model is told to use that reason when the lead stops');
-  ok(/what does it cost/i.test(instructions) && /we don't quote prices on this call/i.test(instructions), "the price FAQ keeps the no-quote rule in Otto's own words");
+  ok(/what does it cost/i.test(instructions) && /we don't quote prices on this call/i.test(instructions), "the price FAQ keeps the no-quote rule in Nova's own words");
   ok(/are you a real person/i.test(instructions) && /I'm an AI interviewer/i.test(instructions), 'the AI disclosure remains in the FAQ facts');
   ok(voice.INTAKE_PLAN.every(q => instructions.indexOf(q.id) >= 0 && q.examples.every(example => instructions.indexOf(example) >= 0)), 'all twelve topics and their single-fact examples are in the session instructions');
   ok(!voice.INTAKE_PLAN.some(q => q.hint && instructions.indexOf(q.hint) >= 0), 'no on-screen example figures are in the instructions, so they can never be captured as the lead\'s');
-  ok(/There can be several record_answer calls from one caller turn/.test(instructions), 'one turn can record several topics before Otto responds');
+  ok(/There can be several record_answer calls from one caller turn/.test(instructions), 'one turn can record several topics before Nova responds');
   ok(/THE TWELVE TOPICS — A COVERAGE MENU, NOT A REQUIRED ORDER/.test(instructions) && /whichever order fits/.test(instructions), 'topic order follows the caller rather than a fixed script');
   ok(/Taglish/.test(instructions) && /answer them in clear, simple English/.test(instructions), 'Taglish answers are met with clear English');
   ok(/At about eight seconds/.test(instructions) && /At about twenty seconds/.test(instructions) && /Silence by itself is not a reason to end/.test(instructions), 'silence gets a gentle check-in and skip offer without an early hang-up');
@@ -512,10 +512,10 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-/* index.html loads the brand components (the logo and Otto) before app.js. jsdom does not run the
+/* index.html loads the brand components (the logo and Nova) before app.js. jsdom does not run the
    document's own scripts, so they are evaluated here in the same order: without them app.js has no
    markup for the logo or the mascot. */
-const brandJs = ['Logo.js', 'Otto.js'].map(f =>
+const brandJs = ['Logo.js', 'Nova.js'].map(f =>
   fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 
 /* opts.hold          the fake model asks its question and then waits, so the call stays live and the
@@ -831,7 +831,7 @@ async function browserTests(token) {
   ok(Object.keys(questionCounts).filter(id => questionCounts[id] > 1).every(id => page.answerCalls.some(call => call.question_id === id && call.answer_quality === 'off_topic')), 'a topic is not asked again after capture; the only retry follows an uncaptured off-topic turn');
   const answeredAt = id => page.timeline.findIndex(event => event.type === 'answer' && event.question_id === id && event.answer_quality !== 'off_topic');
   ok(coveredTopics.every(id => { const at = answeredAt(id); return at >= 0 && !page.timeline.slice(at + 1).some(event => event.type === 'question' && event.question_id === id); }), 'no already captured topic is asked again later in the call');
-  ok(page.nonblockingResumes() > 0, 'Otto asks the next question while server grounding validation is still pending');
+  ok(page.nonblockingResumes() > 0, 'Nova asks the next question while server grounding validation is still pending');
   ok(page.overlappingResponses() === 0, 'queued tool replies never create overlapping Realtime responses');
   ok(page.validation.completed === page.validation.started, 'all queued server validations finish before end_call closes the full-call test');
   ok(!!document.querySelector('#structure-btn'), 'the live call reached the end of the intake set');
@@ -908,21 +908,21 @@ async function controlsTests() {
   const audioEl = document.querySelector('audio');
   const outgoingBeforeInterrupt = page.sent.length;
   page.emit({ type: 'input_audio_buffer.speech_started', item_id: 'caller-interrupt' });
-  ok(audioEl && audioEl.muted === true, "caller speech immediately mutes Otto\'s local WebRTC audio");
+  ok(audioEl && audioEl.muted === true, "caller speech immediately mutes Nova\'s local WebRTC audio");
   ok(!page.sent.slice(outgoingBeforeInterrupt).some(event => event.type === 'conversation.item.truncate' || event.type === 'response.cancel'), 'the WebRTC client does not send WebSocket-only truncate/cancel events; the Realtime server owns interruption truncation');
   page.emit({ type: 'input_audio_buffer.speech_stopped', item_id: 'caller-interrupt' });
-  ok(audioEl && audioEl.muted === false, "Otto\'s audio unmutes when the caller finishes speaking");
+  ok(audioEl && audioEl.muted === false, "Nova\'s audio unmutes when the caller finishes speaking");
   page.emit({ type: 'response.output_audio.delta', delta: 'dGVzdA==' });
-  const latencyLine = page.latencyLogs.find(line => /caller-finish-to-otto-start_ms=\d+ target=<1000/.test(line)) || '';
+  const latencyLine = page.latencyLogs.find(line => /caller-finish-to-nova-start_ms=\d+ target=<1000/.test(line)) || '';
   const latencyMs = Number((latencyLine.match(/start_ms=(\d+)/) || [])[1]);
-  ok(Number.isFinite(latencyMs) && latencyMs < 1000, 'caller-finish-to-Otto-speech latency is logged against the under-one-second target (' + latencyMs + ' ms)');
+  ok(Number.isFinite(latencyMs) && latencyMs < 1000, 'caller-finish-to-Nova-speech latency is logged against the under-one-second target (' + latencyMs + ' ms)');
   for (let i = 0; i < 2; i++) {
     page.emit({ type: 'input_audio_buffer.speech_started', item_id: 'caller-latency-' + i });
     page.emit({ type: 'input_audio_buffer.speech_stopped', item_id: 'caller-latency-' + i });
     page.emit({ type: 'response.output_audio.delta', delta: 'dGVzdA==' });
   }
-  const latencySamples = page.latencyLogs.filter(line => /caller-finish-to-otto-start_ms=\d+ target=<1000/.test(line));
-  ok(latencySamples.length === 3, 'each caller-finish-to-first-Otto-audio hand-off is retained as its own sample');
+  const latencySamples = page.latencyLogs.filter(line => /caller-finish-to-nova-start_ms=\d+ target=<1000/.test(line));
+  ok(latencySamples.length === 3, 'each caller-finish-to-first-Nova-audio hand-off is retained as its own sample');
 
   /* ---- the orb waveform follows the visitor's real microphone ---- */
   ok(page.audio.contexts === 1, 'one AudioContext was opened for the level meter (' + page.audio.contexts + ')');

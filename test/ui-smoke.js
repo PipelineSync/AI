@@ -12,10 +12,10 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
   .replace(/<script src="app.js"><\/script>/, '');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-/* index.html loads the brand components (the logo and Otto) before app.js. jsdom does not run the
+/* index.html loads the brand components (the logo and Nova) before app.js. jsdom does not run the
    document's own scripts, so they are evaluated here in the same order: without them app.js has no
    markup for the logo or the mascot. */
-const brandJs = ['Logo.js', 'Otto.js'].map(f =>
+const brandJs = ['Logo.js', 'Nova.js'].map(f =>
   fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -146,10 +146,10 @@ async function passGate(page, details) {
   ok(!/\bLog in\b/.test(document.body.textContent), 'nothing on the gate says "Log in"');
   ok(/voice call/i.test(document.body.textContent), 'the gate says the next step is the AI voice call');
   ok(!!document.querySelector('#start-form button[type=submit]'), 'the gate has one submit action');
-  // Brand: the lockup in the hero and Otto greeting next to the button that starts the call.
+  // Brand: the lockup in the hero and Nova greeting next to the button that starts the call.
   ok(!!document.querySelector('.gate-brand .brand-logo svg[aria-label="PipelineSync AI"]'), 'the entry gate carries the brand lockup');
-  ok(!!document.querySelector('.gate-card .otto-hello svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto greets the visitor on the start screen');
-  ok(/Hi, I'm Otto\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
+  ok(!!document.querySelector('.gate-card .nova-hello svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova greets the visitor on the start screen');
+  ok(/Hi, I'm Nova\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
     'and he says his greeting line');
   const themeToggle = document.querySelector('#theme-toggle');
   const initialTheme = document.body.dataset.theme;
@@ -163,17 +163,17 @@ async function passGate(page, details) {
     await sleep(20);
   }
 
-  // Entry notice must exist before submit (Otto is an AI assistant...)
+  // Entry notice must exist before submit (Nova is an AI assistant...)
   const entryNoticePre = document.querySelector('#entry-consent-notice');
   if (entryNoticePre) {
-    ok(/Otto is an AI assistant/.test(entryNoticePre.textContent), 'entry form shows AI disclosure notice');
+    ok(/Nova is an AI assistant/.test(entryNoticePre.textContent), 'entry form shows AI disclosure notice');
     ok(/saved to our CRM.*HubSpot/.test(entryNoticePre.textContent), 'entry notice says name/email saved to CRM (HubSpot)');
     ok(/OpenAI/.test(entryNoticePre.textContent) && /Claude/.test(entryNoticePre.textContent), 'entry notice names OpenAI and Claude');
     ok(/Audio is never stored/.test(entryNoticePre.textContent), 'entry notice says audio never stored');
   } else {
     // If no privacy URL set, notice still exists without link
     const gateText = document.body.textContent;
-    ok(/Otto is an AI assistant/.test(gateText), 'entry form shows AI disclosure notice (fallback)');
+    ok(/Nova is an AI assistant/.test(gateText), 'entry form shows AI disclosure notice (fallback)');
   }
 
   if (details) {
@@ -223,10 +223,10 @@ async function reachCall(page, details) {
   // The new consent view has id consent-notice for the wrapper? Actually we have #consent-notice for wrapper and #consent-note for small text
   const consentWrapper = document.querySelector('#consent-notice') || document.querySelector('.consent-card .notice');
   if (consentWrapper) {
-    ok(/You.*speaking with Otto, an AI/.test(document.body.textContent), 'consent screen says you will be speaking with Otto, an AI');
+    ok(/You.*speaking with Nova, an AI/.test(document.body.textContent), 'consent screen says you will be speaking with Nova, an AI');
     ok(/saved to our CRM.*HubSpot/.test(consentWrapper.textContent || document.body.textContent), 'consent notice repeats CRM line');
   } else {
-    ok(/You.*speaking with Otto, an AI/.test(document.body.textContent), 'consent screen says you will be speaking with Otto, an AI');
+    ok(/You.*speaking with Nova, an AI/.test(document.body.textContent), 'consent screen says you will be speaking with Nova, an AI');
   }
 
   // Agreeing to the disclaimer is the gesture that starts the call: the AI speaks from here, with
@@ -259,16 +259,16 @@ async function reachCall(page, details) {
 
   // Brand: the header lockup on every screen, and the live call panel the brand sheet specifies.
   ok(!!d1.querySelector('.topbar .brand-logo svg[aria-label="PipelineSync AI"]'), 'the header carries the logo lockup on the call screen');
-  ok(!!d1.querySelector('.otto-live .otto-live-fig svg[aria-label^="Otto the PipelineSync octopus"]'), 'Otto is on the call screen, bare on the panel');
+  ok(!!d1.querySelector('.nova-live .nova-live-fig svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova is on the call screen, bare on the panel');
   ok(/^Question \d+ of \d+$/.test((d1.querySelector('#call-progress') || {}).textContent || ''),
     'the call header tracks the question count (' + ((d1.querySelector('#call-progress') || {}).textContent || '') + ')');
-  ok(d1.querySelectorAll('.otto-wave .otto-wave-bar').length === 9, 'the animated waveform sits under the question');
+  ok(d1.querySelectorAll('.nova-wave .nova-wave-bar').length === 9, 'the animated waveform sits under the question');
   // The ring and the waveform follow the live state, which alternates while the call runs, so the
   // test samples the call rather than reading one instant of it.
-  for (let i = 0; i < 60 && !d1.querySelector('.otto-live .otto-ringing'); i++) await sleep(25);
-  ok(!!d1.querySelector('.otto-live .otto-ringing'), 'the active-speaker ring comes on while Otto is speaking or listening');
+  for (let i = 0; i < 60 && !d1.querySelector('.nova-live .nova-ringing'); i++) await sleep(25);
+  ok(!!d1.querySelector('.nova-live .nova-ringing'), 'the active-speaker ring comes on while Nova is speaking or listening');
   ok(Array.from(d1.querySelectorAll('.bubble.ai .bubble-av svg')).every(sv => /octopus/.test(sv.getAttribute('aria-label') || '')),
-    "the AI's transcript bubbles carry Otto's avatar");
+    "the AI's transcript bubbles carry Nova's avatar");
   ok(!!d1.querySelector('#mic-btn') || !!d1.querySelector('#type-btn'), 'the in-call controls are on screen straight after agreement');
   ok(p1.spoken.length >= 1, 'the AI spoke its first line out loud (' + JSON.stringify((p1.spoken[0] || '').slice(0, 60)) + '...)');
   ok(/what does your business do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
@@ -277,12 +277,12 @@ async function reachCall(page, details) {
   ok((d1.querySelector('#call-mode') || {}).textContent === 'Browser voice (no API key)', 'the call header repeats only the exact browser-voice mode label');
   ok(!!d1.querySelector('.orb.listening, .orb.speaking, .orb.thinking, .orb.ready'), 'the call UI shows the live call state');
 
-  // Brand: with a working microphone the call alternates between Otto speaking and Otto listening,
+  // Brand: with a working microphone the call alternates between Nova speaking and Nova listening,
   // so both poses must appear as it runs.
   const micPoses = new Set();
   // The listener window is short (the faked recogniser answers in ~50ms), so this samples finely.
   for (let i = 0; i < 400 && !d1.querySelector('#structure-btn'); i++) {
-    const fig = d1.querySelector('.otto-live .otto-live-fig svg');
+    const fig = d1.querySelector('.nova-live .nova-live-fig svg');
     const m = fig && /(speak|listen|think|sync)\)$/.exec(fig.getAttribute('aria-label') || '');
     if (m) micPoses.add(m[1]);
     await sleep(25);
@@ -320,8 +320,8 @@ async function reachCall(page, details) {
   await sleep(500);
   const loaderStep = d1.querySelector('#loader-step');
   ok(!!loaderStep, 'the generation loader shows a progress state');
-  ok(!!d1.querySelector('.otto-splash-card svg'), 'the loading screen shows the animated brand mark on its white card');
-  ok(!!d1.querySelector('.loader .otto-fig-card svg[aria-label*="(think)"]'), 'Otto thinks while the blueprint is built');
+  ok(!!d1.querySelector('.nova-splash-card svg'), 'the loading screen shows the animated brand mark on its white card');
+  ok(!!d1.querySelector('.loader .nova-fig-card svg[aria-label*="(think)"]'), 'Nova thinks while the blueprint is built');
   ok(/One sec, I'm linking your pipeline stages together\./.test(d1.querySelector('.loader').textContent), "and he says the loading line");
   ok(!d1.querySelector('.doc'), 'the blueprint is not rendered while the job is still running');
   for (let i = 0; i < 60 && !d1.querySelector('.doc'); i++) await sleep(250);
@@ -330,8 +330,8 @@ async function reachCall(page, details) {
   ok(!!d1.querySelector('.coa-item'), 'cost of inaction items rendered');
   ok(d1.querySelectorAll('.chip.kb').length > 5, 'KB reference chips rendered');
   ok(!d1.querySelector('.doc').textContent.includes('\u2014'), 'no em dashes in the blueprint view');
-  ok(!!d1.querySelector('.doc .otto-party svg[aria-label*="(party)"]'), 'Otto celebrates at the top of the results');
-  ok(/Eight arms, zero loose ends\./.test(d1.querySelector('.doc').textContent), "the results carry Otto's success line");
+  ok(!!d1.querySelector('.doc .nova-party svg[aria-label*="(party)"]'), 'Nova celebrates at the top of the results');
+  ok(/Eight arms, zero loose ends\./.test(d1.querySelector('.doc').textContent), "the results carry Nova's success line");
 
   d1.getElementById('unlock-btn').click();
   await sleep(100);
@@ -346,12 +346,12 @@ async function reachCall(page, details) {
   d1.getElementById('un-go').click();
   await sleep(1400);
   ok(!!d1.querySelector('.success-card'), 'delivery success card shown');
-  ok(!!d1.querySelector('.doc.otto-celebrate'), 'the delivered blueprint marks the result as the celebration state');
-  // The blueprint-ready toast carries Otto. The delivered blueprint offers the server PDF again, so
+  ok(!!d1.querySelector('.doc.nova-celebrate'), 'the delivered blueprint marks the result as the celebration state');
+  // The blueprint-ready toast carries Nova. The delivered blueprint offers the server PDF again, so
   // that button raises the same download toast and the markup can be read here.
   d1.getElementById('redownload-btn').click();
   await sleep(60);
-  ok(!!d1.querySelector('#toast .toast-av svg[aria-label*="(party)"]'), 'the blueprint toast celebrates with Otto');
+  ok(!!d1.querySelector('#toast .toast-av svg[aria-label*="(party)"]'), 'the blueprint toast celebrates with Nova');
   ok(/Eight arms, zero loose ends/.test(d1.querySelector('#toast').textContent), "and it carries his success line");
   ok(/PDF ready/.test(d1.body.textContent), 'success card reports the PDF is ready');
   ok(!/pushed to HubSpot/.test(d1.body.textContent), 'mocked deliver does not claim a HubSpot push');
@@ -416,13 +416,13 @@ async function reachCall(page, details) {
   // runs, and his aria-label says which one is in use.
   const poseSeen = new Set();
   const notePose = () => {
-    const fig = d2.querySelector('.otto-live .otto-live-fig svg');
+    const fig = d2.querySelector('.nova-live .nova-live-fig svg');
     const m = fig && /(speak|listen|think|sync|hello|party)\)$/.exec(fig.getAttribute('aria-label') || '');
     if (m) poseSeen.add(m[1]);
   };
 
   /* Brand: the error state. The turn API is made to fail for one answer, which is the same thing
-     the visitor sees when a question cannot be sent. Otto's error line appears under his avatar,
+     the visitor sees when a question cannot be sent. Nova's error line appears under his avatar,
      and Retry clears it on the real path. */
   const realTurnFetch = p2.window.fetch;
   p2.window.fetch = (url, init) => /\/api\/voice\/turn/.test(String(url))
@@ -433,13 +433,13 @@ async function reachCall(page, details) {
   errInp.value = 'Testing the error state';
   d2.getElementById('send-btn').click();
   await sleep(400);
-  ok(!!d2.querySelector('.otto-error svg[aria-label*="(think)"]'), "Otto's avatar carries the error state");
-  ok(/Hmm, I lost that thread\. Mind saying it again\?/.test(d2.querySelector('.otto-error').textContent),
+  ok(!!d2.querySelector('.nova-error svg[aria-label*="(think)"]'), "Nova's avatar carries the error state");
+  ok(/Hmm, I lost that thread\. Mind saying it again\?/.test(d2.querySelector('.nova-error').textContent),
     'and he says his error line under it');
   p2.window.fetch = realTurnFetch;
   d2.getElementById('retry-turn').click();
   await sleep(600);
-  ok(!d2.querySelector('.otto-error'), 'Retry clears the error state');
+  ok(!d2.querySelector('.nova-error'), 'Retry clears the error state');
 
   // Type the answers instead, the way a client with a blocked mic would.
   for (let i = 0; i < 80 && !d2.querySelector('#structure-btn'); i++) {
@@ -452,7 +452,7 @@ async function reachCall(page, details) {
     await sleep(300);
   }
   ok(poseSeen.has('speak') || poseSeen.has('think'),
-    'Otto takes the pose the call is actually in, and changes as it changes (' + [...poseSeen].join(', ') + ')');
+    'Nova takes the pose the call is actually in, and changes as it changes (' + [...poseSeen].join(', ') + ')');
   ok(!!d2.querySelector('#structure-btn'), 'the typed journey still reaches the end of the call');
   ok(d2.querySelectorAll('.bubble.user').length >= 12, 'typed answers land in the same transcript');
   d2.getElementById('structure-btn').click();
@@ -652,7 +652,7 @@ async function reachCall(page, details) {
   cb4.click();
   ok(go4.disabled === true, 'privacy scenario: button disabled again after unchecking');
   // Check consent text includes AI disclosure
-  ok(/You.*speaking with Otto, an AI/.test(p5.document.body.textContent), 'privacy scenario: consent says you will be speaking with Otto, an AI');
+  ok(/You.*speaking with Nova, an AI/.test(p5.document.body.textContent), 'privacy scenario: consent says you will be speaking with Nova, an AI');
   ok(p5.errors.length === 0, 'no runtime errors in privacy scenario' + (p5.errors.length ? ': ' + p5.errors[0] : ''));
   srv3.stop();
 
@@ -674,7 +674,7 @@ async function reachCall(page, details) {
     const { JSDOM } = require('jsdom');
     const htmlLocal = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8').replace(/<script src="app.js"><\/script>/, '');
     const appJsLocal = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'app.js'), 'utf8');
-    const brandJsLocal = ['Logo.js', 'Otto.js'].map(f => fs.readFileSync(require('path').join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
+    const brandJsLocal = ['Logo.js', 'Nova.js'].map(f => fs.readFileSync(require('path').join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
     const dom = new JSDOM(htmlLocal, { url: pageBase + '/', runScripts: 'outside-only', pretendToBeVisual: true });
     const { window } = dom;
     const { document } = window;

@@ -25,7 +25,7 @@ first word to the last. If those requirements are not met, the same call continu
    privacy notice is the click that starts the call. The client opens the microphone once, asks the
    server to open a live session (`POST /api/voice/realtime/connect`, which forwards the browser's
    SDP offer to OpenAI and returns the answer), and the AI's voice starts inside that click. The
-   opening uses the caller's first name when available, identifies Otto as an AI, says the call
+   opening uses the caller's first name when available, identifies Nova as an AI, says the call
    usually takes five to ten minutes and can be skipped, then asks one natural question. There are
    at most two short statements plus that question. There is no second start button. Typing remains
    available as a fallback. The API key stays in the
@@ -41,7 +41,7 @@ first word to the last. If those requirements are not met, the same call continu
    (`INTAKE_PLAN`). After each caller turn the model calls `record_answer` for each distinct topic
    answered, including several volunteered topics from one turn. The server strictly validates every
    captured value against the caller's words; it returns only uncovered topics, or a server-required
-   probe/callback for a missing fact. Otto chooses one natural next topic in conversational order,
+   probe/callback for a missing fact. Nova chooses one natural next topic in conversational order,
    skips anything already answered or declined, and cannot invent a figure.
 4. **A question from the client comes first, and a stop ends the call** (`KB-CALL-01`..`04`).
    "What is PipelineSync?", "How much does it cost?", "Are you an AI?", "What happens to my data?",
@@ -234,7 +234,7 @@ against the mock endpoint - a whole twelve-question call over one session, with 
    logs for `deliver`) carries a `voice_call` block: provider, models, voice, turns, which questions
    were asked, how many probes, whether the three required fields were still missing at the end, and
    `"audio_retained": false`. A continuous call also stores `median_ms`, `p90_ms`, and
-   `turns_measured`: the median and nearest-rank p90 from each caller-finish-to-first-Otto-audio
+   `turns_measured`: the median and nearest-rank p90 from each caller-finish-to-first-Nova-audio
    measurement, plus the number of measured turns. Raw audio is never stored. A continuous call adds
    `transport: "webrtc-realtime"`,
    `realtime_model`, `realtime_voice`, `turn_detection`, `tool_calls`, `captures_accepted`,
@@ -396,7 +396,7 @@ to bound the worst case.
 | "no credit" / quota (402, 429) | Billing not enabled for that project key | Top up, or set `VOICE_PROVIDER=simulated` so demos keep working |
 | The call says the microphone is blocked and typing is on | Browsers block `getUserMedia` inside preview iframes | Open the site in its own browser tab (the mic prompt appears there), or just type |
 | No sound, but the AI's line is on screen | The browser blocked autoplay, or the tab is muted | Tap **Hear that again** (the call resumes from there) |
-| Long pauses between Realtime turns | Each caller-finish-to-first-Otto-audio latency is logged in the browser console; the lead stores `median_ms`, `p90_ms`, and `turns_measured` | Check the `[voice] realtime caller-finish-to-otto-start_ms=...` measurements and the network path to Realtime |
+| Long pauses between Realtime turns | Each caller-finish-to-first-Nova-audio latency is logged in the browser console; the lead stores `median_ms`, `p90_ms`, and `turns_measured` | Check the `[voice] realtime caller-finish-to-nova-start_ms=...` measurements and the network path to Realtime |
 | A topic was skipped or a required field is still "Not stated" | The client declined, did not know, or a value failed grounding | The review screen shows what is missing; the blueprint cannot generate until the required fields are grounded |
 | Voice works locally but not on Netlify | Body size or timeout | Recordings are capped at 3.5 MB (a few minutes of audio); keep answers to a sentence or two |
 | The AI's line appears but nothing is heard on the deployed site | A CSP without `media-src` blocks blob:/data: audio | The repo already sends `media-src 'self' blob: data:` (see `netlify.toml` and `lib/netlify-helpers.js`). If you edit the CSP, keep that directive |
@@ -480,7 +480,7 @@ Optional, to change how it sounds or what it costs:
 | D1 | Open your site **in its own browser tab** (not an embedded preview) | Enter your name and email, tick the disclaimer, agree | The AI speaks immediately, no text box, and the call does not stop between questions |
 | D2 | The call screen | The mode badge | **Live voice** for a live WebRTC session; the alternatives are **Step-by-step voice** and **Browser voice (no API key)** |
 | D3 | Same card | Read the model line | the realtime model (`gpt-realtime-2.1`), the voice (`marin`) and the turn detection (`semantic_vad`) |
-| D4 | Mid-call | Ask "Are you an AI?" or "How much does it cost?" | Otto answers honestly in a sentence or two, then returns to the intake question |
+| D4 | Mid-call | Ask "Are you an AI?" or "How much does it cost?" | Nova answers honestly in a sentence or two, then returns to the intake question |
 | D5 | Mid-call | Talk over the AI | It stops and lets you finish (barge-in) |
 | D6 | Finish the call | Answer out loud, then structure the answers | The sidebar captured the fields and the three required numbers are filled |
 | D7 | Netlify -> **Functions** -> `voice` -> **Logs** | Watch the call go past | `[voice] realtime session opened: ...` then one `[voice] realtime tool ...` line per answer |
