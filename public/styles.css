@@ -1457,18 +1457,10 @@ input:-webkit-autofill:focus {
   font-size: 0.9375rem;
   color: var(--ink);
 }
-/* The call head shows Nova himself, the same bare head as the transcript bubbles. */
-.who-nova { display: inline-flex; flex: 0 0 auto; }
 .call-head-right {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-.progress {
-  font-family: var(--mono);
-  font-size: 0.8125rem;
-  color: var(--sync-orange);
-  font-weight: 500;
 }
 .progressbar {
   height: 4px;
@@ -2095,11 +2087,6 @@ input:-webkit-autofill:focus {
 .side-toggle {
   display: none;
 }
-.side-toggle-count {
-  margin-left: 4px;
-  font-family: var(--mono);
-  color: var(--cyan);
-}
 
 /* Transcript Accordion */
 .transcript summary {
@@ -2127,7 +2114,6 @@ input:-webkit-autofill:focus {
   align-items: flex-start;
   gap: 0.5rem;
 }
-.bubble-av { flex: 0 0 auto; display: inline-flex; }
 .bubble-txt { min-width: 0; overflow-wrap: anywhere; }
 .bubble.ai {
   align-self: flex-start;
@@ -3134,9 +3120,6 @@ img, video, canvas {
   .call-head-right {
     justify-content: flex-end;
   }
-  .call-head-right .progress {
-    display: none;
-  }
   .side-toggle {
     padding-inline: 0.75rem;
   }
@@ -3283,9 +3266,6 @@ img, video, canvas {
 
 @media (max-width: 359px) {
   .brand-text {
-    display: none;
-  }
-  .side-toggle-count {
     display: none;
   }
 }
@@ -3521,9 +3501,6 @@ body.entry-screen .gate {
   }
   body.entry-screen .gate-brand {
     min-height: 0;
-  }
-  body.entry-screen .nova-hello-fig {
-    width: min(clamp(104px, 26vw, 190px), 15vh);
   }
   body.entry-screen .gate-card {
     padding: clamp(1rem, 2.4vh, 2rem) clamp(1.5rem, 3vw, 2.5rem);
@@ -3790,7 +3767,7 @@ body.app-screen[data-stage="intake"] .call-body {
   padding: 0.8rem 1rem;
   gap: 0.55rem;
   /* The fixed command-centre shell gives the call panel a bounded height, but
-     the question stack (topic, Nova, question, live answer line, status, orb)
+     the question stack (orb, question, waveform, live answer line, status)
      is taller than that on phones and short laptops. Clip-free means scroll:
      the panel scrolls its own body while the pinned controls below stay put,
      instead of silently hiding the answer line and status. */
@@ -4059,25 +4036,13 @@ body.app-screen[data-stage="done"] .done-card {
 
 /* Short phones in portrait (roughly SE/8 and smaller): the call body only gets
    ~170-360px of height once the top bar, step rail, call head and pinned
-   controls are accounted for. The stack compacts - smaller Nova, no empty
+   controls are accounted for. The stack compacts - no empty
    placeholder line, smaller orb - so the question, the live answer and the
    status all fit together; anything left scrolls in the body (see above). */
 @media (max-height: 740px) and (max-width: 899px) {
   body.app-screen[data-stage="intake"] .call-body {
     padding: 0.5rem 0.65rem;
     gap: 0.4rem;
-  }
-  body.app-screen[data-stage="intake"] .nova-live-fig {
-    width: clamp(72px, 20vw, 110px);
-  }
-  body.app-screen[data-stage="intake"] .nova-live-fig > span {
-    width: 100% !important;
-    height: auto !important;
-  }
-  body.app-screen[data-stage="intake"] .nova-live-fig svg {
-    display: block;
-    width: 100%;
-    height: auto;
   }
   body.app-screen[data-stage="intake"] .nova-question {
     font-size: clamp(0.95rem, 3.6vw, 1.15rem);
@@ -4598,19 +4563,13 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
 }
 
 /* =============================================================================
-   PipelineSync AI brand: the logo lockup and Nova
+   PipelineSync AI brand: the logo lockup
    -----------------------------------------------------------------------------
-   Everything the two brand components need to sit correctly on this dark theme.
-   Rules that come from the brand sheet and are enforced here, not just intended:
-
-     * Nova is never drawn straight onto a dark surface. A full-body figure goes
-       straight on the app's own surface: he is transparent artwork with no
-       plate, circle or shadow of his own (.nova-fig-card paints nothing and
-       NovaAvatar draws only the optional orange ring).
-     * Neither the logo nor Nova is ever recoloured or stretched: the components
-       fix their own aspect ratio, and these rules only set the room they take.
-     * Every figure reserves its space at a fixed size, so a pose change cannot
-       move anything else on the screen.
+   Everything the logo component needs to sit correctly on this dark theme.
+   The mascot (public/components/brand/Nova.js) is part of the brand sheet but is
+   no longer rendered in this UI, so only the logo's rules live here:
+     * The logo is never recoloured or stretched: the component fixes its own
+       aspect ratio, and these rules only set the room it takes.
      * Motion is decorative only and stops under prefers-reduced-motion.
    ========================================================================== */
 
@@ -4628,70 +4587,13 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
 .brand-logo { display: inline-flex; align-items: center; min-width: 0; }
 .brand-logo > span { min-width: 0; }
 
-/* --- Nova's space: he paints nothing, so these rules only size him --------- */
-.nova-fig-card {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* The wrapper the app sized decides the figure's width, so the wrapper and the svg inside it can
-     never grow past it, and the svg keeps its own aspect ratio as it scales down. It paints nothing:
-     Nova is transparent artwork and stands straight on the app's own surface. */
-  width: 100%;
-  max-width: 100%;
-}
-.nova-fig-card > svg { display: block; width: 100%; height: auto; max-width: 100%; }
-
-/* --- Nova's line of copy (the five messages he says) ----------------------- */
-.nova-copy {
-  margin: 0;
-  font-size: 0.9375rem;
-  line-height: 1.5;
-  color: var(--ink);
-}
-.nova-copy-load, .nova-copy-win { color: var(--ink-2); }
-.nova-copy-err { color: var(--red); }
-.nova-copy-hello { color: var(--ink-2); font-size: 0.875rem; }
-
-/* --- Start screen: Nova greets, next to the button that starts the call ---- */
-.nova-hello {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  margin: 0 0 1.25rem;
-}
-.nova-hello-fig { flex: 0 0 auto; width: clamp(104px, 26vw, 190px); }
-
-/* --- Consent and loading: the same figure, waiting to start --------------- */
-.nova-wait { display: flex; align-items: center; justify-content: center; gap: 0.9rem; }
-.nova-wait-consent { margin: 0 0 1.25rem; }
-.nova-wait-fig { flex: 0 0 auto; width: clamp(84px, 18vw, 160px); }
-.nova-wait-consent .nova-wait-fig { width: clamp(56px, 12vw, 96px); }
-/* NovaAvatar paints a span with a fixed inline width (the requested pixel size),
-   which on a phone is wider than the clamp above and spills over his line of
-   copy. The wrapper decides the size; the avatar scales to it. */
-.nova-wait-fig { display: block; min-width: 0; }
-.nova-wait-fig > span {
-  width: 100% !important;
-  height: auto !important;
-}
-.nova-wait-fig > span > svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-/* --- Live call: Nova on the left, the question and waveform on the right --- */
+/* --- Live call: the question and waveform ----------------------------------- */
 .nova-live {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: clamp(0.9rem, 2.5vw, 1.75rem);
   width: 100%;
   max-width: 860px;
   margin: 0 auto;
   text-align: left;
 }
-.nova-live-fig { flex: 0 0 auto; display: inline-flex; }
 .nova-live-main {
   min-width: 0;
   display: flex;
@@ -4707,14 +4609,6 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   color: var(--ink);
 }
 .nova-live-main .line.you { width: auto; max-width: 100%; font-size: 0.875rem; padding: 0.6rem 0.85rem; }
-
-/* The active-speaker ring: the 3px brand ring, with a halo that pulses. */
-.nova-ringing > span { animation: novaRing 1.9s ease-out infinite; }
-@keyframes novaRing {
-  0%   { box-shadow: 0 0 0 3px var(--sync-orange), 0 0 0 3px rgba(255, 122, 26, 0.55); }
-  70%  { box-shadow: 0 0 0 3px var(--sync-orange), 0 0 0 16px rgba(255, 122, 26, 0); }
-  100% { box-shadow: 0 0 0 3px var(--sync-orange), 0 0 0 3px rgba(255, 122, 26, 0); }
-}
 
 /* The waveform under the question: #8FB0D0 -> #FF7A1A bars. */
 .nova-wave {
@@ -4739,20 +4633,10 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
 /* With nothing being said the bars rest instead of dancing. */
 .call:not(.nova-wave-live) .nova-wave-bar { animation: none; transform: scaleY(0.45); opacity: 0.6; }
 
-/* The call orb is the secondary presence meter now that Nova leads the panel. */
+/* The call orb leads the panel: the presence meter on top, the voice subtitles below it. */
 .nova-stepper { display: flex; justify-content: center; }
 
-/* --- Nova's error state --------------------------------------------------- */
-.nova-error {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  text-align: left;
-  max-width: 620px;
-}
-.nova-error-fig { flex: 0 0 auto; display: inline-flex; }
-
-/* --- Loading: the animated mark on its white card, then Nova thinking ----- */
+/* --- Loading: the animated mark on its white card ------------------------- */
 .nova-splash { display: flex; justify-content: center; margin: 0 0 1.25rem; }
 .nova-splash-card {
   display: inline-flex;
@@ -4764,15 +4648,7 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   border-radius: var(--r-xl);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(143, 176, 208, 0.35);
 }
-.loader .nova-wait { margin: 0 0 1.5rem; flex-direction: column; text-align: center; }
-.loader .nova-wait-fig { width: clamp(120px, 26vw, 180px); }
-
-/* --- Results: Nova celebrates --------------------------------------------- */
-.nova-party { display: flex; align-items: center; gap: 1rem; margin: 0 0 1.25rem; }
-.nova-party-fig { flex: 0 0 auto; width: clamp(120px, 22vw, 200px); }
-.nova-party-done { justify-content: center; flex-direction: column; text-align: center; }
-.nova-party-done .nova-party-fig { width: clamp(110px, 30vw, 170px); }
-/* The confetti reads as celebration, so the card's own shadow gains a hairline of brand orange. */
+/* --- Results: the delivered blueprint gains a hairline of brand orange ---- */
 .doc.nova-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), var(--sh-2), 0 0 0 1px rgba(255, 122, 26, 0.28); }
 
 /* --- Empty state ---------------------------------------------------------- */
@@ -4781,43 +4657,20 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   margin: clamp(1.5rem, 4vw, 3rem) auto;
   text-align: center;
 }
-.nova-empty-fig { display: inline-block; width: clamp(120px, 30vw, 170px); }
-.nova-empty h2 { margin: 0.5rem 0 0.35rem; }
-.nova-empty .nova-copy { color: var(--ink-2); margin-bottom: 1.25rem; }
+.nova-empty h2 { margin: 0 0 1.25rem; }
 
-/* --- Toast: Nova joins the delivery confirmation -------------------------- */
-.toast.has-nova {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 1.1rem 0.7rem 0.7rem;
-}
-.toast-av { flex: 0 0 auto; display: inline-flex; }
+/* --- Toast ---------------------------------------------------------------- */
 .toast-txt { min-width: 0; }
 
 /* --- The live call panel on a phone --------------------------------------- */
 @media (max-width: 899px) {
-  .nova-live { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 0.85rem; }
+  .nova-live { text-align: center; }
   .nova-live-main { align-items: center; text-align: center; }
   .nova-wave { justify-content: center; min-height: 32px; }
   .nova-live-main .line.you { text-align: left; }
-  .nova-error { flex-direction: column; text-align: center; }
-  /* Keep the call screen inside a phone viewport: the orb steps back to make room for Nova. */
+  /* Keep the call screen inside a phone viewport. */
   .nova-stepper .voice-orb-container { width: 122px; height: 122px; margin: 0 auto; }
   .nova-stepper .orb { width: 92px; height: 92px; }
-  .nova-hello { gap: 0.6rem; }
-  .nova-wait { gap: 0.6rem; }
-}
-
-/* Very short screens: the entry gate is locked to one viewport, so the greeting figure yields
-   rather than pushing the form below the fold. Nova is still on the screen, smaller. */
-@media (max-height: 700px) and (max-width: 899px) {
-  .nova-hello-fig { width: 84px; }
-  .nova-copy-hello { font-size: 0.78rem; }
-}
-@media (max-height: 620px), (max-width: 379px) {
-  body.entry-screen .nova-hello-fig { width: 0; }
-  body.entry-screen .nova-copy-hello { display: none; }
 }
 
 /* --- Narrow headers: the wordmark yields to the mark ----------------------
@@ -4842,7 +4695,6 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
 /* --- Light theme ---------------------------------------------------------- */
 body[data-theme="light"] .nova-question { color: #0C2B5E; }
 body[data-theme="light"] .nova-splash-card { box-shadow: 0 12px 36px rgba(15, 47, 82, 0.22), 0 0 0 1px rgba(62, 104, 146, 0.2); }
-body[data-theme="light"] .toast.has-nova { background: #FFFFFF; }
 body[data-theme="light"] .doc.nova-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--sh-2), 0 0 0 1px rgba(232, 102, 10, 0.35); }
 
 /* --- Abuse protections: Turnstile widget and demo persona loader (DEMO_MODE) --- */
@@ -4857,8 +4709,7 @@ body[data-theme="light"] .doc.nova-celebrate { box-shadow: inset 0 1px 0 rgba(25
 .ro-field { display: inline-block; padding: 6px 10px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); color: var(--ink); font-size: 0.9375rem; }
 .cf-turnstile { margin: 8px 0; }
 
-/* --- Reduced motion: no pulsing ring, no dancing bars ---------------------- */
+/* --- Reduced motion: no dancing bars --------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
-  .nova-ringing > span { animation: none; }
   .nova-wave-bar { animation: none; transform: scaleY(0.6); }
 }

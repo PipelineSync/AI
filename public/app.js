@@ -315,13 +315,11 @@ function fetchSchedulerLink() { return fetchConfig(); }
 
 /* ---------------- toast ---------------- */
 let toastTimer = null;
-/* `novaPose` is optional: when it is given the toast carries Nova's avatar (the blueprint-ready
-   toast celebrates with pose="party"). The message itself is always escaped, never trusted. */
-function toast(msg, isErr, novaPose) {
+/* The message is always escaped, never trusted. */
+function toast(msg, isErr) {
   const t = $('#toast');
-  t.innerHTML = (novaPose ? '<span class="toast-av" aria-hidden="true">' + NovaAvatar({ pose: novaPose, size: 56 }) + '</span>' : '') +
-    '<span class="toast-txt">' + esc(msg) + '</span>';
-  t.className = 'toast show' + (isErr ? ' err' : '') + (novaPose ? ' has-nova' : '');
+  t.innerHTML = '<span class="toast-txt">' + esc(msg) + '</span>';
+  t.className = 'toast show' + (isErr ? ' err' : '');
   t.setAttribute('role', isErr ? 'alert' : 'status');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.className = 'toast'; }, 3800);
@@ -396,9 +394,9 @@ const VOICE_STATUS_TEXT = {
   idle: 'Ready when you are. Start the call and answer out loud, like a phone call.',
   connecting: 'Connecting Nova, your AI interviewer...',
   thinking: 'Thinking about what you said...',
-  speaking: 'The AI is speaking. Listen, then answer when it stops.',
+  speaking: 'Nova is speaking. Tap Stop to interrupt.',
   listening: 'Listening. Answer in your own words, then pause when you are done.',
-  ready: 'Your turn. Answer out loud whenever you are ready, or type instead.',
+  ready: 'Your turn. Answer out loud when you are ready, or type instead.',
   complete: 'That is the call. Review what we captured, then structure the answers.',
   error: 'The call hit a problem. You can retry the turn, or carry on by typing.'
 };
@@ -413,7 +411,7 @@ function newVoiceState() {
     micBlocked: false, micMuted: false, engine: null, handsFree: true, muted: false, typed: false,
     typedFallback: false, consecutiveEmptyTranscriptions: 0, listenGeneration: 0, listenPending: false,
     speaking: false, listening: false, capture: null, done: false, warnings: [],
-    audioEl: null, stopListening: null, rec: null, skipped: [], stopSpeakHook: null,
+    audioEl: null, stopListening: null, finishListening: null, rec: null, skipped: [], stopSpeakHook: null,
     opening: null, prefetching: false, prefetchTried: false, prefetchPromise: null,
     sessionPromise: null, sessionError: null, blockedAudio: null, retryArmed: false,
     rt: null, rtTried: false, rtFallback: false, fallbackReason: null,
@@ -611,11 +609,10 @@ function armAudioRetry() {
     v.retryArmed = false;
     const pending = v.blockedAudio;
     if (!pending) return;
-    if (e && e.target && e.target.id === 'repeat-btn') return;   // that button plays it itself
     v.blockedAudio = null; v.notice = null;
     playAudio(pending.b64, pending.mime)
       .then(() => { v.status = v.done ? 'complete' : 'ready'; render(); })
-      .catch(() => { v.notice = 'Still blocked. Press Play the line.'; render(); });
+      .catch(() => { v.notice = 'Still blocked. Tap to play the line.'; render(); });
   };
   try { document.addEventListener('click', retry, { once: true }); } catch (e) {}
 }
@@ -627,13 +624,18 @@ function stopSpeaking() {
   v.stopSpeakHook = null;
   v.speaking = false;
 }
-function stopListening() {
+function stopListening(sendCurrent) {
   const v = voiceSync();
-  // In hands-free mode stopping is cancellation (mute/type/end), never a manual "send" action.
+  // The main call UI's Stop and send action submits the current utterance. Other callers cancel
+  // (switching to typing, skipping, muting, or ending the call).
+  if (sendCurrent && typeof v.finishListening === 'function') {
+    try { v.finishListening(); return; } catch (e) {}
+  }
   v.listenGeneration = (v.listenGeneration || 0) + 1;
   v.listenPending = false;
   const cancel = v.stopListening;
   v.stopListening = null;
+  v.finishListening = null;
   if (cancel) { try { cancel(); } catch (e) {} }
   else if (v.rec) {
     try { if (typeof v.rec.abort === 'function') v.rec.abort(); else v.rec.stop(); } catch (e) {}
@@ -686,6 +688,7 @@ function listenBrowser(attemptId) {
       v.listening = false;
       if (v.rec === rec) v.rec = null;
       if (v.stopListening === cancel) v.stopListening = null;
+      if (v.finishListening === submit) v.finishListening = null;
     };
     const transcript = () => (finalText + ' ' + interimText).replace(/\s+/g, ' ').trim();
     const finish = txt => {
@@ -702,6 +705,7 @@ function listenBrowser(attemptId) {
       try { if (typeof rec.abort === 'function') rec.abort(); else rec.stop(); } catch (e) {}
       resolve(null);
     };
+    const submit = () => finish(transcript());
     const failMic = () => {
       if (settled) return;
       settled = true;
@@ -741,6 +745,7 @@ function listenBrowser(attemptId) {
       }, delay);
     };
     v.stopListening = cancel;
+    v.finishListening = submit;
     rec.onresult = e => {
       let nextInterim = '';
       let gotSpeech = false;
@@ -801,6 +806,7 @@ function listenOpenAI(attemptId) {
         v.listening = false;
         if (v.rec === rec) v.rec = null;
         if (v.stopListening === cancel) v.stopListening = null;
+        if (v.finishListening === finish) v.finishListening = null;
       };
       const cancel = () => {
         if (stopped) return;
@@ -844,6 +850,7 @@ function listenOpenAI(attemptId) {
         rec.start();
         v.rec = rec;
         v.stopListening = cancel;
+        v.finishListening = finish;
         v.listening = true;
         const AC = window.AudioContext || window.webkitAudioContext;
         if (AC) {
@@ -1896,11 +1903,6 @@ function sendRealtimeText(text) {
   render();
   refreshFieldStatus();
 }
-function realtimeRepeat() {
-  const v = voiceSync();
-  rtRespond('They did not catch that. Repeat your last question once, in the same words, a little more slowly, then wait for the answer.');
-  v.status = 'speaking'; render();
-}
 function setRealtimeMicMuted(muted) {
   const rt = voiceSync().rt;
   if (!rt || !rt.mic) return;
@@ -2070,16 +2072,6 @@ async function startCall() {
   render();
   await voiceTurn(null);
 }
-function repeatLine() {
-  const v = voiceSync();
-  if (!v.lastLine) return;
-  v.status = 'speaking'; render();
-  api.post('/api/voice/speak', { text: v.lastLine }).then(j => {
-    if (j.audio_base64) return playAudio(j.audio_base64, j.audio_mime).then(() => false).catch(() => true);
-    return speakWithBrowser(v.lastLine).then(() => true);
-  }).then(() => { v.status = v.done ? 'complete' : 'ready'; render(); })
-    .catch(() => { speakWithBrowser(v.lastLine).then(() => { v.status = v.done ? 'complete' : 'ready'; render(); }); });
-}
 function skipQuestion() {
   const v = voiceSync();
   stopSpeaking(); stopListening();
@@ -2161,71 +2153,40 @@ function armPageExitGuard() {
   try { window.addEventListener('pagehide', onExit); } catch (e) {}
 }
 
-/* ---------------- brand: the logo and Nova ----------------
+/* ---------------- brand: the logo ----------------
  * The logo and the mascot are the brand components in public/components/brand/{Logo,Nova}.js:
  * the React components from the brand sheet ported to this no-build vanilla layer, with their SVG
  * markup, geometry and colours unchanged. They load before this file (see index.html).
  *
- * Nova's pose is derived from state the app already tracks - the voice status and the stage - so
- * nothing new is stored, no new logic runs and the voice flow is untouched. */
+ * The UI no longer renders the mascot: only the logo appears on screen. The mascot's pose and size are
+ * no longer derived from call state; the waveform follows the state the call is already in. */
 const Logo = opts => window.PSBrand.Logo(opts);
 const LogoMark = opts => window.PSBrand.LogoMark(opts);
-const Nova = opts => window.PSBrand.Nova(opts);
-const NovaAvatar = opts => window.PSBrand.NovaAvatar(opts);
-const NOVA_COPY = window.PSBrand.NOVA_COPY;
 
-/* Which Nova the current state asks for: speaking -> listening -> thinking -> celebrating.
-   Every branch reads a field that already existed; the last one is the resting pose. */
-function novaPoseNow() {
-  const v = state.voice;
-  if (v) {
-    if (v.error) return 'think';                                   // it lost a turn
-    if (v.status === 'speaking') return 'speak';                    // the AI is talking
-    if (v.listening) return 'listen';                               // the microphone is open
-    if (v.status === 'thinking' || v.status === 'connecting') return 'think';
-  }
-  if (state.stage === 'extracting' || state.stage === 'generating') return 'think';
-  if (state.stage === 'blueprint' || state.stage === 'done') return 'party';
-  return 'sync';
-}
-/* Phones get a smaller figure so the question keeps the room. It never drops below 96px: the brand
-   minimum for Nova on the call screen. The size is fixed for a render, so a pose change cannot
-   shift the layout. */
-function novaLiveSize() {
-  const w = (typeof window !== 'undefined' && window.innerWidth) || 1280;
-  return w < 420 ? 104 : (w < 700 ? 120 : 140);
-}
-/* True while the call is actually live: Nova is speaking, or the microphone is open. The ring and
-   the waveform both follow this, so one function answers for both. */
+/* True while the call is actually live: the AI is speaking, or the microphone is open. The
+   waveform follows this, so one function answers for it. */
 function novaWaveOn() {
   const v = state.voice;
   if (!v) return false;
   return v.status === 'speaking' || !!v.listening || !!(v.rt && v.rt.live);
 }
-/* The pose is repainted in place while the call runs. A full render would rebuild the call orb and
-   lose its animation mid-sentence, exactly like the AI's line, so the figure is swapped the same
-   way the live line is: a cheap heartbeat reads the state the call is already in and only touches
-   the DOM when the pose actually changed. It stops itself the moment the call screen is gone. */
-let novaPoseTimer = null;
-function refreshNovaPose() {
-  const host = document.querySelector('.nova-live-fig');
-  if (!host) {
-    if (novaPoseTimer) { clearInterval(novaPoseTimer); novaPoseTimer = null; }
+/* The live state is repainted in place while the call runs. A full render would rebuild the call
+   orb and lose its animation mid-sentence, exactly like the AI's line, so the waveform flag is
+   swapped the same way: a cheap heartbeat reads the state the call is already in and only touches
+   the DOM when it changed. It stops itself the moment the call screen is gone. */
+let waveLiveTimer = null;
+function refreshWaveLive() {
+  const call = document.querySelector('.call');
+  if (!call) {
+    if (waveLiveTimer) { clearInterval(waveLiveTimer); waveLiveTimer = null; }
     return;
   }
-  const on = novaWaveOn();
-  host.classList.toggle('nova-ringing', on);
-  const call = document.querySelector('.call');
-  if (call) call.classList.toggle('nova-wave-live', on);
-  const pose = novaPoseNow();
-  if (host.getAttribute('data-pose') === pose) return;
-  host.setAttribute('data-pose', pose);
-  host.innerHTML = NovaAvatar({ pose: pose, size: novaLiveSize(), ring: true });
+  call.classList.toggle('nova-wave-live', novaWaveOn());
 }
-function armNovaPose() {
-  refreshNovaPose();
-  if (novaPoseTimer) return;
-  novaPoseTimer = setInterval(refreshNovaPose, 300);
+function armWaveLive() {
+  refreshWaveLive();
+  if (waveLiveTimer) return;
+  waveLiveTimer = setInterval(refreshWaveLive, 300);
 }
 
 /* The animated waveform under the live question: nine bars in a #8FB0D0 -> #FF7A1A gradient. */
@@ -2242,32 +2203,12 @@ function novaSplashHtml() {
     '<span class="nova-splash-card" aria-hidden="true">' + LogoMark({ variant: 'light', animated: true, size: 96 }) + '</span>' +
     '</div>';
 }
-/* A full-body Nova. He is transparent artwork with no plate, circle or shadow of his own, so this
-   wrapper only reserves his space; whatever surface the screen already has shows through. */
-function novaFigureHtml(pose, size, extraClass) {
-  return '<span class="nova-fig-card' + (extraClass ? ' ' + extraClass : '') + '">' +
-    Nova({ pose: pose, size: size }) + '</span>';
-}
-/* A line of Nova's copy, next to the figure that says it. */
-function novaCopyLine(text, extraClass) {
-  return '<p class="nova-copy' + (extraClass ? ' ' + extraClass : '') + '">' + esc(text) + '</p>';
-}
-/* The empty state: no data yet, so Nova thinks it over and offers the way in. */
-function novaEmptyHtml() {
+/* The empty state: no data yet, so the screen offers the way in. */
+function emptyHtml() {
   return '<div class="card hud-frame nova-empty">' +
-    '<span class="nova-empty-fig">' + novaFigureHtml('think', 170) + '</span>' +
     '<h2>No pipeline data yet</h2>' +
-    novaCopyLine(NOVA_COPY.greeting) +
     '<div class="btn-row btn-row-center"><button class="btn btn-primary btn-lg" id="empty-start">Start strategy session</button></div>' +
   '</div>';
-}
-
-/* Nova's error state: the avatar plus the line under it. */
-function novaErrorHtml() {
-  return '<div class="nova-error" role="alert">' +
-      '<span class="nova-error-fig">' + NovaAvatar({ pose: 'think', size: 56 }) + '</span>' +
-      novaCopyLine(NOVA_COPY.error, 'nova-copy-err') +
-    '</div>';
 }
 
 /* ---------------- rendering ---------------- */
@@ -2432,10 +2373,6 @@ function startView() {
       '</div>' +
     '</div>' +
     '<div class="gate-side"><div class="gate-card hud-frame specular">' +
-      '<div class="nova-hello">' +
-        '<span class="nova-hello-fig">' + novaFigureHtml('hello', 200) + '</span>' +
-        novaCopyLine(NOVA_COPY.greeting, 'nova-copy-hello') +
-      '</div>' +
       '<h2>Start strategy session</h2>' +
       '<p class="sub">Enter your details to start the AI voice call.</p>' +
       '<form id="start-form" novalidate>' +
@@ -2554,10 +2491,6 @@ function consentView() {
   }
   return '<div class="card consent-card hud-frame specular">' +
     '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>CONSENT</div>' +
-    '<div class="nova-wait nova-wait-consent">' +
-      '<span class="nova-wait-fig">' + NovaAvatar({ pose: 'hello', size: 96 }) + '</span>' +
-      novaCopyLine(NOVA_COPY.greeting) +
-    '</div>' +
     '<h2>Ready to start?</h2>' +
     '<p>You\'ll be speaking with Nova, an AI.</p>' +
     '<div class="notice info" id="consent-notice">' +
@@ -2637,47 +2570,38 @@ function voiceOrbHtml(status, listening) {
 
 function callView() {
   const v = voiceSync();
-  const plan = v.plan || [];
-  const total = plan.length || 12;
-  const answered = state.answers.filter(a => String(a.text || '').trim()).length;
-  const pct = Math.round((Math.min(answered, total) / total) * 100);
   const started = !!v.startedAt || v.transcript.length > 0;
   const statusText = (v.mode === 'realtime' ? RT_STATUS_TEXT[v.status] : VOICE_STATUS_TEXT[v.status]) ||
     VOICE_STATUS_TEXT[v.status] || VOICE_STATUS_TEXT.idle;
-  const aiLine = v.lastLine || NOVA_COPY.greeting;
+  const aiLine = v.lastLine || "Hi, I'm Nova. Let's map how your deals actually move.";
   const youLine = v.interim || v.lastHeard || '';
 
-  /* The live call screen the brand sheet asks for: Nova on the left, bare on the panel, with the
-     orange pulsing ring, and on the right the question in large type and the animated waveform.
-     Everything below it - the controls, the progress bar, the captured signals - is unchanged.
-     Nova's pose is the state the call is already in. */
+  /* The live call screen, built for a natural voice conversation: the orb on top as the presence
+     meter, the voice subtitles (the AI's line, the waveform, your live answer) below it, and the
+     status and controls pinned at the bottom. No question counter - the conversation leads. The
+     waveform animates while the call is live. */
   const waveOn = novaWaveOn();
-  const novaPose = novaPoseNow();
-  const novaLine = v.rtNotice ? v.rtNotice : (v.error ? '' : (!started ? NOVA_COPY.greeting : (v.listening || waveOn ? NOVA_COPY.listening : '')));
 
   let h = '<div class="intake-wrap"><div class="call hud-frame' + (waveOn ? ' nova-wave-live' : '') + '">' +
-    '<div class="call-head"><div class="who"><span class="who-nova">' + NovaAvatar({ pose: 'sync', size: 38 }) + '</span><div><b>Nova</b><span class="small muted" id="call-mode">' +
+    '<div class="call-head"><div class="who"><div><b>Nova</b><span class="small muted" id="call-mode">' +
       (v.cfg ? callModeLabel(v) : 'Connecting...') + '</span></div></div>' +
-      '<div class="call-head-right"><div class="progress" id="call-progress">' + (started ? 'Question ' + Math.min(answered + 1, total) + ' of ' + total : 'Not started') + '</div>' +
-      '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress<span class="side-toggle-count">' + answered + '/' + total + '</span></button></div></div>' +
-    '<div class="progressbar"><div id="call-bar" style="width:' + pct + '%"></div></div>' +
+      '<div class="call-head-right">' +
+      '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress</button></div></div>' +
     '<div class="call-body">' +
+      '<div class="nova-stepper">' + voiceOrbHtml(v.status, v.listening) + '</div>' +
       '<div class="nova-live">' +
-        '<div class="nova-live-fig' + (waveOn ? ' nova-ringing' : '') + '" data-pose="' + novaPose + '">' + NovaAvatar({ pose: novaPose, size: novaLiveSize(), ring: true }) + '</div>' +
         '<div class="nova-live-main">' +
           '<div class="nova-question" id="ai-line" aria-live="polite">' + esc(aiLine) + '</div>' +
           novaWaveHtml('nova-wave') +
-          (novaLine ? novaCopyLine(novaLine) : '') +
           (youLine ? '<div class="line you" id="you-line">' + esc(youLine) + '</div>' : '<div class="line you empty" id="you-line">Your answer appears here as you speak.</div>') +
         '</div>' +
       '</div>' +
-      '<div class="nova-stepper">' + voiceOrbHtml(v.status, v.listening) + '</div>' +
       '<div class="call-status" id="call-status" role="status" aria-live="polite">' + esc(statusText) + '</div>' +
-      (v.error ? novaErrorHtml() : '') +
+      (v.rtNotice ? '<div class="call-note">' + esc(v.rtNotice) + '</div>' : '') +
       (v.notice ? '<div class="call-note">' + esc(v.notice) + '</div>' : '') +
       (v.error ? '<div class="call-note err">' + esc(v.error) + ' <button class="btn btn-ghost btn-sm" id="retry-turn">Retry</button></div>' : '') +
     '</div>' +
-    '<div class="call-controls" id="call-controls">' + callControls(started, total) + '</div>' +
+    '<div class="call-controls" id="call-controls">' + callControls(started) + '</div>' +
     '</div>' + callSidebar() + '</div>';
   return h;
 }
@@ -2685,15 +2609,14 @@ function callControls(started, total) {
   const v = voiceSync();
   const rt = v.rt;
   if (rt && (rt.live || rt.connecting)) {
-    /* Three clear controls, in the order a visitor reaches for them: my microphone, the AI's
-       speaker, and the way out. Repeat and Type instead stay beside them because both are useful
-       mid-call. Microphone mute and speaker mute are separate buttons and say which is which. */
+    /* Minimal controls for a natural conversation: my microphone, the AI's speaker, and the way
+       out. Type instead stays beside them because it is useful mid-call. Microphone mute and
+       speaker mute are separate buttons and say which is which. */
     let h = '<div class="call-row">';
     h += '<button class="btn ' + (rt.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" type="button" aria-pressed="' + (rt.micMuted ? 'false' : 'true') + '" title="Mute or unmute your microphone">' +
       (rt.micMuted ? 'Microphone muted' : 'Microphone live') + '</button>';
     h += '<button class="btn ' + (v.muted ? 'btn-ghost' : 'btn-dark') + '" id="mute-btn" type="button" aria-pressed="' + (v.muted ? 'false' : 'true') + '" title="Mute or unmute the AI voice">' +
       (v.muted ? 'Speaker muted' : 'Speaker on') + '</button>';
-    h += '<button class="btn btn-ghost" id="repeat-btn">Repeat</button>';
     h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
     h += '</div>';
     if (!v.done) {
@@ -2714,10 +2637,11 @@ function callControls(started, total) {
       '<button class="btn btn-ghost" id="type-btn-pre">Type answers instead</button></div>';
   }
   let h = '<div class="call-row">';
-  h += '<button class="btn ' + (v.micMuted ? 'btn-ghost' : 'btn-dark') + '" id="mic-btn" type="button" aria-pressed="' + (v.micMuted ? 'false' : 'true') + '"' +
-    (v.done ? ' disabled' : '') + ' title="Mute or unmute your microphone">' +
-    (v.micMuted ? 'Microphone muted' : 'Microphone live') + '</button>';
-  h += '<button class="btn ' + (v.blockedAudio ? 'btn-primary' : 'btn-ghost') + '" id="repeat-btn">' + (v.blockedAudio ? '&#9654; Play' : 'Repeat') + '</button>';
+  // The call is hands-free: Nova speaks, then listens, automatically. The button is the override -
+  // stop Nova mid-line (tap barge-in), send the answer early, or answer when she missed you.
+  const micLabel = v.listening ? '&#9632; Stop and send' : (v.status === 'speaking' ? '&#9632; Stop' : '&#127908; Answer');
+  h += '<button class="btn ' + (v.listening ? 'btn-dark' : 'btn-primary') + '" id="mic-btn" aria-pressed="' + (v.listening ? 'true' : 'false') + '"' +
+    (v.status === 'thinking' || v.done ? ' disabled' : '') + '>' + micLabel + '</button>';
   h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
   if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip</button>';
   h += '</div>';
@@ -2772,9 +2696,7 @@ function callSidebar() {
   const reqCard = missingReq.length
     ? '<div class="side-card warn"><h3>Needed for blueprint</h3><p class="small">Pending: <b>' + missingReq.map(k => esc(labels[k] || FIELD_LABELS[k])).join(', ') + '</b>.</p></div>'
     : '<div class="side-card ok"><h3>Required numbers captured</h3><p class="small">Deal size, lead volume, and close rate are captured.</p></div>';
-  // The AI's lines carry Nova's avatar: the same head-only figure, with no background of its own.
   const bubbles = v.transcript.map(t => '<div class="bubble ' + (t.role === 'ai' ? 'ai' : 'user') + (t.ignored ? ' ignored' : '') + '">' +
-    (t.role === 'ai' ? '<span class="bubble-av" aria-hidden="true">' + NovaAvatar({ pose: 'sync', size: 32 }) + '</span>' : '') +
     '<span class="bubble-txt">' + esc(t.text) + '</span></div>').join('');
   const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
     '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
@@ -2822,17 +2744,13 @@ function bindCall() {
   if (preType) preType.onclick = () => { v.typed = true; v.micMuted = true; v.startedAt = v.startedAt || new Date().toISOString(); render(); };
   const mic = $('#mic-btn');
   if (mic) mic.onclick = () => {
-    // In both modes this control only mutes/unmutes. Silence detection sends the answer; no tap is
-    // needed to keep the conversation moving.
+    // On a live call the microphone stays open. Stop and send submits the current utterance;
+    // otherwise the control interrupts speech or starts a listen when Nova missed the turn.
     if (v.rt && v.rt.live) { setRealtimeMicMuted(!v.rt.micMuted); render(); return; }
-    v.micMuted = !v.micMuted;
-    if (v.micMuted) stopListening();
-    else {
-      if (v.typed) { v.typed = false; v.typedFallback = false; v.micBlocked = false; }
-      if (v.status === 'speaking') stopSpeaking();
-    }
-    render();
-    if (!v.micMuted && v.startedAt && !v.done) listNow();
+    if (v.listening) { stopListening(true); return; }
+    if (v.status === 'speaking') stopSpeaking();
+    if (v.typed && !v.typedFallback) { v.typed = false; v.micMuted = false; }
+    listNow();
   };
   const micBack = $('#mic-back-btn');
   if (micBack) micBack.onclick = () => {
@@ -2842,8 +2760,6 @@ function bindCall() {
   };
   const stopSpeak = $('#stop-speak');
   if (stopSpeak) stopSpeak.onclick = () => { stopSpeaking(); v.status = v.done ? 'complete' : 'ready'; render(); };
-  const rep = $('#repeat-btn');
-  if (rep) rep.onclick = () => { if (v.rt && v.rt.live) { realtimeRepeat(); return; } repeatLine(); };
   const typ = $('#type-btn');
   if (typ) typ.onclick = () => {
     stopListening();
@@ -2943,7 +2859,7 @@ function listNow() {
 function afterCallRender() {
   const v = state.voice;
   if (!v) return;
-  armNovaPose();   // the figure and its ring follow the call while it is on screen
+  armWaveLive();   // the waveform follows the live state while the call is on screen
   const body = $('#chat-body');
   if (body) body.scrollTop = body.scrollHeight;
   updateLiveLine();
@@ -3046,11 +2962,6 @@ function loaderView(kind) {
     '<div class="scanline-sweep" aria-hidden="true"></div>' +
     // The loading splash: the animated light mark on its white card, as the brand sheet asks.
     novaSplashHtml() +
-    // Nova waits with the visitor, bare on the loading screen, and says his loading line while the job runs.
-    '<div class="nova-wait">' +
-      '<span class="nova-wait-fig">' + novaFigureHtml('think', 180) + '</span>' +
-      novaCopyLine(NOVA_COPY.loading, 'nova-copy-load') +
-    '</div>' +
     '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>AI ADVISOR SYNTHESIS &bull; ACTIVE</div>' +
     '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' +
     '<div class="lstep active" id="loader-step" role="status" aria-live="polite">' +
@@ -3067,9 +2978,9 @@ function loaderView(kind) {
 /* ---------------- review ---------------- */
 function reviewView() {
   const f = state.fields;
-  // Nothing captured yet (a session opened without a call): Nova says so and offers the way in,
+  // Nothing captured yet (a session opened without a call): say so and offer the way in,
   // rather than the screen reading a field set that does not exist.
-  if (!f) return novaEmptyHtml();
+  if (!f) return emptyHtml();
   const isNull = v => v === null || v === '' || (Array.isArray(v) && !v.length);
   // What the voice model says it heard on the call, used only to help fill gaps the parser missed.
   const heard = (state.voice && state.voice.capture && state.voice.capture.heard) || {};
@@ -3494,11 +3405,6 @@ function blueprintView() {
 
   let h = '<div class=\"doc hud-frame' + (delivered ? ' nova-celebrate' : '') + '\">' +
     '<div class=\"doc-head\"><div class=\"telem cy mb12\"><span class=\"d\" aria-hidden=\"true\"></span>BLUEPRINT VERIFIED</div>' +
-    // Nova celebrates at the top of the results, with the line he says once the blueprint is ready.
-    '<div class=\"nova-party\">' +
-      '<span class=\"nova-party-fig\">' + novaFigureHtml('party', 200) + '</span>' +
-      novaCopyLine(NOVA_COPY.success, 'nova-copy-win') +
-    '</div>' +
     '<div class=\"kicker\">PIPELINESYNC AI  |  ' + esc(bp.meta.verticalLabel).toUpperCase() + '</div>' +
     '<h2>Your growth system</h2>' +
     '<div class=\"meta\">' + esc(bp.meta.businessLine) + '  |  Prepared ' + esc(bp.meta.date) + '  |  ' + esc(bp.meta.generatedBy) + '</div></div>' +
@@ -3746,7 +3652,7 @@ function downloadPdf(d) {
     a.href = u; a.download = d.filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 4000);
-    toast(deliveryToast(d) + ' ' + NOVA_COPY.success, false, 'party');
+    toast(deliveryToast(d), false);
   } catch (e) {
     toast('Could not auto-download in this browser. Use "Download PDF again".', true);
   }
@@ -3768,7 +3674,7 @@ function generateClientPDF() {
   }
 
   // The brand palette (brand sheet 1). The generated PDF uses the logo nowhere - the brand sheet
-  // keeps Nova out of documents - so this is the brand's navy, steel and orange in type.
+  // keeps the mascot out of documents - so this is the brand's navy, steel and orange in type.
   const navy = '#0C2B5E';
   const steel = '#3E6892';
   const orange = '#FF7A1A';
@@ -4236,10 +4142,6 @@ function doneView() {
     ? 'Your blueprint is on its way'
     : (hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready');
   let h = '<div class="card done-card">' +
-    '<div class="nova-party nova-party-done">' +
-      '<span class="nova-party-fig">' + novaFigureHtml('party', 180) + '</span>' +
-      novaCopyLine(NOVA_COPY.success, 'nova-copy-win') +
-    '</div>' +
     '<div class="done-mark">' + logoTile(54) + '</div>' +
     '<h2>' + esc(heading) + '</h2>' +
     '<div class="done-list">' +
