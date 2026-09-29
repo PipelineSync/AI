@@ -261,10 +261,10 @@ async function interactiveTests() {
   const fs = require('fs');
   const voiceSrc = fs.readFileSync(require.resolve('../lib/voice.js'), 'utf8');
   const promptsSrc = fs.readFileSync(require.resolve('../lib/prompts.js'), 'utf8');
-  ok(/I am Otto from PipelineSync/.test(voice.INTAKE_PLAN[0].ask), 'the opening line introduces Otto by name');
-  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Otto on both voice paths');
-  ok(/You are Otto, the PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Otto');
-  ok(/say you are Otto, an AI interviewer from PipelineSync/.test(voiceSrc), 'the realtime opening instruction says Otto');
+  ok(/I am Nova from PipelineSync/.test(voice.INTAKE_PLAN[0].ask), 'the opening line introduces Nova by name');
+  ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Nova on both voice paths');
+  ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Nova');
+  ok(/say you are Nova, an AI interviewer from PipelineSync/.test(voiceSrc), 'the realtime opening instruction says Nova');
   ok(!/\bAlex\b/.test(voiceSrc) && !/\bAlex\b/.test(promptsSrc), 'the interviewer is never called anything else in the voice layer');
 
   const schema = voice.turnSchema().schema;

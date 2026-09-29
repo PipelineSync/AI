@@ -37,14 +37,14 @@ function stubRes(status, body) {
   ok(consent.CONSENT_VERSION && typeof consent.CONSENT_VERSION === 'string', 'CONSENT_VERSION constant exists: ' + consent.CONSENT_VERSION);
 
   const noticeHtml = consent.buildNoticeHtml('https://example.com/privacy');
-  ok(/Otto is an AI assistant/.test(noticeHtml) && /HubSpot/.test(noticeHtml) && /OpenAI/.test(noticeHtml) && /Claude/.test(noticeHtml) && /Audio is never stored/.test(noticeHtml), 'buildNoticeHtml contains required disclosure lines');
+  ok(/Nova is an AI assistant/.test(noticeHtml) && /HubSpot/.test(noticeHtml) && /OpenAI/.test(noticeHtml) && /Claude/.test(noticeHtml) && /Audio is never stored/.test(noticeHtml), 'buildNoticeHtml contains required disclosure lines');
   ok(/Privacy Policy/.test(noticeHtml) && /https:\/\/example.com\/privacy/.test(noticeHtml), 'buildNoticeHtml includes privacy link when set');
 
   const noticeNoLink = consent.buildNoticeHtml(null);
-  ok(/Otto is an AI assistant/.test(noticeNoLink) && !/href/.test(noticeNoLink), 'buildNoticeHtml without link shows notice without link');
+  ok(/Nova is an AI assistant/.test(noticeNoLink) && !/href/.test(noticeNoLink), 'buildNoticeHtml without link shows notice without link');
 
   const consentHtml = consent.buildConsentNoticeHtml('https://example.com/privacy');
-  ok(/You.*speaking with Otto, an AI/.test(consentHtml), 'buildConsentNoticeHtml says you will be speaking with Otto, an AI');
+  ok(/You.*speaking with Nova, an AI/.test(consentHtml), 'buildConsentNoticeHtml says you will be speaking with Nova, an AI');
   ok(/saved to our CRM.*HubSpot/.test(consentHtml), 'consent notice repeats CRM line');
   ok(/Privacy Policy/.test(consentHtml), 'consent notice includes privacy link');
 
