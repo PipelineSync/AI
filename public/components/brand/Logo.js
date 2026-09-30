@@ -1,98 +1,71 @@
-/*
- * PipelineSync AI brand logo — components/brand/Logo.
- * ---------------------------------------------------------------------------
- * This is the PipelineSync AI React component (`components/brand/Logo.tsx`) ported to the
- * technology this app actually ships: the prototype frontend is plain HTML/CSS/JS with no build
- * step (see README, "no build step needed"), so the same two components are expressed as string
- * builders that the app injects with the rest of its markup.
- *
- * The SVG geometry, colours, viewBox, stroke widths, the animated flowing dots and the inline
- * <style> block are copied from the React source character for character. Nothing was redrawn,
- * simplified or recoloured. The only differences are the mechanics of the port:
- *   - JSX attributes become attributes (strokeWidth -> stroke-width, className -> class),
- *   - React.useId() becomes a module counter, so the two animated motion paths keep unique ids,
- *   - the components return an HTML string instead of a React element.
- *
- * Usage (all options optional):
- *   PSBrand.LogoMark({ variant: "light"|"dark", size: 40, animated: false, className: "" })
- *   PSBrand.Logo({ variant: "light"|"dark", size: 32 })
- *
- * Rules from the brand sheet: never recolour, never stretch (the mark is drawn at its own aspect
- * ratio), and on a dark surface use variant "dark" (or sit the light variant on a light plate).
+/* Nova brand components. No runtime dependencies or build step.
+ * size is the mark's height; its 222:162 aspect ratio is never stretched.
+ * The generator imports NOVA_MARK so component and static assets share geometry.
  */
 (function (root) {
   'use strict';
-
-  var LOGO_COLORS = {
-    light: { top: '#0C2B5E', bot: '#3E6892', text: '#0C2B5E', sync: '#3E6892' },
-    dark: { top: '#FFFFFF', bot: '#6F9BCB', text: '#FFFFFF', sync: '#8FB7E0' }
+  var NOVA_MARK = {
+    viewBox: '-10 16 222 162', width: 222, height: 162,
+    star: 'M138 28 Q146 92 206 100 Q146 108 138 172 Q130 108 70 100 Q130 92 138 28 Z',
+    spark: 'M186 22 Q188 38 204 40 Q188 42 186 58 Q184 42 168 40 Q184 38 186 22 Z',
+    lines: ['M16 50 C50 50 56 100 84 100', 'M6 100 L84 100', 'M16 150 C50 150 56 100 84 100'],
+    dots: [[16, 50], [6, 100], [16, 150]]
   };
-
-  /* Markup the children of an element must never be able to change. */
+  var LOGO_COLORS = {
+    light: { line: '#0C2B5E', dot: '#3E6892', star: '#FF7A1A', spark: '#3E6892', text: '#0C2B5E', sync: '#3E6892' },
+    dark: { line: '#E8EFF7', dot: '#8FB0D0', star: '#FF7A1A', spark: '#8FB0D0', text: '#FFFFFF', sync: '#8FB0D0' }
+  };
   function escAttr(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  // CSS motion paths use the exact line geometry. Reduced motion restores the
+  // dots to their original centres and leaves the star completely stationary.
+  var ANIMATED_CSS = '.ps-flow-dot{offset-rotate:0deg;animation:ps-flow 2.8s ease-in-out infinite}\n' +
+    '.ps-pulse-star{transform-box:fill-box;transform-origin:center;animation:ps-pulse 2.8s ease-in-out infinite}\n' +
+    '@keyframes ps-flow{0%,10%{offset-distance:0%;opacity:1}55%{offset-distance:100%;opacity:1}65%,100%{offset-distance:100%;opacity:0}}\n' +
+    '@keyframes ps-pulse{0%,60%,100%{transform:scale(1)}76%{transform:scale(1.035)}}\n' +
+    '@media (prefers-reduced-motion:reduce){.ps-flow-dot{animation:none;offset-path:none!important;opacity:1}.ps-pulse-star{animation:none;transform:none}}';
 
-  /* `animated` adds flowing dots for loading screens (use on light backgrounds). */
-  var ANIMATED_CSS = '.ps-dot{transform-box:fill-box;transform-origin:center;animation:ps-dot 1.6s ease-in-out infinite}\n' +
-    '        @keyframes ps-dot{50%{transform:scale(1.2) rotate(8deg)}}\n' +
-    '        @media (prefers-reduced-motion:reduce){.ps-dot{animation:none}}';
-
-  var uid = 0;
-
-  /** The S mark. */
   function LogoMark(opts) {
     opts = opts || {};
     var variant = opts.variant === 'dark' ? 'dark' : 'light';
     var size = opts.size == null ? 40 : opts.size;
-    var animated = !!opts.animated;
     var c = LOGO_COLORS[variant];
-    var id = 'ps' + (++uid);
+    var animated = !!opts.animated;
     var cls = opts.className ? ' class="' + escAttr(opts.className) + '"' : '';
-    var h = '<svg viewBox="20 20 440 590" height="' + size + '" width="' + (size * 440 / 590) + '"' +
-      ' role="img" aria-label="PipelineSync AI"' + cls + '>';
+    var h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + NOVA_MARK.viewBox + '" height="' + size + '" width="' + (size * 222 / 162) + '" role="img" aria-label="Nova PipelineSync AI"' + cls + '>';
     if (animated) h += '<style>' + ANIMATED_CSS + '</style>';
-    h += '<path d="M416 57.5 V162 H160 A97.5 97.5 0 0 0 160 357 H212" fill="none" stroke="' + c.top + '" stroke-width="55" stroke-linecap="round" />';
-    h += '<rect x="388.5" y="30" width="55" height="40" fill="' + c.top + '" />';
-    h += '<path d="M172 260 H320 A98.5 98.5 0 0 1 320 457 H62 V572.5" fill="none" stroke="' + c.bot + '" stroke-width="55" stroke-linecap="round" />';
-    h += '<rect x="34.5" y="560" width="55" height="40" fill="' + c.bot + '" />';
-    h += '<rect' + (animated ? ' class="ps-dot"' : '') + ' x="278" y="330" width="54" height="54" rx="10" fill="#FF7A1A" />';
-    if (animated) {
-      h += '<path id="na' + id + '" d="M416 30 V162 H160 A97.5 97.5 0 0 0 160 357 H212" fill="none" />';
-      h += '<path id="sa' + id + '" d="M62 600 V457 H320 A98.5 98.5 0 0 0 320 260 H172" fill="none" />';
-      h += '<circle r="8" fill="#fff"><animateMotion dur="2.6s" repeatCount="indefinite"><mpath href="#na' + id + '" /></animateMotion></circle>';
-      h += '<circle r="8" fill="#fff"><animateMotion dur="2.6s" repeatCount="indefinite"><mpath href="#sa' + id + '" /></animateMotion></circle>';
-    }
+    NOVA_MARK.lines.forEach(function (d) {
+      h += '<path d="' + d + '" fill="none" stroke="' + c.line + '" stroke-width="14" stroke-linecap="round"/>';
+    });
+    NOVA_MARK.dots.forEach(function (p, i) {
+      // offset-anchor at the circle centre keeps each moving dot on its line.
+      h += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="12" fill="' + c.dot + '"' +
+        (animated ? ' class="ps-flow-dot" style="offset-path:path(\'' + NOVA_MARK.lines[i] + '\');offset-anchor:' + p[0] + 'px ' + p[1] + 'px"' : '') + '/>';
+    });
+    h += '<path d="' + NOVA_MARK.star + '" fill="' + c.star + '"' + (animated ? ' class="ps-pulse-star"' : '') + '/>';
+    h += '<path d="' + NOVA_MARK.spark + '" fill="' + c.spark + '"/>';
     return h + '</svg>';
   }
-
-  /** Mark + wordmark, for headers. */
   function Logo(opts) {
     opts = opts || {};
     var variant = opts.variant === 'dark' ? 'dark' : 'light';
     var size = opts.size == null ? 32 : opts.size;
     var c = LOGO_COLORS[variant];
-    return '<span class="inline-flex items-center gap-2 select-none">' +
-      LogoMark({ variant: variant, size: size }) +
-      '<span style="color:' + c.text + ';font-size:' + (size * 0.62) + 'px;font-weight:800;letter-spacing:-0.03em;line-height:1">' +
-        'Pipeline<span style="color:' + c.sync + '">Sync</span>' +
-        '<span style="color:#FF7A1A;margin-left:0.25em">AI</span>' +
-      '</span>' +
-    '</span>';
+    return '<span class="ps-lockup" role="img" aria-label="Nova PipelineSync AI">' +
+      '<span class="ps-lockup-mark" aria-hidden="true">' + LogoMark({ variant: variant, size: size }) + '</span>' +
+      '<span class="ps-wordmark" aria-hidden="true" style="gap:' + (size * 0.12) + 'px">' +
+        '<span class="ps-wordmark-name" style="color:' + c.text + ';font-size:' + (size * 0.6) + 'px">NOVA</span>' +
+        '<span class="ps-wordmark-sub" style="color:' + c.sync + ';font-size:' + (size * 0.28) + 'px">PipelineSync <span style="color:#FF7A1A;font-weight:800">AI</span></span>' +
+      '</span></span>';
   }
-
-  /* Brand palette, shared with Nova.js and with the CSS tokens in styles.css. */
   var BRAND = {
     navy: '#0C2B5E', steel: '#3E6892', steelDeep: '#2E5580',
     syncOrange: '#FF7A1A', syncOrangeHover: '#E8660A', sky: '#8FB0D0', mist: '#E8EFF7', void: '#0A0E17'
   };
-
   root.PSBrand = Object.assign(root.PSBrand || {}, {
-    LOGO_COLORS: LOGO_COLORS,
-    BRAND: BRAND,
-    LogoMark: LogoMark,
-    Logo: Logo
+    NOVA_MARK: NOVA_MARK, LOGO_COLORS: LOGO_COLORS, BRAND: BRAND, LogoMark: LogoMark, Logo: Logo
   });
 })(typeof window !== 'undefined' ? window : this);

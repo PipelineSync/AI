@@ -1,4 +1,4 @@
-# PipelineSync AI - Prototype Build
+# Nova PipelineSync AI - Prototype Build
 
 Runnable prototype of the app described in `PipelineSync_AI_Developer_Brief.pdf`. Built to be
 tested end to end in the browser. External services are live when their keys are set (HubSpot when
@@ -26,7 +26,7 @@ routing in `netlify.toml`. No build step is needed.
 cd pipelinesync
 git init
 git add .
-git commit -m "PipelineSync AI prototype: Netlify-ready (no Supabase)"
+git commit -m "Nova PipelineSync AI prototype: Netlify-ready (no Supabase)"
 # create an empty repo on github.com first (e.g. pipelinesync-ai), then:
 git branch -M main
 git remote add origin https://github.com/<you>/pipelinesync-ai.git
@@ -68,7 +68,7 @@ Site configuration → **Environment variables** → **Add a variable**:
 | `PIPELINESYNC_WORKSPACE_OWNER_ID` | UUID | `auth.users.id` of the workspace admin who owns incoming leads. Must be a valid UUID. Required together with Supabase URL and key. |
 | `PRIVACY_POLICY_URL` | `https://...` | Privacy Policy URL, must be https. Returned by `/api/config` as `privacyPolicyUrl` and `consentVersion`. If unset, server logs warning and notice shown without link. **A real policy is required before public launch.** |
 | `PDF_EMAIL_API_KEY` | Resend API key (`re_...`) | **Emails the finished PDF** to the lead as an attachment, with a branded HTML body. Server-side only. Without it the feature is off and `deliver` returns `email:{sent:false,error}`, so the finish screen says to download instead of claiming a send. |
-| `PDF_EMAIL_FROM` | `PipelineSync AI <blueprints@yourdomain.com>` | The From header. **The domain must be verified in Resend (DNS records) before Resend delivers to anyone but the address that owns the account.** Use `onboarding@resend.dev` for testing only - see below. |
+| `PDF_EMAIL_FROM` | `Nova PipelineSync AI <blueprints@yourdomain.com>` | The From header. **The domain must be verified in Resend (DNS records) before Resend delivers to anyone but the address that owns the account.** Use `onboarding@resend.dev` for testing only - see below. |
 | `PDF_EMAIL_SUBJECT` | optional | Subject template. `{first_name}`, `{name}`, `{vertical}`, `{tier}`, `{date}` are filled in; the default is `Your PipelineSync blueprint is attached`. |
 | `PDF_EMAIL_REPLY_TO` | optional | Reply-To address, so replies reach a real inbox. |
 | `DELIVER_RATE_PER_MIN` | `5` (default) | Unlocks per minute per IP on `/api/deliver`. Each attempt builds a PDF and may send an email, so it is the tightest limit in the app. |
@@ -126,7 +126,7 @@ Resend refuses every recipient except the address that owns the Resend account a
 `... The domain is not verified ...`. For a test deploy:
 
 1. Set `PDF_EMAIL_FROM` to Resend's test sender, e.g.
-   `PipelineSync AI <onboarding@resend.dev>` (testing only - mail sent from `resend.dev` is meant
+   `Nova PipelineSync AI <onboarding@resend.dev>` (testing only - mail sent from `resend.dev` is meant
    for your own address and is more likely to be marked as spam).
 2. Unlock the PDF with the email address that owns the Resend account.
 3. Once the domain verifies, change `PDF_EMAIL_FROM` to an address on that domain and redeploy.
@@ -192,45 +192,66 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
 8. **Lead captured** (Function D, live when `HUBSPOT_ACCESS_TOKEN` is set, otherwise `[hubspot-mock]` log line) - a lead with all answers and a blueprint reference is pushed to HubSpot when live, otherwise logged as `[hubspot-mock] lead push: ...`; when HubSpot is live, the contact note also records whether the email went out.
 9. **Book a call** - live when `SCHEDULER_LINK` is set, otherwise fallback request picker (the real embed uses the configured HubSpot Meetings scheduler link).
 
-## The brand: the logo and Nova
+## The brand: Nova PipelineSync AI
 
-The logo and Nova the mascot are components, in `public/components/brand/`:
+The brand components live in `public/components/brand/` and return plain HTML/SVG
+strings. `index.html` loads them before `app.js`; there is no runtime dependency
+or build step for the app.
 
 | Component | File | Used for |
 |---|---|---|
-| `LogoMark({ variant, size, animated })` | `Logo.js` | the S mark on its own; `animated` adds the flowing dots for loading screens |
-| `Logo({ variant, size })` | `Logo.js` | mark + wordmark lockup |
-| `Nova({ pose, avatar, size })` | `Nova.js` | the mascot, six poses, optional head-only avatar crop |
-| `NovaAvatar({ pose, size, ring })` | `Nova.js` | the head-only figure with an optional orange ring; paints no background of its own |
+| `LogoMark({ variant, size, animated })` | `Logo.js` | Nova's three incoming lines/dots, four-point star and spark; `size` is height, width is `size × 222 / 162` |
+| `Logo({ variant, size })` | `Logo.js` | mark beside real HTML text: **NOVA**, then **Nova PipelineSync AI**; accessible name “Nova PipelineSync AI” |
+| `Nova({ pose, avatar, size })` / `NovaAvatar({ pose, size, ring })` | `Nova.js` | retained mascot component API; not rendered in the current app |
 
-They are the brand sheet's React components (`components/brand/Logo.tsx`, `components/brand/Nova.tsx`)
-ported to the technology this prototype ships: `public/app.js` is plain HTML/CSS/JS with no build
-step, so the components return markup strings that the app injects with the rest of its markup. The
-SVG geometry, colours, stroke widths, view boxes and the inline animation CSS are the same markup.
-`index.html` loads the two files before `app.js`.
+`Logo.js` is the geometry source of truth (`NOVA_MARK`): viewBox `-10 16 222 162`,
+three round-capped 14px lines, three 12px dots, star and spark, in that paint order.
+The **light** palette uses navy `#0C2B5E` lines and steel `#3E6892` dots/spark.
+The **dark** palette uses mist `#E8EFF7` lines and sky `#8FB0D0` dots/spark.
+Both use the orange `#FF7A1A` star. Never stretch the mark.
 
-Nova's pose is never a new flag: it is read from state the app already tracks, so the voice flow is
-untouched.
+The topbar, entry gate, completion mark and loading mark follow the active theme:
+light artwork only on light surfaces, dark artwork directly on dark surfaces,
+**without a white plate**. The voice orb stays dark in both themes and therefore
+always uses the dark mark. At narrow header widths the product name is shortened
+to **Nova**, rather than cropping the text. Loading animates the three dots into
+the star, then pulses the star gently; `prefers-reduced-motion` restores static
+original dots and disables the pulse.
 
-| The app is | Nova is | Where |
-|---|---|---|
-| on the start screen | `hello` (200px) | next to "Start strategy session", with his greeting |
-| reading the disclaimer | `hello`, avatar (96px) | the consent card |
-| speaking a question | `speak`, avatar (104-140px, orange ring) | the live call panel |
-| listening to the answer | `listen`, avatar (104-140px, orange ring) | the live call panel |
-| waiting on the model / building the blueprint | `think` (170-180px) | the loader, with his loading line |
-| on the results | `party` (180-200px) | the top of the blueprint, the done card and the delivery toast |
-| with no captured data yet | `think` (170px) | the empty state: "No pipeline data yet" |
-| after a failed turn | `think`, avatar (56px) | the error line under him |
-| showing the transcript | `sync`, avatar (32px) | the AI's chat bubbles and the call header |
+### Generated brand assets
 
-His copy is the brand sheet's five lines (`greeting`, `listening`, `loading`, `success`, `error`),
-read from `window.PSBrand.NOVA_COPY` so the mascot and the app cannot drift apart.
+Run `npm run brand:icons` after a geometry change. The generator imports the mark
+geometry from `Logo.js` and writes every asset below; these files are committed.
+`@resvg/resvg-js` is **build-time only**, loaded only by `scripts/make-brand-assets.js`:
 
-The live call screen puts his avatar on the left with the orange pulsing ring and, on the right, the
-"NOVA · QUESTION X OF Y" label, the question in large type, and the animated waveform (nine bars in a
-`#8FB0D0` → `#FF7A1A` gradient). Every control, the progress track, the captured-signals sidebar and
-the transcript are unchanged.
+```sh
+npm ci
+npm install --no-save --package-lock=false @resvg/resvg-js
+npm run brand:icons
+# Alternatively, RESVG_PATH=/path/to/@resvg/resvg-js npm run brand:icons
+```
+
+No new application dependencies are required. The command fails before writing
+assets if the raster renderer is unavailable, so old PNGs cannot silently survive
+alongside new SVGs.
+
+| Asset | Treatment |
+|---|---|
+| `public/logo.svg` | light mark, transparent background |
+| `public/logo-on-dark.svg` | dark mark directly on `#0A0E17` |
+| `public/logo-lockup.svg`, `public/logo-lockup-dark.svg` | two-line wordmark beside the light/dark mark |
+| `public/favicon.svg`, `public/favicon.ico` | orange tile, white incoming lines/dots, navy star; ICO contains 16/32/48px PNGs |
+| `public/app-icons.svg`, `public/icon-512.png` | navy 512px tile, white lines, sky dots, orange star |
+| `public/apple-touch-icon.png` | same navy icon at 180px |
+| `public/icon-maskable-512.png` | navy tile; entire mark inside the central 80%-diameter safe circle |
+
+Icons omit the spark, use 16px lines and 13px dots, and have a corner radius of
+22% of tile size. Normal icons use a centred, undistorted mark at 72% tile width;
+the maskable icon uses 60% width for safe circular cropping. The PDF and email
+headers are text-only and use **Nova PipelineSync AI**; no mascot or old artwork
+is embedded. App metadata uses the full name and the short name **Nova**. Branding
+changes must not rename routes, environment variables, HubSpot properties,
+`pipelinesync_ai`, Supabase tables, or existing test/export filenames.
 
 **One name, said and seen.** Nova is what the client reads on screen *and* what they hear on the
 call. The step-by-step identity and first greeting, `MASTER_INTERVIEW_IDENTITY` in `lib/prompts.js`,
@@ -275,18 +296,13 @@ Design rules that `node test/ui-design.js` enforces:
   a restyle cannot silently drop a style the UI depends on.
 - **Preferences respected**: `prefers-reduced-motion` stops the orb pulse and the spinners,
   `forced-colors` mode gets real borders, and the print stylesheet prints just the blueprint.
-- **The logo and Nova are components, not artwork.** `public/components/brand/Logo.js` and
-  `public/components/brand/Nova.js` are the brand sheet's `components/brand/{Logo,Nova}.tsx` ported
-  to this no-build layer: same SVG markup, same geometry, same colours, same six poses, returned as
-  markup strings instead of React elements. Nothing else in the app draws them, and neither is ever
-  redrawn, recoloured or stretched (`logoTile()` fixes the mark's own 440x590 aspect ratio; every
-  Nova figure is sized by `width`/`height` from the same 300x300 view box).
-- **A light mark never sits on a dark surface.** The light variant is navy `#0C2B5E` and steel
-  `#3E6892`, so on the topbar and the entry-gate hero it measures **1.2:1** and **3.4:1** and
-  disappears. Two shapes are allowed and the design check enforces both: the light variant inside a
-  white plate (`.logo-plate`, `logoTile()`, the 160px splash card) or the dark variant (white and
-  sky), which is what the topbar and the call orb use. For decks and slides, `public/logo-on-dark.svg`
-  is the same treatment as a standalone file.
+- **The logo is the exact Nova mark.** Component and generated SVG tests pin the
+  `222:162` viewBox ratio, all five paths, dot positions, draw order, palettes,
+  two-line HTML wordmark and icon simplification. `logoTile()` preserves the ratio.
+- **A light mark never sits on a dark surface.** Theme-following surfaces select
+  their variant; the permanently dark call orb always uses the dark mark. There
+  are no white logo plates. Tests measure dark-mark contrast on `#0A0E17` and
+  require both icon stars to clear 3:1 against their orange/navy tiles.
 - **Nova is transparent artwork: nothing paints behind him.** No plate, no circle, no ground
   shadow - `.nova-fig-card` (and every other figure wrapper) only reserves his space, and
   `NovaAvatar` draws just the optional orange ring, so the app's own surface shows through on dark,
@@ -446,21 +462,19 @@ pipelinesync/
   netlify/functions/     start (the name + email gate; login.js is its alias), logout, ai (Claude API),
                          generate (B), deliver (C+D), voice, outbox, health
   public/index.html      shell (no CDN, works offline; includes pdfmake for client-side PDF)
-  public/components/brand/Logo.js  the logo components: LogoMark (the S mark, with the animated
-                         flowing-dot variant for loading screens) and Logo (mark + wordmark)
-  public/components/brand/Nova.js  Nova the mascot: six poses (sync, hello, listen, speak, think,
-                         party), the avatar crop, his five copy lines and his animation CSS
-  public/logo.svg        brand mark as vector (faithful redraw of the logo-only.png artwork),
-                         transparent: use it on light backgrounds
-  public/logo-on-dark.svg  the same mark on a white rounded plate, for dark backgrounds
-  public/favicon.svg     favicon: the light mark on a navy #0C2B5E rounded tile
-  public/favicon.ico     multi-size ICO fallback (16/32/48) for legacy browsers
-  public/app-icons.svg   the 512px PWA icon (maskable-safe tile)
-  public/icon-512.png    the same tile at 512px, public/icon-maskable-512.png with more padding
-  public/apple-touch-icon.png  180x180 iOS home-screen icon
-  public/manifest.webmanifest  PWA manifest (installable, theme colour #0A0E17, icons)
-  scripts/make-brand-assets.js  regenerates the favicon and app icons from the Logo component's
-                         geometry (npm run brand:icons; needs @resvg/resvg-js, build-time only)
+  public/components/brand/Logo.js  Nova mark geometry, animated dots/star and two-line HTML lockup
+  public/components/brand/Nova.js  retained mascot component (not rendered in the current UI)
+  public/logo.svg        transparent light Nova mark
+  public/logo-on-dark.svg  dark Nova mark directly on #0A0E17
+  public/logo-lockup.svg, public/logo-lockup-dark.svg  mark + two-line wordmark
+  public/favicon.svg     orange tile, white lines/dots, navy star (no spark)
+  public/favicon.ico     16/32/48 PNG entries of the orange tile
+  public/app-icons.svg, public/icon-512.png  navy 512px tile
+  public/icon-maskable-512.png  padded navy tile, central 80% safe circle
+  public/apple-touch-icon.png  navy tile at 180x180
+  public/manifest.webmanifest  Nova PipelineSync AI / Nova; theme #0A0E17
+  scripts/make-brand-assets.js  generates all vectors and rasters from Logo.js geometry;
+                         @resvg/resvg-js is build-time only, never an app dependency
   public/styles.css      design system + responsive layout (mobile-first, see below)
   public/app.js          SPA: entry gate, consent, both voice engines (continuous WebRTC call and
                          step-by-step call), review, blueprint, unlock, booking, done

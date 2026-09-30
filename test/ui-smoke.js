@@ -149,7 +149,7 @@ async function passGate(page, details) {
   ok(/voice call/i.test(document.body.textContent), 'the gate says the next step is the AI voice call');
   ok(!!document.querySelector('#start-form button[type=submit]'), 'the gate has one submit action');
   // Brand: the lockup in the hero. The mascot stays off the start screen: no figure, no greeting line.
-  ok(!!document.querySelector('.gate-brand .brand-logo svg[aria-label="PipelineSync AI"]'), 'the entry gate carries the brand lockup');
+  ok(!!document.querySelector('.gate-brand .brand-logo svg[aria-label="Nova PipelineSync AI"]'), 'the entry gate carries the brand lockup');
   ok(!document.querySelector('.gate-card svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not greet the visitor on the start screen');
   ok(!/Hi, I'm Nova\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
     'and his greeting line is gone from the start screen');
@@ -261,7 +261,7 @@ async function reachCall(page, details) {
 
   // Brand: the header lockup on every screen, and the live call panel the brand sheet specifies.
   // The mascot no longer appears anywhere: no figure on the panel, no avatar on the bubbles.
-  ok(!!d1.querySelector('.topbar .brand-logo svg[aria-label="PipelineSync AI"]'), 'the header carries the logo lockup on the call screen');
+  ok(!!d1.querySelector('.topbar .brand-logo svg[aria-label="Nova PipelineSync AI"]'), 'the header carries the logo lockup on the call screen');
   ok(!d1.querySelector('.call svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova is not on the call screen');
   ok(!d1.querySelector('#call-progress') && !d1.querySelector('#call-bar') && !d1.querySelector('.side-toggle-count'),
     'no question counter on the call screen: the conversation leads');
@@ -275,7 +275,7 @@ async function reachCall(page, details) {
   ok(p1.spoken.length >= 1, 'the AI spoke its first line out loud (' + JSON.stringify((p1.spoken[0] || '').slice(0, 60)) + '...)');
   ok(/what does your business do/i.test(p1.spoken[0] || ''), 'the first spoken line asks the opening question');
   ok(/PipelineSync/.test(p1.spoken[0] || ''), 'the AI introduces itself on the first line (AI disclosure on the call)');
-  ok((d1.querySelector('.badge-mode') || {}).textContent === 'Browser voice (no API key)', 'the no-key call shows the exact browser-voice badge');
+  ok(!d1.querySelector('#intake-side .badge-mode'), 'the discovery sidebar omits the Mode badge');
   ok((d1.querySelector('#call-mode') || {}).textContent === 'Browser voice (no API key)', 'the call header repeats only the exact browser-voice mode label');
   ok(!!d1.querySelector('.orb.listening, .orb.speaking, .orb.thinking, .orb.ready'), 'the call UI shows the live call state');
 
@@ -291,7 +291,7 @@ async function reachCall(page, details) {
   ok(!!d1.querySelector('#structure-btn'), 'the AI worked through the intake set and closed the call');
   ok(p1.spoken.length >= 12, 'the AI spoke every question (' + p1.spoken.length + ' lines)');
   ok(p1.recognitionStarts() >= 12, 'step-by-step speech automatically starts another microphone listen without a tap');
-  ok(d1.querySelectorAll('.bubble.user').length >= 12, 'the transcript holds the spoken answers');
+  ok(p1.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user').length >= 12, 'the transcript holds the spoken answers');
   console.log('\nScenario 1b: Stop and send submits the live utterance');
   const pStop = boot(true, null, {
     recognitionDelayMs: 120,
@@ -319,11 +319,12 @@ async function reachCall(page, details) {
   ok(stopCallEnded && stoppedState.done && stoppedState.stopped, 'Stop and send submits the current answer; the next spoken stop ends the call');
   ok(stoppedState.answers.some(a => a.id === 'business' && a.text === firstAnswer), 'Stop and send preserves the answer in captured fields');
   ok(!stoppedState.answers.some(a => /Can we stop here/.test(a.text)), 'the later stop instruction is never stored as an answer');
-  ok(d1.querySelectorAll('.bubble.ai').length >= 12, 'the transcript holds the AI lines');
+  ok(p1.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'ai').length >= 12, 'the transcript holds the AI lines');
   const details = d1.querySelector('#transcript-wrap');
-  ok(!!details && !details.open, 'the transcript stays collapsed: the call is voice, not chat');
-  ok(d1.querySelectorAll('.side-chip.filled').length >= 15, 'the sidebar shows captured values (' + d1.querySelectorAll('.side-chip.filled').length + ' fields)');
-  ok(/Required numbers captured/.test(d1.body.textContent), 'deal size, lead volume and close rate were captured live');
+  ok(!details, 'the Transcript card is removed from the discovery call');
+  ok(!d1.querySelector('#intake-side .side-chip'), 'captured signals are not shown in the discovery sidebar');
+  ok(p1.window.__PS_VOICE_STATE__().capturedCount >= 15, 'at least 15 fields remain captured internally without the signals card');
+  ok(p1.window.__PS_VOICE_STATE__().missingRequired.length === 0, 'deal size, lead volume and close rate were captured live');
   ok(p1.errors.length === 0, 'no runtime errors during the voice call' + (p1.errors.length ? ': ' + p1.errors[0] : ''));
 
   // hand-off to Function A and the rest of the journey
@@ -432,7 +433,7 @@ async function reachCall(page, details) {
   ok(/blocked|Type instead/i.test(d2.body.textContent), 'the blocked microphone is explained with the Type instead route');
   ok(!!d2.querySelector('#intake-input'), 'typing is offered when the microphone cannot be used');
   ok(p2.spoken.length >= 1, 'the AI still speaks the questions (browser voice)');
-  ok(!d2.querySelector('#transcript-wrap').open, 'the transcript is still collapsed');
+  ok(!d2.querySelector('#transcript-wrap'), 'the Transcript card stays removed');
 
   /* The error state. The turn API is made to fail for one answer, which is the same thing the
      visitor sees when a question cannot be sent: the error note and Retry appear, and Retry
@@ -463,7 +464,7 @@ async function reachCall(page, details) {
     await sleep(300);
   }
   ok(!!d2.querySelector('#structure-btn'), 'the typed journey still reaches the end of the call');
-  ok(d2.querySelectorAll('.bubble.user').length >= 12, 'typed answers land in the same transcript');
+  ok(p2.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user').length >= 12, 'typed answers land in the same transcript');
   d2.getElementById('structure-btn').click();
   await sleep(3200);
   ok(!!d2.querySelector('#confirm-fields'), 'typed answers structure into the review screen');
@@ -534,7 +535,7 @@ async function reachCall(page, details) {
   p4.window.__askOnce = 'How much does this cost me, all in?';
   await reachCall(p4, { name: 'Nena Cruz', email: 'nena@example.ph' });
   const d4 = p4.document;
-  const aiBubbles = () => Array.from(d4.querySelectorAll('#transcript-wrap .bubble.ai .bubble-txt')).map(b => b.textContent);
+  const aiBubbles = () => p4.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'ai').map(t => t.text);
   const faqPattern = /free, and (?:there is|there's) nothing to buy/i;
   for (let i = 0; i < 100 && !aiBubbles().some(t => faqPattern.test(t)); i++) await sleep(25);
   p4.window.__askOnce = 'Can we stop here, please?';
@@ -753,11 +754,11 @@ async function reachCall(page, details) {
   });
   const p9 = bootWithStorage(false, BASE, { ps_token: testToken, ps_user: JSON.stringify({ name: 'Reload Test', email: 'reload@test.com' }) }, { ps_journey: journeyIntake });
   await new Promise(r => setTimeout(r, 900));
-  ok(p9.document.querySelectorAll('.side-chip.filled').length >= 5,
-    'a reload mid-call rebuilds the captured-signals panel from the saved answers (' +
-    p9.document.querySelectorAll('.side-chip.filled').length + ' fields)');
-  ok(/Needed for blueprint/.test(p9.document.body.textContent),
-    'the required-figures card still lists what is pending after a reload');
+  ok(p9.window.__PS_VOICE_STATE__().capturedCount >= 5, 'a reload still rebuilds captured state even without the signals card');
+  ok(!p9.document.querySelector('#intake-side .side-chip'), 'reload does not restore the removed Captured signals card');
+  ok(!p9.document.querySelector('#transcript-wrap') && !/Needed for blueprint/.test(p9.document.body.textContent),
+    'the removed requirements and transcript cards stay absent after reload');
+  ok(p9.window.__PS_VOICE_STATE__().missingRequired.length > 0, 'reload preserves the still-missing required figures internally');
   ok(!/Required numbers captured/.test(p9.document.body.textContent),
     'the panel never claims required figures it does not have');
   ok(p9.errors.length === 0, 'no runtime errors on mid-call reload' + (p9.errors.length ? ': ' + p9.errors[0] : ''));

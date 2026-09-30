@@ -1,6 +1,6 @@
 'use strict';
 
-/* Authenticated progress updates from the PipelineSync AI journey.
+/* Authenticated progress updates from the Nova PipelineSync AI journey.
  * The signed session fixes the lead ID; the browser cannot choose another row.
  */
 const core = require('../../lib/core');

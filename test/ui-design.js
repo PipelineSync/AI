@@ -140,9 +140,13 @@ const PAIRS = [
   ['entry-gate mini-step text', '#B9CEDF', '--navy-900', 4.5],
   ['entry-gate accent headline', '#FFC08A', '--navy', 3],
   ['numerals on the brand fill', '--navy-900', '--brand', 3],
-  ['logo navy stroke on its plate', '--navy', '#FFFFFF', 3],
-  ['logo steel stroke on its plate', '--steel', '#FFFFFF', 3],
-  ['the logo plate on the navy hero', '#FFFFFF', '--navy', 3]
+  ['light mark lines on white', '#0C2B5E', '#FFFFFF', 3],
+  ['light mark dots on white', '#3E6892', '#FFFFFF', 3],
+  ['dark mark lines on dark', '#E8EFF7', '#0A0E17', 3],
+  ['dark mark dots/spark on dark', '#8FB0D0', '#0A0E17', 3],
+  ['dark mark star on dark', '#FF7A1A', '#0A0E17', 3],
+  ['navy star on orange tile', '#0C2B5E', '#FF7A1A', 3],
+  ['orange star on navy tile', '#FF7A1A', '#0C2B5E', 3]
 ];
 for (const [label, fg, bg, min] of PAIRS) {
   const f = tokens[fg] || fg, b = tokens[bg] || bg;
@@ -152,63 +156,146 @@ for (const [label, fg, bg, min] of PAIRS) {
 }
 
 /* ------------------------------------------------------------------ */
-section('the brand mark is never bare on a dark surface');
+section('Nova geometry, variants, surfaces and generated assets');
 
-/* The logo now comes from components/brand/Logo.js. Its light variant draws navy #0C2B5E and steel
-   #3E6892 strokes: on the dark topbar or the entry-gate hero those measure 1.2:1 and 3.4:1, so a
-   light mark put straight on dark disappears. Two shapes are allowed:
-     - the light variant inside a light plate (logoTile / the splash card),
-     - the dark variant (white + sky), which is what every dark surface uses.
-   Anything else - a light mark on a dark surface - is what this check exists to stop. */
-ok(!/function logoMark\(/.test(appJs), 'the old inline logoMark() is gone: the brand component draws the mark');
-const lightMarks = (appJs.match(/LogoMark\(\{[^}]*variant:\s*'light'[^}]*\}\)/g) || []);
-const platedLight = lightMarks.filter(c => /logoTile|novaSplashHtml|Splash/.test(appJs.slice(Math.max(0, appJs.indexOf(c) - 400), appJs.indexOf(c))));
-ok(lightMarks.length > 0 && platedLight.length === lightMarks.length,
-  'every light-variant mark is inside a light plate or the splash card (' + platedLight.length + '/' + lightMarks.length + ')');
-ok(/LogoMark\(\{ variant: 'dark', size: 24 \}\)/.test(appJs), 'the call orb carries the dark variant, not the light one');
-ok(/Logo\(\{ variant: 'dark', size: 30 \}\)/.test(appJs), 'the header lockup uses the dark variant on the dark topbar');
-const platedMarks = (appJs.match(/logoTile\(\d+\)/g) || []).length;
-ok(platedMarks >= 1, 'the done card still renders the mark on a plate (' + platedMarks + ' plates)');
-ok(/\.logo-plate\s*{[^}]*background:\s*#FFFFFF/i.test(css), '.logo-plate has a light background of its own');
-ok(/\.gate-brand \.logo-plate/.test(css), 'the plate gets extra separation on the dark hero');
-ok(fs.existsSync(path.join(__dirname, '..', 'public', 'logo-on-dark.svg')), 'public/logo-on-dark.svg ships for dark decks and slides');
-
-/* The favicon and the app icon: the static light mark on a navy #0C2B5E rounded tile. */
-const faviconSvg = fs.readFileSync(path.join(__dirname, '..', 'public', 'favicon.svg'), 'utf8');
-const appIconSvg = fs.readFileSync(path.join(__dirname, '..', 'public', 'app-icons.svg'), 'utf8');
-ok(/fill="#0C2B5E"/.test(faviconSvg) && /#FF7A1A/.test(faviconSvg), 'favicon.svg is the brand tile (navy fill, brand orange dot)');
-ok(/viewBox="0 0 512 512"/.test(appIconSvg) && /rx="/.test(appIconSvg), 'app-icons.svg is a 512px rounded-square app tile');
-
-/* A browser decodes a linked .svg icon as strict XML: one unbalanced tag and the icon silently
-   disappears. The generator is the only thing that writes these files, so both are parsed here. */
+const logoJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Logo.js'), 'utf8');
+const novaJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Nova.js'), 'utf8');
+const brand = require('../public/components/brand/Logo.js').PSBrand;
 const svgParser = new JSDOM('').window.DOMParser;
-for (const f of ['favicon.svg', 'app-icons.svg']) {
-  const doc = new svgParser().parseFromString(fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8'), 'image/svg+xml');
-  ok(!doc.querySelector('parsererror'), 'public/' + f + ' is well-formed XML, so a browser can decode it');
+const parseSvg = svg => new svgParser().parseFromString(svg, 'image/svg+xml');
+const expectedLines = ['M16 50 C50 50 56 100 84 100', 'M6 100 L84 100', 'M16 150 C50 150 56 100 84 100'];
+const expectedStar = 'M138 28 Q146 92 206 100 Q146 108 138 172 Q130 108 70 100 Q130 92 138 28 Z';
+const expectedSpark = 'M186 22 Q188 38 204 40 Q188 42 186 58 Q184 42 168 40 Q184 38 186 22 Z';
+const expectedDots = [[16, 50], [6, 100], [16, 150]];
+for (const variant of ['light', 'dark']) {
+  const svg = parseSvg(brand.LogoMark({ variant, size: 54 }));
+  const root = svg.documentElement;
+  const paths = [...svg.querySelectorAll('path')];
+  const circles = [...svg.querySelectorAll('circle')];
+  const palette = variant === 'light' ? ['#0C2B5E', '#3E6892'] : ['#E8EFF7', '#8FB0D0'];
+  ok(root.getAttribute('viewBox') === '-10 16 222 162' && +root.getAttribute('width') === 74 && +root.getAttribute('height') === 54,
+    variant + ' mark uses the exact viewBox and undistorted 222:162 dimensions');
+  ok(paths.length === 5 && paths.slice(0, 3).every((p, i) => p.getAttribute('d') === expectedLines[i] && p.getAttribute('fill') === 'none' && p.getAttribute('stroke-width') === '14' && p.getAttribute('stroke-linecap') === 'round'),
+    variant + ' mark has the three exact 14px round-capped lines');
+  ok(circles.length === 3 && circles.every((c, i) => +c.getAttribute('cx') === expectedDots[i][0] && +c.getAttribute('cy') === expectedDots[i][1] && c.getAttribute('r') === '12'),
+    variant + ' mark has three 12px dots at the specified centres');
+  ok(paths[3].getAttribute('d') === expectedStar && paths[4].getAttribute('d') === expectedSpark,
+    variant + ' star and spark use the exact paths');
+  ok([...root.children].map(el => el.localName).join(',') === 'path,path,path,circle,circle,circle,path,path',
+    variant + ' paint order is lines, dots, star, spark');
+  ok(paths.slice(0, 3).every(p => p.getAttribute('stroke') === palette[0]) && circles.every(c => c.getAttribute('fill') === palette[1]) && paths[3].getAttribute('fill') === '#FF7A1A' && paths[4].getAttribute('fill') === palette[1],
+    variant + ' mark has the exact palette');
+  ok(root.getAttribute('role') === 'img' && root.getAttribute('aria-label') === 'Nova PipelineSync AI', variant + ' mark has its accessible product name');
+  const lockup = new JSDOM(brand.Logo({ variant, size: 40 })).window.document;
+  ok(lockup.querySelector('.ps-lockup').getAttribute('aria-label') === 'Nova PipelineSync AI' && lockup.querySelector('.ps-wordmark-name').textContent === 'NOVA' && lockup.querySelector('.ps-wordmark-sub').textContent === 'PipelineSync AI',
+    variant + ' lockup uses real HTML text with the full accessible name');
+  ok(lockup.querySelector('.ps-wordmark-name').getAttribute('style').includes(variant === 'light' ? '#0C2B5E' : '#FFFFFF') && lockup.querySelector('.ps-wordmark-sub').getAttribute('style').includes(palette[1]),
+    variant + ' wordmark uses its surface palette');
 }
-for (const f of ['icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png']) {
-  ok(fs.existsSync(path.join(__dirname, '..', 'public', f)), 'public/' + f + ' ships');
+ok(/\.ps-wordmark-name\s*\{[^}]*font-weight: 800;[^}]*letter-spacing: 0.09em;/.test(css) && /\.ps-wordmark-sub\s*\{[^}]*font-weight: 600;/.test(css) && /color:#FF7A1A;font-weight:800/.test(logoJs),
+  'wordmark typography is 800 NOVA, 600 subline and orange 800 AI');
+const moving = parseSvg(brand.LogoMark({ variant: 'dark', animated: true }));
+ok(moving.querySelectorAll('.ps-flow-dot').length === 3 && [...moving.querySelectorAll('.ps-flow-dot')].every((c, i) => c.getAttribute('style').includes(expectedLines[i])), 'all three animated dots follow the actual incoming paths');
+ok(moving.querySelector('.ps-pulse-star') && /@keyframes ps-pulse/.test(logoJs), 'the star pulses after the dots arrive');
+ok(/@media \(prefers-reduced-motion:reduce\)\{\.ps-flow-dot\{animation:none;offset-path:none!important;opacity:1\}\.ps-pulse-star\{animation:none;transform:none\}\}/.test(logoJs),
+  'reduced motion disables both the dot paths and the star pulse');
+ok(!/function logoMark\(/.test(appJs), 'the app uses the shared component rather than an inline duplicate');
+ok(/function brandVariant\(\) \{ return state.theme === 'light' \? 'light' : 'dark'; \}/.test(appJs), 'theme-following surfaces select light only in light mode');
+ok(!/Logo(?:Mark)?\(\{[^}]*variant: 'light'/.test(appJs), 'no app call site places a fixed light mark on a potentially dark surface');
+ok(/LogoMark\(\{ variant: 'dark', size: 24 \}\)/.test(appJs) && /\.orb\s*\{[^}]*rgba\(10, 14, 23, 0.9\)/s.test(css), 'the permanently dark call orb uses the dark mark even in light mode');
+ok(/Logo\(\{ variant: brandVariant\(\), size: 40 \}\)/.test(appJs) && /Logo\(\{ variant: brandVariant\(\), size: 54 \}\)/.test(appJs), 'topbar and entry gate both select the active theme palette');
+ok(/LogoMark\(\{ variant: brandVariant\(\), animated: true, size: 96 \}\)/.test(appJs), 'the splash uses the active surface palette');
+ok(/h \* 222 \/ 162/.test(appJs) && /LogoMark\(\{ variant: brandVariant\(\), size: h \}\)/.test(appJs) && /logoTile\(54\)/.test(appJs), 'done-screen logoTile preserves 222:162 and follows the theme');
+ok(/\.logo-plate\s*\{[^}]*background: transparent;[^}]*box-shadow: none;/s.test(css), 'logoTile has no white plate or shadow');
+ok(/\.nova-splash-card\s*\{[^}]*background: transparent;[^}]*box-shadow: none;/s.test(css), 'the loading mark has no white plate or shadow');
+
+const vectors = {};
+for (const f of ['logo.svg', 'logo-on-dark.svg', 'logo-lockup.svg', 'logo-lockup-dark.svg', 'favicon.svg', 'app-icons.svg']) {
+  vectors[f] = parseSvg(fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8'));
+  ok(!vectors[f].querySelector('parsererror'), 'public/' + f + ' is well-formed XML');
+  ok([...vectors[f].querySelectorAll('path')].some(p => p.getAttribute('d') === expectedStar), 'public/' + f + ' contains the exact Nova star');
 }
+for (const [f, variant] of [['logo.svg', 'light'], ['logo-on-dark.svg', 'dark']]) {
+  const generated = [...vectors[f].querySelectorAll('path,circle')].map(n => n.outerHTML).join('');
+  const component = [...parseSvg(brand.LogoMark({ variant })).querySelectorAll('path,circle')].map(n => n.outerHTML).join('');
+  ok(generated === component, f + ' matches the runtime mark geometry and palette exactly');
+}
+ok(vectors['logo-on-dark.svg'].querySelector('rect').getAttribute('fill') === '#0A0E17', 'dark standalone mark sits directly on #0A0E17, not a plate');
+for (const f of ['logo-lockup.svg', 'logo-lockup-dark.svg']) {
+  const text = [...vectors[f].querySelectorAll('text')];
+  ok(text.length === 2 && text[0].textContent === 'NOVA' && text[1].textContent === 'PipelineSync AI', f + ' includes the two-line wordmark');
+}
+for (const [f, tileColor, dotColor, starColor] of [['favicon.svg', '#FF7A1A', '#FFFFFF', '#0C2B5E'], ['app-icons.svg', '#0C2B5E', '#8FB0D0', '#FF7A1A']]) {
+  const svg = vectors[f];
+  const tile = svg.querySelector('rect');
+  const paths = [...svg.querySelectorAll('path')];
+  const dots = [...svg.querySelectorAll('circle')];
+  ok(svg.documentElement.getAttribute('viewBox') === '0 0 512 512' && tile.getAttribute('fill') === tileColor && +tile.getAttribute('rx') === 512 * 0.22, f + ' uses its specified rounded-square tile');
+  ok(paths.length === 4 && paths[3].getAttribute('d') === expectedStar && paths[3].getAttribute('fill') === starColor && paths.slice(0, 3).every((p, i) => p.getAttribute('d') === expectedLines[i] && p.getAttribute('stroke') === '#FFFFFF' && p.getAttribute('stroke-width') === '16' && p.getAttribute('stroke-linecap') === 'round' && p.getAttribute('fill') === 'none'), f + ' uses exact 16px icon geometry with no spark');
+  ok(dots.length === 3 && dots.every((c, i) => c.getAttribute('r') === '13' && c.getAttribute('fill') === dotColor && +c.getAttribute('cx') === expectedDots[i][0] && +c.getAttribute('cy') === expectedDots[i][1]), f + ' uses exact 13px icon dots');
+  const transform = svg.querySelector('g').getAttribute('transform');
+  const scale = +transform.match(/scale\(([^)]+)\)/)[1];
+  const translate = transform.match(/translate\(([^ ]+) ([^)]+)\)/);
+  ok(Math.abs(scale * 222 / 512 - 0.72) < 1e-10 && Math.abs(+translate[1] + 222 * scale / 2 - 256) < 1e-8 && Math.abs(+translate[2] + 162 * scale / 2 - 256) < 1e-8 && transform.endsWith('translate(10 -16)'), f + ' centres an undistorted 72%-width mark');
+}
+for (const [f, size] of [['icon-512.png', 512], ['icon-maskable-512.png', 512], ['apple-touch-icon.png', 180]]) {
+  const png = fs.readFileSync(path.join(__dirname, '..', 'public', f));
+  ok(png.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) && png.readUInt32BE(16) === size && png.readUInt32BE(20) === size, f + ' is a real PNG with the specified dimensions');
+}
+/* Decode committed RGBA PNG scanlines with Node's built-in zlib. No image
+   renderer is needed at runtime or to check that a maskable icon is safe. */
+function rgbaPng(file) {
+  const bytes = fs.readFileSync(path.join(__dirname, '..', 'public', file));
+  const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20);
+  if (bytes[24] !== 8 || bytes[25] !== 6 || bytes[28] !== 0) throw new Error('Expected non-interlaced RGBA8 PNG: ' + file);
+  const chunks = [];
+  for (let at = 8; at < bytes.length;) {
+    const size = bytes.readUInt32BE(at), type = bytes.toString('ascii', at + 4, at + 8);
+    if (type === 'IDAT') chunks.push(bytes.subarray(at + 8, at + 8 + size));
+    at += 12 + size;
+  }
+  const raw = require('zlib').inflateSync(Buffer.concat(chunks));
+  const stride = width * 4, pixels = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    if (filter > 4) throw new Error('Invalid PNG filter');
+    for (let x = 0; x < stride; x++) {
+      const at = y * stride + x, a = x >= 4 ? pixels[at - 4] : 0, b = y ? pixels[at - stride] : 0, c = y && x >= 4 ? pixels[at - stride - 4] : 0;
+      const predict = a + b - c, da = Math.abs(predict - a), db = Math.abs(predict - b), dc = Math.abs(predict - c);
+      const paeth = da <= db && da <= dc ? a : db <= dc ? b : c;
+      pixels[at] = (raw[y * (stride + 1) + 1 + x] + [0, a, b, Math.floor((a + b) / 2), paeth][filter]) & 255;
+    }
+  }
+  return { pixels, width, height };
+}
+const maskable = rgbaPng('icon-maskable-512.png');
+let outsideSafeCircle = 0, markPixels = 0, starPixels = 0;
+for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
+  const at = (y * 512 + x) * 4, p = maskable.pixels;
+  // Rounded tile edges can unpremultiply navy by a few RGB units at low alpha.
+  // Compare premultiplied channels within two quantisation steps (premultiply/unpremultiply), not raw RGB.
+  if ([12, 43, 94].some((bg, c) => Math.abs((p[at + c] - bg) * p[at + 3] / 255) > 2)) {
+    markPixels++;
+    if (Math.hypot(x + 0.5 - 256, y + 0.5 - 256) > 512 * 0.4) outsideSafeCircle++;
+    if (p[at] === 255 && p[at + 1] === 122 && p[at + 2] === 26) starPixels++;
+  }
+}
+ok(markPixels > 1000 && starPixels > 100 && outsideSafeCircle === 0,
+  'all maskable mark pixels, including the orange star, are inside the central 80%-diameter safe circle');
+const ico = fs.readFileSync(path.join(__dirname, '..', 'public', 'favicon.ico'));
+ok(ico.readUInt16LE(2) === 1 && ico.readUInt16LE(4) === 3 && [16,32,48].every((size, i) => ico[6 + i * 16] === size && ico[7 + i * 16] === size && ico.subarray(ico.readUInt32LE(18 + i * 16), ico.readUInt32LE(18 + i * 16) + 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))), 'favicon.ico embeds valid 16/32/48 PNG entries');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'manifest.webmanifest'), 'utf8'));
 ok(manifest.theme_color === '#0A0E17' && manifest.background_color === '#0A0E17', 'the manifest theme colour stays #0A0E17');
 ok(manifest.icons.some(i => /512/.test(i.sizes)), 'the manifest carries the 512px app icon');
+ok(manifest.name === 'Nova PipelineSync AI' && manifest.short_name === 'Nova', 'manifest uses the full product name and Nova short name');
+const pkg = require('../package.json');
+ok(!Object.keys(pkg.dependencies || {}).some(k => /resvg|playwright|chromium/.test(k)) && !Object.keys(pkg.devDependencies || {}).some(k => /resvg/.test(k)), 'asset renderer stays a build-time-only tool outside app dependencies');
 
-/* ------------------------------------------------------------------ */
-section('the brand components and Nova');
+ok(/<title>Nova PipelineSync AI \|/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8')), 'the page title uses the full product name');
+ok(/text: 'Nova PipelineSync AI', style: 'headerBrand'/.test(appJs) && /Tm \(Nova PipelineSync AI\) Tj/.test(fs.readFileSync(path.join(__dirname, '..', 'lib', 'core.js'), 'utf8')), 'browser and server PDF headers use the full product name');
+ok(/>Nova PipelineSync AI<\/div>/.test(fs.readFileSync(path.join(__dirname, '..', 'lib', 'pdf-email.js'), 'utf8')), 'the email header uses the full product name');
 
-/* The components are the brand sheet's React components ported to this no-build layer, so the file
-   that ships them is checked here: the six poses, the two views, the unchanged SVG markup and the
-   rules that must not drift. */
-const logoJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Logo.js'), 'utf8');
-const novaJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Nova.js'), 'utf8');
-
-ok(/viewBox="20 20 440 590"/.test(logoJs) && /stroke-width="55"/.test(logoJs) && /<rect[^>]*fill="#FF7A1A"/.test(logoJs),
-  'Logo.js keeps the brand sheet geometry (the 440x590 mark, 55px strokes, the orange dot)');
-ok(/#0C2B5E/.test(logoJs) && /#3E6892/.test(logoJs) && /#0FFFFFF/i.test(logoJs) === false && /'#FFFFFF'/.test(logoJs),
-  'Logo.js keeps the brand colours (navy head, steel, white on dark)');
-ok(/role="img" aria-label="PipelineSync AI"/.test(logoJs), 'the logo svg keeps role=img and its aria-label');
-ok(/@media \(prefers-reduced-motion:reduce\)/.test(logoJs), 'the animated mark honours reduced motion');
-
+section('the mascot component remains unchanged');
 for (const pose of ['sync', 'hello', 'listen', 'speak', 'think', 'party']) {
   ok(new RegExp(pose + ':\\s*\\{').test(novaJs), 'Nova.js defines the "' + pose + '" pose');
 }
@@ -285,6 +372,16 @@ ok(/min-height:\s*var\(--tap\)/.test(css), 'buttons and inputs declare min-heigh
 ok(/env\(safe-area-inset-bottom/.test(css), 'the layout respects the iOS home-indicator inset');
 ok(/@media \(max-width: 899px\)[\s\S]{0,400}call-controls[\s\S]{0,200}sticky/.test(css),
   'the call controls stay pinned above the keyboard on phones');
+
+section('centered minimalist workspace');
+const centered = css.slice(css.indexOf('Centered, quiet workspace'));
+ok(/body\.app-screen \.main\s*\{[^}]*max-width: 1120px;[^}]*margin-inline: auto;/s.test(centered), 'the application canvas is bounded and horizontally centered');
+ok(/\.intake-wrap\.call-only\s*\{ max-width: 760px;/.test(centered), 'the voice-only panel has a comfortable desktop width');
+ok(/body\.entry-screen \.gate\s*\{[^}]*flex-direction: column;/s.test(centered), 'entry uses one centered column');
+ok(/grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/.test(centered), 'review uses two readable columns on desktop');
+ok(/@media \(max-width: 700px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/.test(centered), 'review stacks on narrow screens');
+ok(/body::before, body::after \{ display: none;/.test(centered), 'decorative background overlays are removed');
+ok(/text-align: left;/.test(centered), 'long call content remains left-aligned');
 
 console.log('\n' + (failures === 0 ? 'UI DESIGN CHECKS PASSED' : failures + ' UI DESIGN FAILURE(S)'));
 process.exit(failures === 0 ? 0 : 1);

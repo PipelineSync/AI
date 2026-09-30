@@ -1,58 +1,40 @@
-/*
- * Brand asset generator: builds public/favicon.svg, public/app-icons.svg (the 512px PWA icon),
- * public/icon-512.png, public/apple-touch-icon.png (180x180) and public/favicon.ico (48/32/16)
- * from the LogoMark geometry in public/components/brand/Logo.js.
- *
- * Every tile is the static light mark on a navy #0C2B5E rounded square, as the brand sheet asks.
- * PNG rendering uses @resvg/resvg-js, which is a build-time-only tool: it is NOT a dependency of
- * the app (package.json still declares zero runtime dependencies) and it is never fetched at
- * runtime. Run it with:
- *
- *   npm i --no-save @resvg/resvg-js && npm run brand:icons
- *   RESVG_PATH=/path/to/@resvg/resvg-js node scripts/make-brand-assets.js
- *
- * The generated files are committed, so a normal checkout never needs to run this.
+/* Static Nova assets. @resvg/resvg-js is a build-time-only tool, never an app
+ * dependency. Install: npm i --no-save --package-lock=false @resvg/resvg-js
+ * Or set RESVG_PATH to its package directory. Generated assets are committed.
  */
 const fs = require('fs');
 const path = require('path');
+const PUBLIC = path.join(__dirname, '..', 'public');
+const { NOVA_MARK: mark, LogoMark, LOGO_COLORS } = require('../public/components/brand/Logo.js').PSBrand;
 
-const ROOT = path.join(__dirname, '..');
-const PUBLIC = path.join(ROOT, 'public');
-
-/* The mark, drawn from the same geometry as components/brand/Logo.js (light variant), centred on a
-   navy rounded-square tile. S = tile size, M = the mark's height inside it. */
-function tile(S, pad) {
-  const M = S - pad * 2;
-  const W = (M * 440) / 590;                 // the mark's own aspect ratio: never stretched
-  const x = (S - W) / 2, y = pad;
-  const k = M / 590;                         // viewBox "20 20 440 590" -> page units
-  const X = v => x + (v - 20) * k;
-  const Y = v => y + (v - 20) * k;
-  const sw = 55 * k, r = 10 * k;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${S}" width="${S}" height="${S}" role="img" aria-label="PipelineSync AI">` +
-    `<rect width="${S}" height="${S}" rx="${(S * 0.22).toFixed(2)}" fill="#0C2B5E"/>` +
-    // The two S strokes, drawn in tile coordinates.
-    `<path d="M${X(416)} ${Y(57.5)} V${Y(162)} H${X(160)} A${(97.5 * k).toFixed(2)} ${(97.5 * k).toFixed(2)} 0 0 0 ${X(160)} ${Y(357)} H${X(212)}" ` +
-      `fill="none" stroke="#FFFFFF" stroke-width="${sw.toFixed(2)}" stroke-linecap="round"/>` +
-    `<rect x="${X(388.5)}" y="${Y(30)}" width="${(55 * k).toFixed(2)}" height="${(40 * k).toFixed(2)}" fill="#FFFFFF"/>` +
-    `<path d="M${X(172)} ${Y(260)} H${X(320)} A${(98.5 * k).toFixed(2)} ${(98.5 * k).toFixed(2)} 0 0 1 ${X(320)} ${Y(457)} H${X(62)} V${Y(572.5)}" ` +
-      `fill="none" stroke="#8FB0D0" stroke-width="${sw.toFixed(2)}" stroke-linecap="round"/>` +
-    `<rect x="${X(34.5)}" y="${Y(560)}" width="${(55 * k).toFixed(2)}" height="${(40 * k).toFixed(2)}" fill="#8FB0D0"/>` +
-    `<rect x="${X(278)}" y="${Y(330)}" width="${(54 * k).toFixed(2)}" height="${(54 * k).toFixed(2)}" rx="${r.toFixed(2)}" fill="#FF7A1A"/>` +
-    `</svg>\n`;
+function iconMark(tileColor) {
+  const orange = tileColor === '#FF7A1A';
+  const dot = orange ? '#FFFFFF' : '#8FB0D0';
+  const star = orange ? '#0C2B5E' : '#FF7A1A';
+  return mark.lines.map(d => `<path d="${d}" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>`).join('') +
+    mark.dots.map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="13" fill="${dot}"/>`).join('') +
+    `<path d="${mark.star}" fill="${star}"/>`;
 }
-
-/* The inline <svg> the browser/OS render as a document icon. No rounded tile here: the SVG is the
-   file icon, so it keeps a transparent background and the light mark is legible on either theme. */
-function glyph() {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 20 440 590" width="440" height="590" role="img" aria-label="PipelineSync AI">` +
-    `<rect x="20" y="20" width="440" height="590" rx="96" fill="#0C2B5E"/>` +
-    `<path d="M416 57.5 V162 H160 A97.5 97.5 0 0 0 160 357 H212" fill="none" stroke="#FFFFFF" stroke-width="55" stroke-linecap="round"/>` +
-    `<rect x="388.5" y="30" width="55" height="40" fill="#FFFFFF"/>` +
-    `<path d="M172 260 H320 A98.5 98.5 0 0 1 320 457 H62 V572.5" fill="none" stroke="#8FB0D0" stroke-width="55" stroke-linecap="round"/>` +
-    `<rect x="34.5" y="560" width="55" height="40" fill="#8FB0D0"/>` +
-    `<rect x="278" y="330" width="54" height="54" rx="10" fill="#FF7A1A"/>` +
-    `</svg>\n`;
+function tile(size, color = '#0C2B5E', fraction = 0.72) {
+  const scale = size * fraction / mark.width;
+  const x = (size - mark.width * scale) / 2;
+  const y = (size - mark.height * scale) / 2;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="Nova PipelineSync AI">` +
+    `<rect width="${size}" height="${size}" rx="${size * 0.22}" fill="${color}"/>` +
+    `<g transform="translate(${x} ${y}) scale(${scale}) translate(10 -16)">${iconMark(color)}</g></svg>\n`;
+}
+function standalone(variant) {
+  let svg = LogoMark({ variant, size: 162 });
+  if (variant === 'dark') svg = svg.replace(/(<svg[^>]*>)/, '$1<rect x="-10" y="16" width="222" height="162" fill="#0A0E17"/>');
+  return svg + '\n';
+}
+function lockup(variant) {
+  const c = LOGO_COLORS[variant];
+  const bg = variant === 'dark' ? '<rect width="690" height="194" fill="#0A0E17"/>' : '';
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 690 194" width="690" height="194" role="img" aria-label="Nova PipelineSync AI">' + bg +
+    '<g transform="translate(16 16)">' + LogoMark({ variant, size: 162 }) + '</g>' +
+    `<g font-family="Arial, Helvetica, sans-serif"><text x="266" y="100" fill="${c.text}" font-size="97.2" font-weight="800" letter-spacing="0.09em">NOVA</text>` +
+    `<text x="268" y="175" fill="${c.sync}" font-size="45.36" font-weight="600">PipelineSync <tspan fill="#FF7A1A" font-weight="800">AI</tspan></text></g></svg>\n`;
 }
 
 function write(name, text) {
@@ -95,22 +77,19 @@ function ico(entries) {
   return Buffer.concat([head, dir, ...entries.map(e => e.png)]);
 }
 
-console.log('PipelineSync AI brand assets');
-write('favicon.svg', glyph());
-write('app-icons.svg', tile(512, 76));
-
-const resvg = loadResvg();
-if (!resvg) {
-  console.log('  (@resvg/resvg-js not installed: PNG sizes skipped. The committed PNGs are unchanged.)');
-  console.log('  install with: npm i --no-save @resvg/resvg-js');
-} else {
-  fs.writeFileSync(path.join(PUBLIC, 'icon-512.png'), png(tile(512, 76), 512));
-  console.log('  wrote public/icon-512.png');
-  fs.writeFileSync(path.join(PUBLIC, 'icon-maskable-512.png'), png(tile(512, 120), 512));
-  console.log('  wrote public/icon-maskable-512.png');
-  fs.writeFileSync(path.join(PUBLIC, 'apple-touch-icon.png'), png(tile(180, 26), 180));
-  console.log('  wrote public/apple-touch-icon.png (180x180)');
-  fs.writeFileSync(path.join(PUBLIC, 'favicon.ico'),
-    ico([{ size: 48, png: png(tile(48, 7), 48) }, { size: 32, png: png(tile(32, 5), 32) }, { size: 16, png: png(tile(16, 2), 16) }]));
-  console.log('  wrote public/favicon.ico (48/32/16)');
-}
+// Fail before writing anything if rasterisation is unavailable: never silently
+// leave old PNG/ICO artwork alongside newly generated vectors.
+if (!loadResvg()) throw new Error('Install build-time @resvg/resvg-js or set RESVG_PATH before running brand:icons.');
+console.log('Nova PipelineSync AI brand assets');
+write('logo.svg', standalone('light'));
+write('logo-on-dark.svg', standalone('dark'));
+write('logo-lockup.svg', lockup('light'));
+write('logo-lockup-dark.svg', lockup('dark'));
+write('favicon.svg', tile(512, '#FF7A1A'));
+write('app-icons.svg', tile(512));
+write('icon-512.png', png(tile(512), 512));
+// 60% width puts the ENTIRE mark in the central 80%-diameter circle, not
+// merely its central square. The tile background intentionally reaches edges.
+write('icon-maskable-512.png', png(tile(512, '#0C2B5E', 0.60), 512));
+write('apple-touch-icon.png', png(tile(180), 180));
+write('favicon.ico', ico([16, 32, 48].map(size => ({ size, png: png(tile(size, '#FF7A1A'), size) }))));

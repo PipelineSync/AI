@@ -820,7 +820,7 @@ async function browserTests(token) {
   const rtReq = mock.requests.filter(r => r.kind === 'realtime').length - rtBefore;
   ok(rtReq === 1, 'one realtime session was opened server-side for the whole call (' + rtReq + ')');
   ok(page.played() >= 1, 'the AI voice played from the live media track');
-  ok((document.querySelector('.badge-mode') || {}).textContent === 'Live voice', 'the screen shows the exact live-voice badge');
+  ok(!document.querySelector('#intake-side .badge-mode'), 'Mode badge is absent from the discovery sidebar');
   ok((document.querySelector('#call-mode') || {}).textContent === 'Live voice', 'the call header shows only the exact live-voice mode label');
   ok(page.spokenLines.length >= 12, 'every question was spoken in one continuous call (' + page.spokenLines.length + ' lines)');
 
@@ -835,13 +835,13 @@ async function browserTests(token) {
   ok(page.overlappingResponses() === 0, 'queued tool replies never create overlapping Realtime responses');
   ok(page.validation.completed === page.validation.started, 'all queued server validations finish before end_call closes the full-call test');
   ok(!!document.querySelector('#structure-btn'), 'the live call reached the end of the intake set');
-  ok(document.querySelectorAll('.bubble.user').length >= 12, 'every spoken answer is in the transcript');
-  ok(document.querySelectorAll('.bubble.user.ignored').length >= 1, 'the turn that had nothing to do with the question is marked, not captured');
+  ok(page.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user').length >= 12, 'every spoken answer is in the transcript');
+  ok(page.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user' && t.ignored).length >= 1, 'the turn that had nothing to do with the question is marked, not captured');
   ok(!/400 leads/.test(document.body.textContent), 'the fabricated lead volume is nowhere on the call screen');
 
-  const filled = document.querySelectorAll('.side-chip.filled').length;
+  const filled = page.window.__PS_VOICE_STATE__().capturedCount;
   ok(filled >= 15, 'the contract was captured from the spoken call (' + filled + ' fields)');
-  ok(/Required numbers captured/.test(document.body.textContent), 'deal size, lead volume and close rate were captured live');
+  ok(page.window.__PS_VOICE_STATE__().missingRequired.length === 0, 'deal size, lead volume and close rate were captured live');
   ok(/refused as not said on the call: [1-9]/.test(document.body.textContent), 'the screen reports the values that were refused for not being said');
   ok(errors.length === 0, 'no runtime errors on the continuous path' + (errors.length ? ': ' + errors[0] : ''));
 
@@ -902,7 +902,8 @@ async function controlsTests() {
   ok(!!endBtn && /End conversation/.test(endBtn.textContent), 'a live call has a plain "End conversation" button');
   ok(!!document.querySelector('#mic-btn') && /Microphone live/.test(document.querySelector('#mic-btn').textContent), 'the microphone control says the microphone is live');
   ok(!!document.querySelector('#mute-btn') && /Speaker on/.test(document.querySelector('#mute-btn').textContent), 'the speaker control is separate from the microphone, and says it is on');
-  ok(!!document.querySelector('#conn-state'), 'the connection state is on screen during a live call');
+  ok(!document.querySelector('#conn-state'), 'the removed Mode card does not show connection details');
+  ok(!Array.from(document.querySelectorAll('#intake-side h3')).some(el => /^(Mode|Captured signals)$/.test(el.textContent)), 'discovery sidebar omits Mode and Captured signals');
 
   /* ---- WebRTC interruption: mute local playback; let the server cancel and truncate ---- */
   const audioEl = document.querySelector('audio');
@@ -1010,31 +1011,36 @@ async function healthTests() {
   // Something the visitor actually said, so there is an answer to lose if the fallback is careless.
   page.emit({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'We install solar systems for homeowners in Ilocos.' });
   await sleep(120);
-  ok(document.querySelectorAll('.bubble.user').length >= 1, 'the answer is on the transcript while the call is live');
-  ok((document.querySelector('.badge-mode') || {}).textContent === 'Live voice', 'the exact badge shows the call is live');
+  ok(page.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user').length >= 1, 'the answer is on the transcript while the call is live');
+  ok(!document.querySelector('#intake-side .badge-mode'), 'Mode badge is absent from the discovery sidebar');
+  ok(page.window.__PS_VOICE_STATE__().realtimeLive && (document.querySelector('#call-mode') || {}).textContent === 'Live voice', 'the call remains live with its exact header label');
 
   // A hiccup: the browser reports 'disconnected', which usually recovers by itself.
   page.fireConnectionState('disconnected');
   await sleep(150);
-  ok((document.querySelector('.badge-mode') || {}).textContent === 'Live voice', 'a momentary disconnection does not end the live mode badge');
+  ok(!document.querySelector('#intake-side .badge-mode'), 'Mode badge is absent from the discovery sidebar');
+  ok(page.window.__PS_VOICE_STATE__().realtimeLive && (document.querySelector('#call-mode') || {}).textContent === 'Live voice', 'the call remains live with its exact header label');
   ok(page.calls.pcClosed === 0, 'the peer connection is left open during the grace period');
-  ok(/reconnecting/i.test(document.querySelector('#conn-state').textContent), 'the screen says the connection is recovering, not that it is dead');
+  ok(!document.querySelector('#conn-state'), 'reconnecting does not restore the removed Mode card');
+  ok(page.window.__PS_VOICE_STATE__().realtimeConnectionState === 'disconnected', 'the connection health tracker detects the temporary disconnection');
 
   page.fireConnectionState('connected');
   await sleep(150);
-  ok(/connected/i.test(document.querySelector('#conn-state').textContent), 'the connection state on screen recovers');
-  ok((document.querySelector('.badge-mode') || {}).textContent === 'Live voice', 'the exact live badge remains after recovery');
+  ok(!document.querySelector('#conn-state'), 'recovery does not restore the removed Mode card');
+  ok(page.window.__PS_VOICE_STATE__().realtimeConnectionState === 'connected', 'the connection health tracker records recovery');
+  ok(!document.querySelector('#intake-side .badge-mode'), 'Mode badge is absent from the discovery sidebar');
+  ok(page.window.__PS_VOICE_STATE__().realtimeLive && (document.querySelector('#call-mode') || {}).textContent === 'Live voice', 'the call remains live with its exact header label');
 
   // A terminal failure: the live session is over, but the call is not.
   page.fireConnectionState('failed');
-  for (let i = 0; i < 80 && (document.querySelector('.badge-mode') || {}).textContent === 'Live voice'; i++) await sleep(50);
+  for (let i = 0; i < 80 && page.window.__PS_VOICE_STATE__().realtimeLive; i++) await sleep(50);
   ok((document.querySelector('.badge-mode') || {}).textContent !== 'Live voice', 'a failed connection ends the live session mode');
-  ok((document.querySelector('.badge-mode') || {}).textContent === 'Step-by-step voice', 'the badge changes to the exact step-by-step mode after a live fallback');
+  ok(!page.window.__PS_VOICE_STATE__().realtimeLive, 'the call switches away from live mode after failure');
   ok((document.querySelector('#call-mode') || {}).textContent === 'Step-by-step voice', 'the call header changes to the exact step-by-step mode after a live fallback');
   ok(page.calls.pcClosed >= 1, 'the peer connection is closed once the failure is terminal');
   ok(page.micTracks[0].stopped === true, 'the microphone is released when the live session fails');
   ok(/carries on step by step/i.test(document.body.textContent), 'the visitor is told the call carries on, with everything they said kept');
-  ok(document.querySelectorAll('.bubble.user').length >= 1, 'the answer they gave survives the fallback');
+  ok(page.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user').length >= 1, 'the answer they gave survives the fallback');
   ok(/solar systems for homeowners in Ilocos/i.test(document.body.textContent), 'their words are still on screen after the fallback');
   await sleep(600);
   ok(/carries on step by step/i.test(document.body.textContent), 'the notice is still on screen after the next question arrives, so the visitor is not left wondering');
@@ -1102,7 +1108,7 @@ async function fallbackTests() {
   failedPage.document.getElementById('consent-cb').click();
   failedPage.document.getElementById('consent-go').click();
   for (let i = 0; i < 80 && !failedPage.document.querySelector('#skip-btn'); i++) await sleep(50);
-  ok((failedPage.document.querySelector('.badge-mode') || {}).textContent === 'Step-by-step voice', 'a refused Realtime handshake shows the exact step-by-step mode');
+  ok(!failedPage.document.querySelector('#intake-side .badge-mode'), 'a refused handshake does not restore the removed Mode card');
   ok((failedPage.document.querySelector('#call-mode') || {}).textContent === 'Step-by-step voice', 'the call header switches to the step-by-step label after a refused handshake');
   ok(!!failedPage.document.querySelector('#skip-btn') && !failedPage.document.querySelector('#end-call-btn'), 'a refused handshake replaces live-only controls with step-by-step controls');
   ok(failedPage.errors.length === 0, 'no runtime errors after a refused Realtime handshake' + (failedPage.errors.length ? ': ' + failedPage.errors[0] : ''));
