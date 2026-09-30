@@ -1,10 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 600" width="460" height="600">
-  <!-- PipelineSync mark: two 180-degree-rotational pipe strokes + sync dot -->
-  <g fill="none" stroke-width="58" stroke-linejoin="miter" stroke-linecap="butt">
-    <path stroke="#0F2F52" d="M402 32 V150 H150 A92.5 92.5 0 0 0 150 335 H200"/>
-    <path stroke="#3E6C8E" d="M58 568 V450 H310 A92.5 92.5 0 0 0 310 265 H260"/>
-  </g>
-  <circle cx="200" cy="335" r="29" fill="#0F2F52"/>
-  <circle cx="260" cy="265" r="29" fill="#3E6C8E"/>
-  <rect x="268" y="308" width="57" height="57" rx="14" fill="#F57C1F"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 16 222 162" height="162" width="222" role="img" aria-label="Nova PipelineSync AI"><path d="M16 50 C50 50 56 100 84 100" fill="none" stroke="#0C2B5E" stroke-width="14" stroke-linecap="round"/><path d="M6 100 L84 100" fill="none" stroke="#0C2B5E" stroke-width="14" stroke-linecap="round"/><path d="M16 150 C50 150 56 100 84 100" fill="none" stroke="#0C2B5E" stroke-width="14" stroke-linecap="round"/><circle cx="16" cy="50" r="12" fill="#3E6892"/><circle cx="6" cy="100" r="12" fill="#3E6892"/><circle cx="16" cy="150" r="12" fill="#3E6892"/><path d="M138 28 Q146 92 206 100 Q146 108 138 172 Q130 108 70 100 Q130 92 138 28 Z" fill="#FF7A1A"/><path d="M186 22 Q188 38 204 40 Q188 42 186 58 Q184 42 168 40 Q184 38 186 22 Z" fill="#3E6892"/></svg>

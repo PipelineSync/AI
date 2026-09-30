@@ -1,6 +1,6 @@
 'use strict';
 /*
- * PipelineSync AI - LOCAL dev server (Node, zero dependencies).
+ * Nova PipelineSync AI - LOCAL dev server (Node, zero dependencies).
  * Run: node server.js   (http://0.0.0.0:8080)
  *
  * The deployed prototype (GitHub -> Netlify) runs the same logic from
@@ -479,7 +479,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 server.listen(PORT, HOST, () => {
-  console.log('PipelineSync AI prototype (local) listening on http://' + HOST + ':' + PORT);
+  console.log('Nova PipelineSync AI prototype (local) listening on http://' + HOST + ':' + PORT);
   console.log('Dev outbox: http://' + HOST + ':' + PORT + '/dev/outbox');
   const vm = voice.mode(process.env);
   console.log('Discovery call voice: ' + vm.mode +

@@ -1,7 +1,7 @@
 (function () {
 'use strict';
 /*
- * PipelineSync AI - prototype frontend (vanilla JS, no CDN, works offline in preview)
+ * Nova PipelineSync AI - prototype frontend (vanilla JS, no CDN, works offline in preview)
  * Production version of this layer is React on Netlify; the flow and data contract
  * are identical, only the rendering technology changes.
  * Security & a11y hardened version.
@@ -1950,6 +1950,7 @@ function buildTurnBody(lastAnswer) {
   const v = voiceSync();
   return {
     call_id: v.callId, call_ticket: v.callTicket,
+    current_question_id: v.currentQuestionId,
     transcript: v.transcript.slice(-20).map(t => ({ role: t.role, text: t.text })),
     answers: state.answers, asked: v.asked, probes: v.probes, skipped: v.skipped,
     voice_captures: v.captures, last_answer: lastAnswer || null,
@@ -2200,10 +2201,10 @@ function novaWaveHtml(id) {
       '<span class="nova-wave-bar" style="height:' + h + 'px;animation-delay:' + (-(i * 0.12).toFixed(2)) + 's"></span>').join('') +
     '</div>';
 }
-/* The white splash card the animated light LogoMark sits on (loading screens). */
+/* Loading mark uses the active surface palette without a white plate. */
 function novaSplashHtml() {
-  return '<div class="nova-splash" role="img" aria-label="PipelineSync AI">' +
-    '<span class="nova-splash-card" aria-hidden="true">' + LogoMark({ variant: 'light', animated: true, size: 96 }) + '</span>' +
+  return '<div class="nova-splash" role="img" aria-label="Nova PipelineSync AI">' +
+    '<span class="nova-splash-card" aria-hidden="true">' + LogoMark({ variant: brandVariant(), animated: true, size: 96 }) + '</span>' +
     '</div>';
 }
 /* The empty state: no data yet, so the screen offers the way in. */
@@ -2259,12 +2260,12 @@ function initialsFor(name) {
 function firstName() {
   return String((state.user && state.user.name) || '').trim().split(/\s+/)[0] || '';
 }
-/* The mark on a light plate. The light variant draws navy #0C2B5E and steel #3E6892 strokes, so on
-   a dark surface it measures 1.2:1 and disappears - the plate is what makes it readable. On dark
-   backgrounds the dark variant (white + sky) is used directly instead; see the header and the
-   entry-gate hero. The rule is the same one the brand sheet states: never a light mark on dark. */
+/* Theme-following surfaces use matching mark colours. The voice orb stays dark
+   in both themes, so its mark explicitly keeps the dark variant. */
+function brandVariant() { return state.theme === 'light' ? 'light' : 'dark'; }
 function logoTile(h) {
-  return '<span class="logo-plate">' + LogoMark({ variant: 'light', size: h }) + '</span>';
+  return '<span class="logo-plate" style="width:' + (h * 222 / 162) + 'px;height:' + h + 'px">' +
+    LogoMark({ variant: brandVariant(), size: h }) + '</span>';
 }
 function themeToggleMarkup(extraClass) {
   const light = state.theme === 'light';
@@ -2284,7 +2285,7 @@ function topbar() {
   return '<header class="topbar">' +
     '<a class="skip-link" href="#main-content">Skip to content</a>' +
     '<div class="brand">' +
-      '<span class="brand-logo">' + Logo({ variant: 'dark', size: 30 }) + '</span>' +
+      '<span class="brand-logo">' + Logo({ variant: brandVariant(), size: 40 }) + '</span>' +
     '</div>' +
     themeToggleMarkup('theme-switch-top') +
     '<div class="topbar-right">' +
@@ -2326,7 +2327,7 @@ function steps() {
   return h + '<div class="steps-bar" aria-hidden="true"><span style="width:' + pct + '%"></span></div>';
 }
 function footer() {
-  return '<footer class="footer"><span>PipelineSync AI</span><a href="/dev/outbox" target="_blank" rel="noopener">Outbox</a></footer>';
+  return '<footer class="footer"><span>Nova PipelineSync AI</span><a href="/dev/outbox" target="_blank" rel="noopener">Outbox</a></footer>';
 }
 
 /* ---------------- the entry gate: name + email, then the AI voice call ----------------
@@ -2364,8 +2365,7 @@ function startView() {
     '<div class="gate-theme">' + themeToggleMarkup('theme-switch-gate') + '</div>' +
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
-        '<div class="telem cy mb12"><span class="d" aria-hidden="true"></span>AI PIPELINE DASHBOARD</div>' +
-        '<div class="brand brand-lg"><span class="brand-logo">' + Logo({ variant: 'dark', size: 38 }) + '</span></div>' +
+        '<div class="brand brand-lg"><span class="brand-logo">' + Logo({ variant: brandVariant(), size: 54 }) + '</span></div>' +
         '<h1>Build a <span class="accent">predictable pipeline.</span></h1>' +
         '<p class="lede">AI discovery call. Personalised HubSpot blueprint.</p>' +
         '<div class="gate-trust">' +
@@ -2585,11 +2585,11 @@ function callView() {
      waveform animates while the call is live. */
   const waveOn = novaWaveOn();
 
-  let h = '<div class="intake-wrap"><div class="call hud-frame' + (waveOn ? ' nova-wave-live' : '') + '">' +
+  let h = '<div class="intake-wrap' + (state.demoMode ? '' : ' call-only') + '"><div class="call hud-frame' + (waveOn ? ' nova-wave-live' : '') + '">' +
     '<div class="call-head"><div class="who"><div><b>Nova</b><span class="small muted" id="call-mode">' +
       (v.cfg ? callModeLabel(v) : 'Connecting...') + '</span></div></div>' +
       '<div class="call-head-right">' +
-      '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Progress</button></div></div>' +
+      (state.demoMode ? '<button class="btn btn-ghost btn-sm side-toggle" id="side-toggle" type="button" aria-expanded="' + (state.sideOpen ? 'true' : 'false') + '" aria-controls="intake-side">Demo tools</button>' : '') + '</div></div>' +
     '<div class="call-body">' +
       '<div class="nova-stepper">' + voiceOrbHtml(v.status, v.listening) + '</div>' +
       '<div class="nova-live">' +
@@ -2602,6 +2602,7 @@ function callView() {
       '<div class="call-status" id="call-status" role="status" aria-live="polite">' + esc(statusText) + '</div>' +
       (v.rtNotice ? '<div class="call-note">' + esc(v.rtNotice) + '</div>' : '') +
       (v.notice ? '<div class="call-note">' + esc(v.notice) + '</div>' : '') +
+      (state.fieldError ? '<p class="call-note err" role="alert">' + esc(state.fieldError) + '</p>' : '') +
       (v.error ? '<div class="call-note err">' + esc(v.error) + ' <button class="btn btn-ghost btn-sm" id="retry-turn">Retry</button></div>' : '') +
     '</div>' +
     '<div class="call-controls" id="call-controls">' + callControls(started) + '</div>' +
@@ -2659,54 +2660,7 @@ function callControls(started, total) {
   return h;
 }
 function callSidebar() {
-  const v = voiceSync();
-  const rt = v.rt;
-  const labels = (v.cfg && v.cfg.field_labels) || FIELD_LABELS;
-  const status = (v.capture && v.capture.status) || {};
-  const fields = (v.capture && v.capture.fields) || {};
-  /* Until a capture state exists, nothing is known to be captured: the card lists the required
-     figures as pending rather than claiming they were captured (which a reload used to do, even
-     with the answers that feed them sitting right there). */
-  const missingReq = v.capture ? v.capture.missingRequired : REQUIRED;
-  const heard = (v.capture && v.capture.heard) || {};
-  const chips = Object.keys(FIELD_LABELS).map(k => {
-    const st = status[k] || 'pending';
-    const val = fmtCaptured(fields[k]);
-    const assist = !val && heard[k] ? ' (heard: ' + fmtCaptured(heard[k].value) + ')' : '';
-    return '<div class="side-chip ' + (st === 'captured' ? 'filled' : 'null') + '"><span>' + esc(labels[k] || FIELD_LABELS[k]) + '</span>' +
-      '<span class="val">' + esc((val || 'not yet') + assist) + '</span></div>';
-  }).join('');
-  /* What the live session is running on, and how it is connected. Both are patched in place while
-     the call is up (updateConnNote) so a state change never rebuilds the orb. The card heading
-     follows the design pass on main ("Mode"); the contents below it are the live-call detail. */
-  const live = wasRealtime(v);
-  const everLive = live || !!(rt && rt.startedAt);
-  const detailBits = live ? [
-    rt && rt.model ? 'Model ' + esc(rt.model) : '',
-    rt && rt.voice ? 'Voice ' + esc(rt.voice) : '',
-    rt && rt.vad ? 'Turn detection ' + esc(rt.vad) : '',
-    rt && rt.maxSessionMin ? 'Limit ' + esc(rt.maxSessionMin) + ' min' : ''
-  ].filter(Boolean) : [];
-  const detail = detailBits.length ? '<div class="side-note">' + detailBits.join(' &bull; ') + '</div>' : '';
-  const conn = live ? '<div class="conn-state" id="conn-state">Connection: opening</div>' : '';
-  /* The grounding gate's tally, which was already counted but never shown: what the server saved
-     because the visitor said it, and what it refused because the words were never actually spoken. */
-  const grounding = everLive && ((rt.accepted || 0) > 0 || (rt.rejected || 0) > 0)
-    ? '<div class="side-note grounding" id="grounding-note">Values saved from your words: ' + (rt.accepted || 0) +
-      ((rt.rejected || 0) > 0 ? ' &bull; refused as not said on the call: ' + rt.rejected : '') + '</div>'
-    : '';
-  const modeCard = '<div class="side-card"><h3>Mode</h3>' +
-    '<div class="provider-card">' + providerBadge() + '</div>' + detail + conn + grounding +
-    '</div>';
-  const errNote = state.fieldError ? '<p class="small txt-err mt8" role="alert">' + esc(state.fieldError) + '</p>' : '';
-  const reqCard = missingReq.length
-    ? '<div class="side-card warn"><h3>Needed for blueprint</h3><p class="small">Pending: <b>' + missingReq.map(k => esc(labels[k] || FIELD_LABELS[k])).join(', ') + '</b>.</p></div>'
-    : '<div class="side-card ok"><h3>Required numbers captured</h3><p class="small">Deal size, lead volume, and close rate are captured.</p></div>';
-  const bubbles = v.transcript.map(t => '<div class="bubble ' + (t.role === 'ai' ? 'ai' : 'user') + (t.ignored ? ' ignored' : '') + '">' +
-    '<span class="bubble-txt">' + esc(t.text) + '</span></div>').join('');
-  const transcriptCard = '<div class="side-card"><h3>Transcript</h3>' +
-    '<details class="transcript" id="transcript-wrap"' + (state.showTranscript ? ' open' : '') + '><summary id="transcript-toggle">Show transcript (' + v.transcript.length + ' lines)</summary>' +
-    '<div class="chat-body" id="chat-body">' + (bubbles || '<p class="small muted">Nothing yet.</p>') + '</div></details></div>';
+  if (!state.demoMode) return '';
   let personaCard = '';
   if (state.demoMode) {
     const personaOpts = Object.keys(PERSONAS).map(k => '<option value="' + k + '">' + PERSONAS[k].label + '</option>').join('');
@@ -2719,8 +2673,8 @@ function callSidebar() {
       '<div class="persona-quick" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + quickBtns + '</div>' +
       '</div></div>';
   }
-  return '<aside class="intake-side" id="intake-side" aria-label="Call progress and captured answers">' +
-    modeCard + personaCard + '<div class="side-card"><h3>Captured signals</h3><div class="chip-col">' + chips + '</div>' + errNote + '</div>' + reqCard + transcriptCard + '</aside>';
+  return '<aside class="intake-side" id="intake-side" aria-label="Demo tools">' +
+    personaCard + '</aside>';
 }
 /* The AI's line grows word by word on a live call, so it is patched in place rather than re-rendered
    (a full render would rebuild the orb and lose the animation mid-sentence). */
@@ -3478,7 +3432,7 @@ function blueprintView() {
 
   let h = '<div class=\"doc hud-frame' + (delivered ? ' nova-celebrate' : '') + '\">' +
     '<div class=\"doc-head\"><div class=\"telem cy mb12\"><span class=\"d\" aria-hidden=\"true\"></span>BLUEPRINT VERIFIED</div>' +
-    '<div class=\"kicker\">PIPELINESYNC AI  |  ' + esc(bp.meta.verticalLabel).toUpperCase() + '</div>' +
+    '<div class=\"kicker\">Nova PipelineSync AI  |  ' + esc(bp.meta.verticalLabel).toUpperCase() + '</div>' +
     '<h2>Your growth system</h2>' +
     '<div class=\"meta\">' + esc(bp.meta.businessLine) + '  |  Prepared ' + esc(bp.meta.date) + '  |  ' + esc(bp.meta.generatedBy) + '</div></div>' +
     '<h3 class=\"sec\"><span class=\"sn\">1</span>Executive summary</h3>' +
@@ -3507,7 +3461,7 @@ function blueprintView() {
     '<h3 class=\"sec\"><span class=\"sn\">8</span>Compliance</h3>' + compliance +
     '<h3 class=\"sec\"><span class=\"sn\">9</span>Next steps</h3><ol>' + bp.nextSteps.map(s => '<li>' + esc(s) + '</li>').join('') + '</ol>' +
     '<div class=\"doc-foot\">Sourced exclusively from knowledge base v1 (no invented properties, tools, features, or prices):<div class=\"chip-row mt8\">' + kbChips + '</div>' +
-    '<p class=\"mt8\">Generated by PipelineSync AI from your confirmed answers. Figures are planning estimates, not a quote. Prepared in UK English.</p></div>' +
+    '<p class=\"mt8\">Generated by Nova PipelineSync AI from your confirmed answers. Figures are planning estimates, not a quote. Prepared in UK English.</p></div>' +
     '</div>';
 
   h += '<div class=\"btn-row\">' +
@@ -3762,7 +3716,7 @@ function generateClientPDF() {
     header: function(currentPage, pageCount) {
       return {
         columns: [
-          { text: 'PIPELINESYNC AI', style: 'headerBrand', margin: [40, 20, 0, 0] },
+          { text: 'Nova PipelineSync AI', style: 'headerBrand', margin: [40, 20, 0, 0] },
           { text: 'REVENUE OPERATIONS BLUEPRINT', style: 'headerTitle', alignment: 'right', margin: [0, 20, 40, 0] }
         ],
         margin: [0, 0, 0, 10]
@@ -3773,7 +3727,7 @@ function generateClientPDF() {
         columns: [
           { text: 'Page ' + currentPage + ' of ' + pageCount, style: 'footer', margin: [40, 0, 0, 20] },
           { text: bp.meta.date || '', style: 'footer', alignment: 'center', margin: [0, 0, 0, 20] },
-          { text: 'PipelineSync AI', style: 'footer', alignment: 'right', margin: [0, 0, 40, 20] }
+          { text: 'Nova PipelineSync AI', style: 'footer', alignment: 'right', margin: [0, 0, 40, 20] }
         ]
       };
     },
@@ -3900,7 +3854,7 @@ function generateClientPDF() {
       // All KB ids, wrapped as one flowing line so long lists paginate instead of overflowing.
       { text: bp.kbReferences.join('  ·  '), style: 'kbChip', margin: [0, 5, 0, 5] },
       { text: bp.meta.generatedBy, style: 'disclaimer' },
-      { text: 'Generated by PipelineSync AI from your confirmed answers. Figures are planning estimates, not a quote. Prepared in UK English.', style: 'disclaimer' }
+      { text: 'Generated by Nova PipelineSync AI from your confirmed answers. Figures are planning estimates, not a quote. Prepared in UK English.', style: 'disclaimer' }
     ],
     styles: {
       headerBrand: { fontSize: 9, bold: true, color: navy, font: 'Roboto' },
@@ -4191,7 +4145,12 @@ window.__PS_VOICE_STATE__ = function () {
     skipped: (v.skipped || []).slice(),
     done: !!v.done,
     currentQuestionId: v.currentQuestionId || null,
-    stopped: !!v.stopped
+    stopped: !!v.stopped,
+    transcript: (v.transcript || []).map(t => ({ ...t })),
+    missingRequired: v.capture ? v.capture.missingRequired.slice() : REQUIRED.slice(),
+    capturedCount: v.capture ? v.capture.filledCount : 0,
+    realtimeLive: !!(v.rt && v.rt.live),
+    realtimeConnectionState: (v.rt && v.rt.connState) || ''
   };
 };
 window.__PS_BOOKING__ = {

@@ -624,13 +624,9 @@ a:hover { color: #A5F3FC; text-decoration: underline; text-shadow: 0 0 8px rgba(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #FFFFFF;
-  padding: 4px;
-  border-radius: 9px;
-  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.3), 0 4px 14px rgba(34, 211, 238, 0.18);
-}
-.gate-brand .logo-plate {
-  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.45), 0 6px 20px rgba(34, 211, 238, 0.25);
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
 }
 
 .topbar-right {
@@ -4644,10 +4640,10 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   justify-content: center;
   width: 160px;
   height: 160px;
-  background: #FFFFFF;
-  border-radius: var(--r-xl);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(143, 176, 208, 0.35);
+  background: transparent;
+  box-shadow: none;
 }
+
 /* --- Results: the delivered blueprint gains a hairline of brand orange ---- */
 .doc.nova-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), var(--sh-2), 0 0 0 1px rgba(255, 122, 26, 0.28); }
 
@@ -4673,28 +4669,22 @@ body.app-screen[data-stage="blueprint"] .gap-analysis-grid > .change-card p {
   .nova-stepper .orb { width: 92px; height: 92px; }
 }
 
-/* --- Narrow headers: the wordmark yields to the mark ----------------------
-   The colour-mode switch is absolutely centred in the topbar, so the lockup on the left has to
-   stay clear of it. The wordmark truncates on a narrow phone (the mark always survives) and the
-   entry gate, which has the width, is left alone. */
+/* The two-line HTML wordmark preserves its own typography at every size. */
+.ps-lockup { display: inline-flex; align-items: center; gap: 0.6rem; flex-shrink: 0; }
+.ps-lockup-mark { display: inline-flex; flex-shrink: 0; }
+.ps-wordmark { display: flex; flex-direction: column; line-height: 1; white-space: nowrap; }
+.ps-wordmark-name { font-weight: 800; letter-spacing: 0.09em; }
+.ps-wordmark-sub { font-weight: 600; letter-spacing: 0; }
+/* On a small header keep the short product name, not a clipped lockup. */
 @media (max-width: 479px) {
-  body.app-screen .topbar .brand .brand-logo { max-width: 124px; overflow: hidden; }
-  body.app-screen .topbar .brand .brand-logo > span > span:last-child {
-    min-width: 0;
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  body.app-screen .topbar .ps-wordmark-sub { display: none; }
+  body.app-screen .topbar .ps-wordmark-name { font-size: 16px !important; }
+  body.app-screen .topbar .ps-lockup { gap: 0.35rem; }
+  body.app-screen .topbar .ps-lockup-mark svg { height: 24px; width: auto; }
 }
-@media (max-width: 379px) {
-  /* The wordmark is the last thing to go: the mark still carries the brand. */
-  body.app-screen .topbar .brand .brand-logo > span > span:last-child { display: none; }
-}
-
 /* --- Light theme ---------------------------------------------------------- */
 body[data-theme="light"] .nova-question { color: #0C2B5E; }
-body[data-theme="light"] .nova-splash-card { box-shadow: 0 12px 36px rgba(15, 47, 82, 0.22), 0 0 0 1px rgba(62, 104, 146, 0.2); }
+body[data-theme="light"] .nova-splash-card { background: transparent; box-shadow: none; }
 body[data-theme="light"] .doc.nova-celebrate { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--sh-2), 0 0 0 1px rgba(232, 102, 10, 0.35); }
 
 /* --- Abuse protections: Turnstile widget and demo persona loader (DEMO_MODE) --- */
@@ -4712,4 +4702,187 @@ body[data-theme="light"] .doc.nova-celebrate { box-shadow: inset 0 1px 0 rgba(25
 /* --- Reduced motion: no dancing bars --------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .nova-wave-bar { animation: none; transform: scaleY(0.6); }
+}
+
+/* A normal discovery call has no sidebar; demo tools retain their own column. */
+body.app-screen[data-stage="intake"] .intake-wrap.call-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* =============================================================================
+   Centered, quiet workspace
+   Panels share a central axis; reading and editing stay left-aligned. Keep the
+   fixed call viewport, but let information-heavy panels scroll within it.
+   ============================================================================= */
+@media screen {
+  body::before, body::after { display: none; }
+  body .hud-frame::after,
+  body .card::before, body .card::after,
+  body .call::before, body .call::after,
+  body .gate-card::before, body .gate-card::after,
+  body .doc::before, body .doc::after { content: none; }
+
+  body .card, body .call, body .gate-card, body .doc,
+  body .side-card, body .unlock-panel, body .success-card {
+    box-shadow: none;
+    border-radius: 16px;
+    border-color: var(--line);
+  }
+  body .card:hover, body .call:hover, body .gate-card:hover {
+    box-shadow: none;
+    border-color: var(--line);
+    transform: none;
+  }
+  body .gradient-heading {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+  body .btn { box-shadow: none; text-shadow: none; }
+  body .btn:hover { text-shadow: none; box-shadow: none; transform: none; }
+  body .btn-row, body .call-row { justify-content: center; }
+
+  /* A compact, single-column welcome: one message, one form. */
+  body.entry-screen .gate {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-width: 640px;
+    gap: clamp(0.75rem, 2dvh, 1.5rem);
+    padding: 3.5rem 1.25rem 1.25rem;
+  }
+  body.entry-screen .gate-brand {
+    width: 100%;
+    flex: 0 0 auto;
+    padding: 0;
+  }
+  body.entry-screen .gate-brand-inner { max-width: 100%; margin-inline: auto; }
+  body.entry-screen .brand-lg { justify-content: center; margin-bottom: 1rem; }
+  body.entry-screen .gate-brand h1 {
+    font-size: clamp(1.7rem, 3.2vw, 2.4rem);
+    line-height: 1.15;
+    margin-bottom: 0.65rem;
+  }
+  body.entry-screen .gate-brand .lede { font-size: 1rem; margin-bottom: 0; }
+  body.entry-screen .mini-steps, body.entry-screen .gate-trust { display: none; }
+  body.entry-screen .gate-side {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  body.entry-screen .gate-card { padding: clamp(1rem, 2.5vw, 1.75rem); }
+  body.entry-screen .gate-card h2 { font-size: 1.25rem; }
+  body.entry-screen .gate-card .sub { font-size: 0.9rem; }
+  body.entry-screen .gate-theme { top: 0.6rem; right: 1rem; left: auto; transform: none; }
+
+  /* One bounded canvas instead of an edge-to-edge dashboard. */
+  body.app-screen .main {
+    width: 100%;
+    max-width: 1120px;
+    margin-inline: auto;
+    padding: clamp(0.75rem, 2vw, 1.5rem);
+    gap: 0;
+  }
+  body.app-screen .topbar {
+    padding-inline: max(1rem, calc((100vw - 1072px) / 2));
+    box-shadow: none;
+    background: var(--surface);
+  }
+  body.app-screen .steps { max-width: 760px; margin-inline: auto; }
+  body.app-screen .steps-bar { max-width: 760px; margin: 0.65rem auto 1.25rem; }
+  body.app-screen .step { background: transparent; box-shadow: none; border-color: transparent; }
+  body.app-screen .step.active { background: var(--surface-2); border-color: var(--line); }
+
+  /* The conversation occupies the centre, not the entire monitor. */
+  body.app-screen[data-stage="intake"] .intake-wrap {
+    width: 100%;
+    max-width: 960px;
+    margin-inline: auto;
+  }
+  body.app-screen[data-stage="intake"] .intake-wrap.call-only { max-width: 760px; }
+  body.app-screen[data-stage="intake"] .call-head { padding: 1rem 1.25rem; }
+  body.app-screen[data-stage="intake"] .call-body {
+    justify-content: safe center;
+    padding: clamp(1rem, 3vw, 2rem);
+    gap: 1rem;
+  }
+  body.app-screen[data-stage="intake"] .nova-live { max-width: 560px; }
+  body.app-screen[data-stage="intake"] .nova-live-main { align-items: stretch; }
+  body.app-screen[data-stage="intake"] .nova-question {
+    font-size: clamp(1.15rem, 2.2vw, 1.5rem);
+    line-height: 1.5;
+    text-align: left;
+  }
+  body.app-screen[data-stage="intake"] .nova-wave { justify-content: center; }
+  body.app-screen[data-stage="intake"] .call-controls { padding: 1rem; }
+  body.app-screen[data-stage="intake"] .chat-input { max-width: 560px; width: 100%; margin-inline: auto; }
+  body.app-screen[data-stage="intake"] .call-row .btn { min-height: 44px; font-size: 0.875rem; }
+
+  body.app-screen[data-stage="consent"] .consent-card,
+  body.app-screen[data-stage="done"] .done-card,
+  body.app-screen[data-stage="extracting"] .loader,
+  body.app-screen[data-stage="generating"] .loader { width: min(600px, 100%); padding: clamp(1.25rem, 3vw, 2rem); }
+
+  /* Fewer columns and larger text make reviewing answers a reading task. */
+  body.app-screen[data-stage="review"] .main > .card {
+    width: 100%;
+    max-width: 960px;
+    margin-inline: auto;
+    padding: clamp(1rem, 2.5vw, 1.75rem);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+  body.app-screen[data-stage="review"] .review-group {
+    padding: 1rem;
+    background: transparent;
+    box-shadow: none;
+  }
+  body.app-screen[data-stage="review"] .review-group h3 { font-size: 1rem; margin-bottom: 1rem; }
+  body.app-screen[data-stage="review"] .review-grid { gap: 0.85rem; }
+  body.app-screen[data-stage="review"] .field label { font-size: 0.8125rem; line-height: 1.5; }
+  body.app-screen[data-stage="review"] .field input[type="text"],
+  body.app-screen[data-stage="review"] .field input[type="number"],
+  body.app-screen[data-stage="review"] .field select,
+  body.app-screen[data-stage="review"] .field textarea { min-height: 44px; height: auto; font-size: 1rem; }
+  body.app-screen[data-stage="review"] .field textarea { min-height: 80px; }
+  body.app-screen[data-stage="review"] .tbl-wrap { max-height: 220px; }
+  body.app-screen[data-stage="review"] .tbl { font-size: 0.8125rem; }
+  body.app-screen[data-stage="review"] .tbl-edit input,
+  body.app-screen[data-stage="review"] .tbl-edit select { min-height: 44px; font-size: 1rem; }
+  body.app-screen[data-stage="review"] #confirm-hint { font-size: 0.875rem; text-align: center; }
+
+  body.app-screen[data-stage="blueprint"] .doc {
+    width: 100%;
+    max-width: 960px;
+    margin-inline: auto;
+    padding: clamp(1.25rem, 3vw, 2.5rem);
+    box-shadow: none;
+  }
+  body.app-screen[data-stage="blueprint"] .sec { margin-top: 2rem; margin-bottom: 1rem; }
+  body.app-screen[data-stage="blueprint"] .stat,
+  body.app-screen[data-stage="blueprint"] .priority-action,
+  body.app-screen[data-stage="blueprint"] .gap-card,
+  body.app-screen[data-stage="blueprint"] .change-card { padding: 1rem; box-shadow: none; }
+  body.app-screen[data-stage="blueprint"] .main > .btn-row,
+  body.app-screen[data-stage="blueprint"] #unlock-holder,
+  body.app-screen[data-stage="blueprint"] .success-card { width: 100%; max-width: 960px; margin-inline: auto; }
+  body.app-screen[data-stage="booking"] .booking { max-width: 760px; }
+  body.app-screen[data-stage="booking"] .booking .card { padding: clamp(1.25rem, 3vw, 2rem); }
+
+  @media (max-width: 700px) {
+    body.app-screen .main { padding: 0.75rem; }
+    body.app-screen .steps-bar { margin-bottom: 0.75rem; }
+    body.app-screen[data-stage="review"] .main > .card { grid-template-columns: minmax(0, 1fr); }
+    body.app-screen .review-header { flex-wrap: wrap; }
+    body.app-screen .call-summary { flex-wrap: wrap; white-space: normal; }
+    body.entry-screen .gate { gap: 0.75rem; }
+  }
+  @media (max-height: 700px) {
+    body.entry-screen .gate-brand h1 { font-size: 1.5rem; }
+    body.entry-screen .brand-lg { margin-bottom: 0.5rem; }
+    body.app-screen[data-stage="intake"] .call-body { justify-content: flex-start; gap: 0.5rem; padding: 0.75rem; }
+    body.app-screen[data-stage="intake"] .call-controls { padding: 0.65rem; }
+  }
 }

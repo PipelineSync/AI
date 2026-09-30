@@ -57,7 +57,7 @@ async function main() {
       type: def.type || 'string',
       fieldType: def.fieldType || 'text',
       groupName: def.groupName || (objectType === 'deals' ? 'dealinformation' : 'contactinformation'),
-      description: def.description || 'Created by PipelineSync AI',
+      description: def.description || 'Created by Nova PipelineSync AI',
       hasUniqueValue: false
     };
     const timeoutMs = parseInt(env.HUBSPOT_TIMEOUT_MS || '4000', 10) || 4000;

@@ -1,7 +1,7 @@
 /*
- * Nova — the PipelineSync AI mascot. components/brand/Nova.
+ * Nova — the Nova PipelineSync AI mascot. components/brand/Nova.
  * ---------------------------------------------------------------------------
- * The PipelineSync AI React component (`components/brand/Nova.tsx`) ported to the technology this
+ * The Nova PipelineSync AI React component (`components/brand/Nova.tsx`) ported to the technology this
  * app ships: plain HTML/CSS/JS, no build step, no framework. The octopus geometry, the six poses,
  * the animation CSS, the view boxes and every colour are copied from the React source character
  * for character — nothing was redrawn, simplified or recoloured. Only the mechanics changed:

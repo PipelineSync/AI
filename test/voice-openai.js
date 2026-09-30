@@ -143,15 +143,15 @@ function bootBrowser() {
   await sleep(1200);
   ok(played.length >= 1, 'the browser played OpenAI speech audio as soon as the disclaimer was agreed');
   ok(!document.querySelector('#start-call'), 'the call began on agreement, with no separate start button');
-  ok((document.querySelector('.badge-mode') || {}).textContent === 'Step-by-step voice', 'the screen shows the exact step-by-step voice badge');
+  ok(!document.querySelector('#intake-side .badge-mode'), 'the discovery call omits the Mode badge');
   ok((document.querySelector('#call-mode') || {}).textContent === 'Step-by-step voice', 'the call header shows only the exact step-by-step mode label');
   ok(micConstraints.length > 0 && micConstraints.every(c => c.audio && c.audio.echoCancellation === true && c.audio.noiseSuppression === true && c.audio.autoGainControl === true), 'step-by-step recording requests echo cancellation, noise suppression, and automatic gain control');
 
   for (let i = 0; i < 80 && !document.querySelector('#structure-btn'); i++) await sleep(250);
   ok(!!document.querySelector('#structure-btn'), 'the ChatGPT-voiced call reached the end of the intake set');
-  ok(document.querySelectorAll('.bubble.user').length >= 12, 'every transcribed answer is in the transcript');
+  ok(page.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user').length >= 12, 'every transcribed answer is in the transcript');
   ok(played.length >= 12, 'every question was spoken with OpenAI audio (' + played.length + ' lines)');
-  ok(document.querySelectorAll('.side-chip.filled').length >= 15, 'the contract fields were captured from the transcribed answers (' + document.querySelectorAll('.side-chip.filled').length + ')');
+  ok(page.window.__PS_VOICE_STATE__().capturedCount >= 15, 'the contract fields were captured from the transcribed answers (' + page.window.__PS_VOICE_STATE__().capturedCount + ')');
   ok(page.spoken.length === 0, 'the browser voice was never needed while OpenAI speech worked');
   ok(errors.length === 0, 'no runtime errors on the ChatGPT voice path' + (errors.length ? ': ' + errors[0] : ''));
 

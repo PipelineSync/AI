@@ -83,9 +83,9 @@ exports.handler = async (event) => {
 
   // Send code via Resend with fixed template (no user text)
   const fetchImpl = globalThis.fetch;
-  const from = process.env.PDF_EMAIL_FROM || process.env.EMAIL_FROM || 'PipelineSync AI <no-reply@pipelinesync.ai>';
+  const from = process.env.PDF_EMAIL_FROM || process.env.EMAIL_FROM || 'Nova PipelineSync AI <no-reply@pipelinesync.ai>';
   const subject = 'Your verification code';
-  const text = `Your PipelineSync verification code is ${code}. It expires in 10 minutes.\n\nIf you did not request this, you can ignore this email.`;
+  const text = `Your Nova PipelineSync AI verification code is ${code}. It expires in 10 minutes.\n\nIf you did not request this, you can ignore this email.`;
   const html = `<div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#fff;color:#111"><h2 style="margin:0 0 12px">Your verification code</h2><p style="font-size:24px;font-weight:700;letter-spacing:4px;margin:16px 0">${code}</p><p style="color:#666">It expires in 10 minutes. If you did not request this, you can ignore this email.</p></div>`;
 
   let emailResult = { sent: false, error: 'not configured' };

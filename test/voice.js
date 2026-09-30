@@ -288,8 +288,8 @@ async function interactiveTests() {
   const openingMessages = voice.buildMessages({ step: openingStep, asked: [], answers: [], transcript: [], lastAnswer: null, capture: voice.captureState([], []), clientName: 'Maria Santos' });
   ok(/Hi <name>, I'm Nova, an AI from PipelineSync/.test(openingMessages[0].content) && /"caller_first_name":"Maria"/.test(openingMessages[1].content), "the opening prompt introduces Nova as an AI and supplies the caller's first name");
   ok(!/\b(?:hi|hello)\b/i.test(voice.INTAKE_PLAN[0].ask) && !/last one/i.test(voice.INTAKE_PLAN.find(q => q.id === 'goal').ask), 'the business topic has no greeting and the goal has no last-question lead-in');
-  ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Nova on both voice paths');
-  ok(/You are Nova, the PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Nova');
+  ok(/You are Nova, the Nova PipelineSync AI discovery interviewer/.test(voiceSrc), 'the identity says Nova on both voice paths');
+  ok(/You are Nova, the Nova PipelineSync AI discovery interviewer/.test(prompts.MASTER_INTERVIEW_IDENTITY), 'the production identity says Nova');
   ok(/Say you're Nova, an AI from PipelineSync/.test(prompts.REALTIME_INSTRUCTIONS_TEMPLATE), "the realtime opening instruction states Nova\'s PipelineSync and AI identity");
   ok(!/\bAlex\b/.test(voiceSrc) && !/\bAlex\b/.test(promptsSrc), 'the interviewer is never called anything else in the voice layer');
 
