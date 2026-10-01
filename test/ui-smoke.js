@@ -153,17 +153,9 @@ async function passGate(page, details) {
   ok(!document.querySelector('.gate-card svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not greet the visitor on the start screen');
   ok(!/Hi, I'm Nova\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
     'and his greeting line is gone from the start screen');
-  const themeToggle = document.querySelector('#theme-toggle');
-  const initialTheme = document.body.dataset.theme;
-  ok(!!themeToggle && themeToggle.getAttribute('aria-label'), 'the colour-mode switch is available and labelled');
-  if (themeToggle) {
-    themeToggle.click();
-    await sleep(20);
-    ok(document.body.dataset.theme !== initialTheme && document.querySelector('#theme-toggle').getAttribute('aria-pressed') === 'true',
-      'the colour-mode switch changes to light mode');
-    document.querySelector('#theme-toggle').click();
-    await sleep(20);
-  }
+  // Dark-only premium glass theme: no colour-mode switch anywhere.
+  ok(!document.querySelector('#theme-toggle'), 'there is no colour-mode switch on the entry gate');
+  ok(document.body.dataset.theme === 'dark', 'the theme is locked to dark');
 
   // Entry notice must exist before submit (Nova is an AI assistant...)
   const entryNoticePre = document.querySelector('#entry-consent-notice');
@@ -198,19 +190,10 @@ async function passGate(page, details) {
 async function reachCall(page, details) {
   const { document, spoken, speechTimes, window } = page;
   await passGate(page, details);
-  const signedInTheme = document.querySelector('.theme-switch-top .theme-toggle');
-  ok(!!signedInTheme && signedInTheme.getAttribute('aria-label') === 'Switch to light mode',
-    'the signed-in dashboard has a contextual colour-mode switch');
-  if (signedInTheme) {
-    signedInTheme.click();
-    await sleep(20);
-    const lightTheme = document.querySelector('.theme-switch-top .theme-toggle');
-    ok(document.body.dataset.theme === 'light' && lightTheme && lightTheme.getAttribute('aria-pressed') === 'true' &&
-      lightTheme.getAttribute('aria-label') === 'Switch to dark mode' && window.localStorage.getItem('ps_theme') === 'light',
-      'the signed-in switch changes and persists light mode');
-    lightTheme.click();
-    await sleep(20);
-  }
+  // Dark-only theme: the signed-in topbar carries no colour-mode switch.
+  ok(!document.querySelector('#theme-toggle') && !document.querySelector('.theme-switch-top'),
+    'the signed-in dashboard has no colour-mode switch');
+  ok(document.body.dataset.theme === 'dark', 'the signed-in theme stays dark');
   ok(/OpenAI for the voice call/.test(document.body.textContent) || /OpenAI/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
   ok(/starts speaking/i.test(document.getElementById('consent-note').textContent), 'the consent screen says the AI starts speaking on agreement');
   ok(/Agree and start the voice call/.test(document.getElementById('consent-go').textContent), 'the button that agrees to the disclaimer is the one that starts the call');
