@@ -165,11 +165,11 @@ const FIELD_LABELS = {
 const REQUIRED = ['typical_deal_size', 'monthly_lead_volume', 'close_rate'];
 
 /* ---------------- state ---------------- */
-const savedTheme = store.get('ps_theme');
+/* Dark-only premium glass theme: no colour-mode switch, theme is always dark. */
 const state = {
   token: store.get('ps_token') || null,
   user: JSON.parse(store.get('ps_user') || 'null'),
-  theme: savedTheme === 'light' ? 'light' : 'dark',
+  theme: 'dark',
   stage: 'start',        // the entry gate: name + email, then straight to the voice call
   answers: [],           // [{id, text}] captured on the call (or by typing)
   fields: null,          // Section 7 contract (from job record now)
@@ -2267,17 +2267,7 @@ function logoTile(h) {
   return '<span class="logo-plate" style="width:' + (h * 222 / 162) + 'px;height:' + h + 'px">' +
     LogoMark({ variant: brandVariant(), size: h }) + '</span>';
 }
-function themeToggleMarkup(extraClass) {
-  const light = state.theme === 'light';
-  return '<div class="theme-switch ' + esc(extraClass || '') + '" role="group" aria-label="Colour mode">' +
-    '<span class="theme-mode-label">' + (light ? 'LIGHT' : 'DARK') + '</span>' +
-    '<button class="theme-toggle ' + (light ? 'is-light' : 'is-dark') + '" id="theme-toggle" type="button" aria-pressed="' + (light ? 'true' : 'false') + '" aria-label="Switch to ' + (light ? 'dark' : 'light') + ' mode" title="Switch to ' + (light ? 'dark' : 'light') + ' mode">' +
-      '<span class="theme-glyph moon" aria-hidden="true">☾</span>' +
-      '<span class="theme-glyph sun" aria-hidden="true">☼</span>' +
-      '<span class="theme-thumb" aria-hidden="true"></span>' +
-    '</button>' +
-  '</div>';
-}
+/* The colour-mode switch was removed with the dark-only glass theme. */
 function topbar() {
   const u = state.user || {};
   const name = esc(u.name || '');
@@ -2287,7 +2277,6 @@ function topbar() {
     '<div class="brand">' +
       '<span class="brand-logo">' + Logo({ variant: brandVariant(), size: 40 }) + '</span>' +
     '</div>' +
-    themeToggleMarkup('theme-switch-top') +
     '<div class="topbar-right">' +
       '<div class="userchip" title="Signed in as ' + esc(u.email || '') + '">' +
         '<span class="userchip-av" aria-hidden="true">' + initials + '</span>' +
@@ -2362,7 +2351,6 @@ function startView() {
   }
   const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Nova is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
   return '<div class="gate">' +
-    '<div class="gate-theme">' + themeToggleMarkup('theme-switch-gate') + '</div>' +
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
         '<div class="brand brand-lg"><span class="brand-logo">' + Logo({ variant: brandVariant(), size: 54 }) + '</span></div>' +
@@ -4210,14 +4198,6 @@ function bindDone() {
 
 /* ---------------- global bindings + boot ---------------- */
 function bindGlobal() {
-  const theme = $('#theme-toggle');
-  if (theme) theme.onclick = () => {
-    state.theme = state.theme === 'light' ? 'dark' : 'light';
-    store.set('ps_theme', state.theme);
-    render();
-    const next = $('#theme-toggle');
-    if (next) next.focus({ preventScroll: true });
-  };
   const lo = $('#logout-btn');
   if (lo) lo.onclick = async () => {
     try { await api.post('/api/auth/logout', {}); } catch (e) {}
