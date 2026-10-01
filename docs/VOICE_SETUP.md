@@ -167,7 +167,7 @@ continues with its browser-voice mode.
    | `PS_TOKEN_SECRET` | unset | Signs the session tokens and the call tickets. In production the live voice routes **fail closed** when it is missing, under 16 characters, or still the development secret published in this repo |
    | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | The turn brain (words each line on the step-by-step call) |
    | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | The voice the client hears on the step-by-step call |
-   | `OPENAI_TTS_VOICE` | `alloy` | alloy, ash, ballad, coral, echo, sage, shimmer, verse |
+   | `OPENAI_TTS_VOICE` | `marin` | marin, alloy, ash, ballad, coral, echo, sage, shimmer, verse |
    | `OPENAI_STT_MODEL` | `gpt-4o-transcribe` | Transcription: the browser's own engine first, this when it cannot |
    | `VOICE_STT` | `auto` | `auto` (browser first), `browser`, or `openai` (always upload) |
    | `VOICE_LANGUAGE` | `en` | Language code sent to the transcription model |
@@ -196,7 +196,7 @@ OPENAI_API_KEY=sk-mock OPENAI_BASE_URL=http://127.0.0.1:8099/v1 PORT=8081 node s
 The server prints which voice mode is live on startup, e.g.
 
 ```
-Discovery call voice: openai (chat gpt-4o-mini, speech gpt-4o-mini-tts voice alloy, transcription gpt-4o-transcribe)
+Discovery call voice: openai (chat gpt-4o-mini, speech gpt-4o-mini-tts voice marin, transcription gpt-4o-transcribe)
 Continuous call: OpenAI Realtime gpt-realtime-2.1 voice marin (semantic_vad, eagerness medium) - one WebRTC session carries the whole call
 ```
 
@@ -466,7 +466,7 @@ Optional, to change how it sounds or what it costs:
 | `OPENAI_REALTIME_VOICE` | `cedar` | A different voice on the continuous call (`marin` is the default, `alloy` the fallback) |
 | `OPENAI_REALTIME_MODEL` | `gpt-realtime-2.1-mini` | A cheaper continuous-call model, where your account has it |
 | `VOICE_REALTIME` | `off` | Force the step-by-step call everywhere (the emergency switch) |
-| `OPENAI_TTS_VOICE` | `sage` | A different interviewer voice on the step-by-step call (alloy, ash, ballad, coral, echo, sage, shimmer, verse) |
+| `OPENAI_TTS_VOICE` | `sage` | A different interviewer voice on the step-by-step call (marin, alloy, ash, ballad, coral, echo, sage, shimmer, verse) |
 | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | The speech model (default) |
 | `VOICE_TTS_INSTRUCTIONS` | `Speak a little slower and warmer` | Delivery notes for the speech model |
 | `OPENAI_STT_MODEL` | `gpt-4o-mini-transcribe` | Cheaper transcription when server-side transcription is forced |
