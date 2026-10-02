@@ -552,8 +552,8 @@ function playAudio(b64, mime) {
     } catch (e) { finish(false); }
   });
 }
-/* Prefer a feminine browser voice for Nova: professional, and matches the marin live
-   voice. Falls back to the best locale match, then to the browser default. */
+/* Prefer a natural, feminine browser voice for Nova: professional, and matches the
+   marin live voice. Falls back to the best locale match, then to the browser default. */
 function pickBrowserVoice(sy, locale) {
   try {
     const voices = sy && sy.getVoices ? sy.getVoices() : [];
@@ -562,11 +562,14 @@ function pickBrowserVoice(sy, locale) {
     const base = loc.split('-')[0];
     const FEMALE = ['female', 'woman', 'samantha', 'zira', 'aria', 'jenny', 'susan',
       'karen', 'moira', 'tessa', 'fiona', 'veena', 'rishi', 'heera'];
+    // Known natural-sounding voices: Apple Samantha, Google network voices, neural/wavenet
+    const NATURAL = ['samantha', 'google', 'natural', 'neural', 'wavenet', 'aria', 'jenny'];
     const score = v => {
       const name = String(v.name || '').toLowerCase();
       const lang = String(v.lang || '').toLowerCase();
       let s = 0;
       if (FEMALE.some(h => name.indexOf(h) >= 0)) s += 10;
+      if (NATURAL.some(h => name.indexOf(h) >= 0)) s += 6;
       if (lang === loc) s += 5;
       else if (lang.indexOf(base) === 0) s += 3;
       else if (lang.indexOf('en') === 0) s += 1;
