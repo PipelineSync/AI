@@ -552,6 +552,41 @@ function playAudio(b64, mime) {
     } catch (e) { finish(false); }
   });
 }
+/* Prefer a natural, feminine browser voice for Nova: professional, and matches the
+   marin live voice. Falls back to the best locale match, then to the browser default. */
+function pickBrowserVoice(sy, locale) {
+  try {
+    const voices = sy && sy.getVoices ? sy.getVoices() : [];
+    if (!voices.length) return null;
+    const loc = String(locale || 'en-PH').toLowerCase();
+    const base = loc.split('-')[0];
+    const FEMALE = ['female', 'woman', 'samantha', 'zira', 'aria', 'jenny', 'susan',
+      'karen', 'moira', 'tessa', 'fiona', 'veena', 'rishi', 'heera'];
+    // Known natural-sounding voices: Apple Samantha, Google network voices, neural/wavenet
+    const NATURAL = ['samantha', 'google', 'natural', 'neural', 'wavenet', 'aria', 'jenny'];
+    const score = v => {
+      const name = String(v.name || '').toLowerCase();
+      const lang = String(v.lang || '').toLowerCase();
+      let s = 0;
+      if (FEMALE.some(h => name.indexOf(h) >= 0)) s += 10;
+      if (NATURAL.some(h => name.indexOf(h) >= 0)) s += 6;
+      if (lang === loc) s += 5;
+      else if (lang.indexOf(base) === 0) s += 3;
+      else if (lang.indexOf('en') === 0) s += 1;
+      return s;
+    };
+    const ranked = voices.slice().sort((a, b) => score(b) - score(a));
+    return score(ranked[0]) > 0 ? ranked[0] : null;
+  } catch (e) { return null; }
+}
+function makeUtter(text) {
+  const u = new window.SpeechSynthesisUtterance(text);
+  u.lang = (state.voice.cfg && state.voice.cfg.locale) || 'en-PH';
+  u.rate = 1; u.pitch = 1; u.volume = 1;
+  const v = pickBrowserVoice(window.speechSynthesis, u.lang);
+  if (v) u.voice = v;
+  return u;
+}
 function speakWithBrowser(text) {
   return new Promise(resolve => {
     const sy = window.speechSynthesis;
@@ -564,9 +599,7 @@ function speakWithBrowser(text) {
     const say = () => {
       if (settled) return;
       try {
-        const u = new Utter(text);
-        u.lang = (state.voice.cfg && state.voice.cfg.locale) || 'en-PH';
-        u.rate = 1; u.pitch = 1; u.volume = 1;
+        const u = makeUtter(text);
         u.onend = finish; u.onerror = finish;
         voiceSync().stopSpeakHook = finish;
         sy.speak(u);
@@ -574,7 +607,7 @@ function speakWithBrowser(text) {
         setTimeout(() => {
           if (settled) return;
           const idle = sy.speaking === false && (sy.pending === false || sy.pending === undefined);
-          if (idle) { try { sy.cancel(); sy.speak(new Utter(text)); } catch (e) { finish(); } }
+          if (idle) { try { sy.cancel(); sy.speak(makeUtter(text)); } catch (e) { finish(); } }
         }, 1000);
       } catch (e) { finish(); }
     };
