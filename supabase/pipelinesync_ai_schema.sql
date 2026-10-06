@@ -2,6 +2,17 @@
 -- Project: SAME Supabase project as PipelineSync / Time-tracker
 -- Run: Supabase Dashboard → SQL Editor → New query → paste entire file → Run
 -- After: copy SUPABASE_URL, SUPABASE_SECRET_KEY (or legacy SERVICE_ROLE_KEY), and PIPELINESYNC_WORKSPACE_OWNER_ID
+--
+-- OPTIONAL. The app runs completely without Supabase: sessions are HMAC-signed tokens, the
+-- blueprint job store and the abuse caps live in Netlify Blobs, and the CRM push goes to HubSpot.
+-- Without these three environment variables a finished journey still works end to end - the lead
+-- is simply written to the function log (/dev/outbox locally) instead of to a database. Run this
+-- file when you want every lead, its answers, its blueprint and its funnel events queryable in SQL.
+--
+-- ORDER: (1) make sure ONE auth user exists (Authentication → Users → Add user) - leads are stored
+-- under that owner; (2) paste this whole file and Run (idempotent - re-running is safe);
+-- (3) set the three variables in Netlify and redeploy; (4) run supabase/verify_setup.sql, where
+-- every row should say OK, and it prints the owner UUID for step 3.
 
 -- 0) Extensions (Supabase usually has pgcrypto; run once)
 create extension if not exists "pgcrypto";

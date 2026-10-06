@@ -102,6 +102,25 @@ else about the voice layer is documented in `docs/VOICE_SETUP.md` (all of them a
 
 The Supabase tables and a ready-to-copy readiness check live in `supabase/` (`pipelinesync_ai_schema.sql`, `verify_setup.sql`).
 
+### Optional: persist leads in Supabase
+
+**Supabase is not required to run this app.** Sessions are HMAC-signed tokens, the blueprint job
+store and the abuse caps live in Netlify Blobs, and the CRM push goes to HubSpot - so a deployment
+with no Supabase still runs the whole journey. The only difference is where a finished lead lives:
+
+| | Without Supabase (default) | With Supabase |
+|---|---|---|
+| The journey (call → blueprint → PDF) | works | works |
+| Lead + answers + blueprint | `/dev/outbox` locally, `[hubspot-mock]` / `[hubspot]` lines in the function log | `pipeline_leads`, `pipeline_lead_sessions`, `pipeline_blueprints`, `pipeline_lead_events` |
+| Funnel analytics / "who finished and when" | not queryable | SQL |
+
+To turn it on: create one auth user in the Supabase project (leads are stored under that owner id),
+paste `supabase/pipelinesync_ai_schema.sql` into the SQL Editor and Run it (idempotent - re-running is
+safe), then set the three variables above in Netlify and redeploy. `supabase/verify_setup.sql` prints
+an OK/ACTION line per check and the owner UUID to use. Set **all three** variables or none: a partial
+configuration fails closed with a JSON 500 rather than half-writing. Persistence never blocks the
+PDF - if Supabase is unreachable the delivery still succeeds and reports `persistence:{ok:false}`.
+
 ### 4. Test the deployment
 
 Open your `https://<site>.netlify.app` URL:

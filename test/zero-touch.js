@@ -53,6 +53,13 @@ const token = core.signToken({
   email: SESSION.email, name: SESSION.name, lead_id: null, hubspot_contact_id: null,
   exp: Date.now() + core.TOKEN_TTL_MS
 });
+/* The same session, but attached to a lead row: this is how a real visitor's token looks once the
+   entry gate has created the lead in Supabase. */
+const LEAD_ID = '22222222-2222-4222-8222-222222222222';
+const leadToken = core.signToken({
+  email: SESSION.email, name: SESSION.name, lead_id: LEAD_ID, hubspot_contact_id: null,
+  exp: Date.now() + core.TOKEN_TTL_MS
+});
 
 /* ------------------------------------------------------------------ */
 /* A local Resend: proves a real send without a real Resend account.   */
@@ -91,15 +98,25 @@ async function createJob(email, f, bp) {
   }, { env: process.env });
   return jobId;
 }
+const supabaseCalls = [];
 function stubFetch(plan) {
-  return async (url) => {
+  return async (url, init) => {
     const u = String(url);
+    const method = (init && init.method) || 'GET';
     if (u.indexOf('api.resend.com') >= 0 || /\/emails$/.test(u)) {
       const r = (plan && plan.resend) || { id: 're_stub_1' };
       return { ok: true, status: 200, headers: { get: () => null }, json: async () => r, text: async () => JSON.stringify(r) };
     }
     if (u.indexOf('api.hubapi.com') >= 0) {
       return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ id: '1', results: [] }), text: async () => '{}' };
+    }
+    // Supabase PostgREST: recorded so a test can prove what the app actually wrote.
+    if (u.indexOf('example.supabase.co') >= 0) {
+      let body = null;
+      try { body = init && init.body ? JSON.parse(init.body) : null; } catch (e) {}
+      supabaseCalls.push({ url: u, method, body });
+      const rows = method === 'GET' ? [] : [{ id: LEAD_ID, lead_id: LEAD_ID, status: 'ok' }];
+      return { ok: true, status: method === 'GET' ? 200 : 201, headers: { get: () => null }, json: async () => rows, text: async () => JSON.stringify(rows) };
     }
     return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({ message: 'not stubbed ' + u }), text: async () => '{}' };
   };
@@ -407,6 +424,32 @@ function boot(base) {
   ok(resendCalls.length >= 2, 'the browser journey emailed the PDF through the real send path');
   uiSrv.stop();
   stopResendStub();
+
+  /* ---------------------------------------------------------------- */
+  section('I. Supabase (optional): the automatic delivery persists the lead too');
+  /* Section F left the switch off; this section is about the automatic path, so turn it back on. */
+  process.env.AUTO_DELIVER = 'true';
+  ok(require('../lib/supabase-leads').isEnabled({}) === false, 'no Supabase configured is a supported state, not an error');
+  try { require('../lib/supabase-leads').config({ SUPABASE_URL: 'https://example.supabase.co' }); ok(false, 'partial config should fail closed'); }
+  catch (e) { ok(/needs SUPABASE_URL/.test(e.message), 'a partial Supabase config fails closed instead of half-writing'); }
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SECRET_KEY = 'server-secret';
+  process.env.PIPELINESYNC_WORKSPACE_OWNER_ID = '11111111-1111-4111-8111-111111111111';
+  supabaseCalls.length = 0;
+  const jobIdDb = await createJob();
+  const persisted = await callDeliver({ token: leadToken, jobId: jobIdDb, consent: true, auto: true, consent_at: new Date().toISOString() });
+  ok(persisted.statusCode === 200 && !!persisted.json.pdf_base64, 'the automatic delivery still returns the PDF with persistence on');
+  ok(persisted.json.persistence && persisted.json.persistence.ok === true, 'and reports persistence.ok');
+  const leadPatch = supabaseCalls.find(c => c.method === 'PATCH' && c.url.indexOf('pipeline_leads') >= 0);
+  ok(!!leadPatch, 'the lead row is updated (pipeline_leads PATCH)');
+  ok(leadPatch && leadPatch.body && leadPatch.body.status === 'blueprint_delivered', 'the lead status becomes blueprint_delivered');
+  ok(leadPatch && leadPatch.body && leadPatch.body.consent_given === true, 'the consent flag is written');
+  ok(!!supabaseCalls.find(c => c.url.indexOf('pipeline_blueprints') >= 0), 'the blueprint JSON is stored (pipeline_blueprints)');
+  const eventPost = supabaseCalls.find(c => c.method === 'POST' && c.url.indexOf('pipeline_lead_events') >= 0);
+  ok(!!eventPost && eventPost.body && eventPost.body.event_type === 'blueprint_delivered', 'the funnel event is appended (pipeline_lead_events)');
+  ok(!!eventPost && eventPost.body.event_data && eventPost.body.event_data.email && eventPost.body.event_data.email.sent === true,
+    'and the event records the email result');
+  ['SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'PIPELINESYNC_WORKSPACE_OWNER_ID'].forEach(k => delete process.env[k]);
 
   /* ---------------------------------------------------------------- */
   Object.keys(saved).forEach(k => { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; });
