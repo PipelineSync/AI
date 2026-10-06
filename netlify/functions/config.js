@@ -7,6 +7,7 @@
 const { json } = require('../../lib/netlify-helpers');
 const turnstile = require('../../lib/turnstile');
 const consent = require('../../lib/consent');
+const autopilot = require('../../lib/autopilot');
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'GET' && event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -19,7 +20,10 @@ exports.handler = async (event) => {
     schedulerLink: link || null,
     hubspotEnabled: !!String(process.env.HUBSPOT_ACCESS_TOKEN || process.env.HUBSPOT_API_KEY || '').trim(),
     privacyPolicyUrl: privacyUrl || null,
-    consentVersion: consent.CONSENT_VERSION
+    consentVersion: consent.CONSENT_VERSION,
+    // Zero-touch: the browser runs call -> blueprint -> PDF with no review or unlock screen.
+    // See lib/autopilot.js; AUTO_DELIVER=false is the manual flow.
+    autoDeliver: autopilot.isEnabled(process.env)
   };
   if (siteKey && turnstile.getSecret(process.env)) {
     out.turnstileSiteKey = siteKey;

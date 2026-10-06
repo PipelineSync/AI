@@ -496,6 +496,9 @@ img, svg { max-width: 100%; }
 .kv:last-child { border-bottom: 0; }
 .kv .k { color: var(--muted); font-weight: 500; flex: none; }
 .kv .v { color: var(--ink); font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+/* The zero-touch "what Nova captured" list inside the collapsed details on the short card. */
+.kv-list { margin-top: 4px; }
+.kv-list .kv:last-child { border-bottom: 0; }
 .badge-mode {
   font-family: var(--mono); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em;
   padding: 4px 10px; border-radius: 6px; text-transform: uppercase;

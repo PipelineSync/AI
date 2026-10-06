@@ -207,7 +207,7 @@ async function handleApi(req, res, url) {
     const link = String(process.env.SCHEDULER_LINK || '').trim();
     const consent = require('./lib/consent');
     const privacyUrl = consent.getPrivacyPolicyUrl(process.env);
-    const out = { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env), aiEnabled: anthropic.isEnabled(process.env), privacyPolicyUrl: privacyUrl || null, consentVersion: consent.CONSENT_VERSION };
+    const out = { ok: true, schedulerLink: link || null, hubspotEnabled: hubspot.isEnabled(process.env), aiEnabled: anthropic.isEnabled(process.env), privacyPolicyUrl: privacyUrl || null, consentVersion: consent.CONSENT_VERSION, autoDeliver: require('./lib/autopilot').isEnabled(process.env) };
     const siteKey = turnstile.getSiteKey(process.env);
     if (siteKey && turnstile.getSecret(process.env)) out.turnstileSiteKey = siteKey;
     if (turnstile.isDemoModeEnabled(process.env)) out.demoMode = true;
@@ -492,5 +492,6 @@ server.listen(PORT, HOST, () => {
         (rt.vad === 'semantic_vad' ? ', eagerness ' + rt.eagerness : ', silence ' + rt.silenceMs + 'ms') +
       ') - one WebRTC session carries the whole call'
     : 'Continuous call: step by step instead - ' + (rt.why || 'unavailable'));
+  console.log(require('./lib/autopilot').startupNote(process.env));
   if (!process.env.PS_TOKEN_SECRET) console.log('Note: PS_TOKEN_SECRET not set; using the built-in dev secret (fine for local + test deploys). Set PS_TOKEN_SECRET in production.');
 });

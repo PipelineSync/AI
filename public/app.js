@@ -80,6 +80,12 @@ function restoreJourneyState() {
       state.jobId = data.jobId;
       restored = true;
     }
+    /* The consent survives a reload too. Zero-touch reports it with the delivery, so the CRM note
+       records the moment the visitor actually agreed rather than the moment the PDF went out. */
+    try {
+      const c = JSON.parse(store.get('ps_consent') || 'null');
+      if (c && typeof c === 'object' && c.at) state.consent = c;
+    } catch (e) {}
     return restored;
   } catch (e) {
     return false;
@@ -192,7 +198,15 @@ const state = {
   fieldErrors: null,     // per-field errors returned by the server-side re-validation
   progress: null,        // real generation progress from /api/generate/status: {label, percent}
   blueprintSource: null,  // 'claude' | 'fallback', as reported by the API
-  emailVerify: { code: '', sending: false, sent: false, error: null } // for EMAIL_VERIFY flow
+  emailVerify: { code: '', sending: false, sent: false, error: null }, // for EMAIL_VERIFY flow
+  /* Zero-touch (AUTO_DELIVER, see lib/autopilot.js): the server decides it and /api/config
+     reports it. When it is on, the call runs straight into the blueprint and the PDF is delivered
+     without a review or unlock screen; the review screen survives only for the figures the call
+     did not capture, and as an optional escape hatch. */
+  auto: false,
+  configReady: null,     // resolves when /api/config has answered (the autopilot waits for it)
+  autoFullReview: false, // the visitor chose "Review everything" in zero-touch mode
+  deliverError: null     // why the automatic delivery failed, when it did
 };
 function saveAuth() {
   store.set('ps_token', state.token || '');
@@ -206,6 +220,7 @@ function resetJourney() {
   state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
   state.fieldErrors = null; state.progress = null; state.blueprintSource = null;
   state.emailVerify = { code: '', sending: false, sent: false, error: null };
+  state.autoFullReview = false; state.deliverError = null;
   sessionStore.remove('ps_journey');
 }
 
@@ -282,7 +297,10 @@ function trackLeadProgress(status, extra) {
 }
 /* Public config: scheduler link, Turnstile site key, demo mode — fetched once on boot */
 function fetchConfig() {
-  fetch('/api/config', { method: 'GET', headers: { 'Accept': 'application/json' } })
+  /* The promise is kept on state so the zero-touch hand-off can wait for the mode instead of
+     guessing it: the config request is fired at boot and the visitor cannot reach the end of a
+     call before it lands, but a slow network must never decide the journey. */
+  state.configReady = fetch('/api/config', { method: 'GET', headers: { 'Accept': 'application/json' } })
     .then(r => r.json()).then(j => {
       if (!j) return;
       let needsRender = false;
@@ -308,8 +326,13 @@ function fetchConfig() {
         const cv = String(j.consentVersion).trim();
         if (cv && cv !== state.consentVersion) { state.consentVersion = cv; needsRender = true; }
       }
+      /* Zero-touch is on only when the server says so: an older cached function that does not
+         report the flag keeps the manual review-and-unlock journey. */
+      const auto = j.autoDeliver === true;
+      if (auto !== state.auto) { state.auto = auto; needsRender = true; }
       if (needsRender) render();
     }).catch(() => {});
+  return state.configReady;
 }
 function fetchSchedulerLink() { return fetchConfig(); }
 
@@ -1268,8 +1291,10 @@ function armIdleWatchdog() {
     if (Date.now() - (rt.lastActivityAt || Date.now()) < mins * 60 * 1000) return;
     rt.lastActivityAt = Date.now();         // one wrap-up attempt per idle window
     rt.closing = true;
-    v.notice = 'It has been quiet for a while, so let us wrap up. Everything we captured is on the next screen.';
-    rtRespond('It has been quiet for a while. Thank them, tell them the next step is to review and correct what we captured on screen, and that a human reviews the blueprint. Then call end_call.');
+    v.notice = state.auto
+      ? 'It has been quiet for a while, so let us wrap up. Nova writes the blueprint from here.'
+      : 'It has been quiet for a while, so let us wrap up. Everything we captured is on the next screen.';
+    rtRespond('It has been quiet for a while. Thank them, tell them the next step is that ' + closeNextSpoken() + '. Then call end_call.');
     setTimeout(() => { if (!v.done) finishCall(); }, 30000);
     render();
   }, 20000);
@@ -1544,8 +1569,10 @@ function armSessionWatchdog() {
   rt.watchdog = setTimeout(() => {
     if (!rt.live || v.done) return;
     rt.closing = true;
-    v.notice = 'We are at the time limit for one call, so let us wrap up. Everything captured is on the next screen.';
-    rtRespond('We are out of time. Thank them, tell them the next step is to review and correct what we captured on screen, and that a human reviews the blueprint. Then call end_call.');
+    v.notice = state.auto
+      ? 'We are at the time limit for one call, so let us wrap up. Nova writes the blueprint from here.'
+      : 'We are at the time limit for one call, so let us wrap up. Everything captured is on the next screen.';
+    rtRespond('We are out of time. Thank them, tell them the next step is that ' + closeNextSpoken() + '. Then call end_call.');
     setTimeout(() => { if (!v.done) finishCall(); }, 30000);
     render();
   }, maxMs);
@@ -2519,7 +2546,11 @@ function consentView() {
     '<p>You\'ll be speaking with Nova, an AI.</p>' +
     '<div class="notice info" id="consent-notice">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
-      '<div>Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div>' +
+      '<div>Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude.' +
+      /* Zero-touch sends the finished PDF to this address as soon as the call ends, so say so
+         before the call starts rather than surprising them with an email afterwards. */
+      (state.auto ? ' When we finish, your blueprint PDF is emailed to ' + esc(state.user.email || 'your email') + '.' : '') +
+      ' Audio is never stored.' + privacyLink + '</div>' +
     '</div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I agree to continue.</label>' +
     '<div class="btn-row"><button class="btn btn-primary btn-lg" id="consent-go" disabled>Agree and start the voice call</button></div>' +
@@ -2645,10 +2676,10 @@ function callControls(started, total) {
     h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
     h += '</div>';
     if (!v.done) {
-      h += '<div class="call-row"><button class="btn btn-end" id="end-call-btn" type="button" title="Stop the call and review what we captured">End conversation</button></div>';
+      h += '<div class="call-row"><button class="btn btn-end" id="end-call-btn" type="button" title="' + (state.auto ? 'Stop the call - Nova writes the blueprint from what we captured' : 'Stop the call and review what we captured') + '">End conversation</button></div>';
     }
     if (v.done) {
-      h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Review what we heard</button></div>';
+      h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">' + (state.auto ? 'Build my blueprint' : 'Review what we heard') +'</button></div>';
     }
     if (v.typed) {
       h += '<div class="chat-input"><textarea id="intake-input" rows="1" placeholder="Type your answer..."></textarea>' +
@@ -2671,7 +2702,7 @@ function callControls(started, total) {
   if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip</button>';
   h += '</div>';
   if (v.done) {
-    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">Review what we heard</button></div>';
+    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">' + (state.auto ? 'Build my blueprint' : 'Review what we heard') +'</button></div>';
   }
   if (v.typed) {
     h += '<div class="chat-input"><textarea id="intake-input" rows="1" placeholder="Type your answer..."></textarea>' +
@@ -2944,8 +2975,7 @@ async function continueExtraction() {
   try {
     const j = await api.post('/api/extract', { answers: state.answers });
     state.fields = j.fields;
-    state.stage = 'review';
-    render();
+    await afterExtraction();
   } catch (e) {
     state.stage = 'intake';
     render();
@@ -2955,6 +2985,101 @@ async function continueExtraction() {
     refreshFieldStatus();
   }
 }
+/* ---------------- zero-touch: the call runs straight into the PDF ----------------
+ *
+ * The journey the client asked for: name + email, the AI voice call, then the blueprint as a PDF.
+ * Nothing to click in between. The steps below are the whole autopilot:
+ *
+ *   call ends -> structure the answers (Function A)
+ *             -> [only if a required figure is missing: ask for that one number, never guess]
+ *             -> build the blueprint (Function B, Claude)
+ *             -> deliver the PDF to the address from the entry gate (Function C)
+ *
+ * The guardrail that matters is kept: the blueprint is still grounded in the visitor's own
+ * figures. If the call ended without one of the three required numbers, the autopilot stops at a
+ * single short card that asks for exactly those and nothing else - it never fills a gap with a
+ * made-up number, and it never shows the whole review form unless the visitor asks for it.
+ *
+ * The mode comes from /api/config (AUTO_DELIVER). With it off, every function here returns early
+ * and the manual review -> confirm -> unlock journey is byte-for-byte the one that came before.
+ */
+function autoReady(f) {
+  f = f || {};
+  const missing = REQUIRED.filter(k => f[k] == null || isNaN(f[k]) || f[k] <= 0);
+  return missing.length === 0 && f.close_type != null;
+}
+function autoMissing(f) {
+  f = f || {};
+  return {
+    numbers: REQUIRED.filter(k => f[k] == null || isNaN(f[k]) || f[k] <= 0),
+    closeType: f.close_type == null
+  };
+}
+/* What Nova says happens next, matching the journey the browser is actually running. */
+function closeNextSpoken() {
+  return state.auto
+    ? 'the blueprint is being written from everything they gave and will reach their inbox as a PDF in the next few minutes, with a human review before anything is used'
+    : 'they will review and correct what we captured on screen, and a human reviews the blueprint';
+}
+/* The zero-touch decision needs the server's answer, and the visitor can reach the end of a call
+   long before a slow /api/config lands. Wait for it - but never on the network: a config that never
+   arrives leaves the manual review screen in place, which is the safe default. */
+async function awaitConfig() {
+  if (!state.configReady) return;
+  try { await Promise.race([state.configReady, sleep(2500)]); } catch (e) {}
+}
+/* The call is over and the answers are structured. In zero-touch this is the hand-off: build it. */
+async function afterExtraction() {
+  await awaitConfig();
+  if (!state.auto) { state.stage = 'review'; render(); return; }
+  const f = state.fields || {};
+  if (autoReady(f)) { startGeneration(f); return; }
+  state.stage = 'review';
+  render();
+}
+/* Zero-touch: deliver the PDF without making the visitor find the unlock button. The recipient is
+   the address the session was created with - never one typed again on the page. Delivery is
+   idempotent server-side, so a reload or a retry returns the same PDF instead of a second email.
+   A failure is survivable: the blueprint stays on screen and the manual unlock stays available. */
+async function autoDeliverNow() {
+  if (!state.auto || !state.jobId) { render(); return; }
+  state.stage = 'generating';
+  state.progress = { label: 'Delivering your PDF', percent: null };
+  state.deliverError = null;
+  render();
+  try {
+    const consent = state.consent || {};
+    const j = await api.post('/api/deliver', {
+      jobId: state.jobId,
+      consent: true,          // given on the consent screen, carried through with its timestamp
+      auto: true,             // first delivery to the session address; no code step, no click
+      consent_at: consent.at || null,
+      consent_version: consent.version || state.consentVersion || null,
+      voice_meta: voiceMeta()
+    });
+    const emailResult = j.email || null;
+    state.delivered = {
+      contact_id: j.contact_id, filename: j.filename,
+      pdf_base64: j.pdf_base64,
+      email: (emailResult && emailResult.to) || state.user.email,
+      email_result: emailResult,
+      hubspot: j.hubspot || { mocked: true, ok: false },
+      duplicate: !!j.duplicate,
+      persistence: j.persistence || { ok: true }
+    };
+    state.stage = 'blueprint';
+    state.progress = null;
+    render();
+    downloadPdf(state.delivered);
+  } catch (e) {
+    state.progress = null;
+    state.deliverError = e.message;
+    state.stage = 'blueprint';
+    render();
+    toast('The blueprint is ready, but it could not be sent automatically. ' + e.message, true);
+  }
+}
+
 /* Re-attach to a blueprint job after a reload: the job record still holds the finished document,
    so the loader resumes on real server progress and the blueprint pops in when it is read. */
 async function resumeGeneration(jobId, thenStage) {
@@ -2968,6 +3093,10 @@ async function resumeGeneration(jobId, thenStage) {
     if (bp.fields) state.fields = bp.fields;
     state.stage = (thenStage === 'booking' || thenStage === 'done') ? thenStage : 'blueprint';
     state.progress = null;
+    /* Zero-touch after a reload: the job record still has the document, and the deliver endpoint is
+       idempotent, so this returns the same PDF without sending a second email. */
+    await awaitConfig();
+    if (state.auto && !state.delivered) { autoDeliverNow(); return; }
     render();
   } catch (e) {
     state.progress = null;
@@ -2989,6 +3118,13 @@ function resumeJourneyAfterReload() {
   if (state.stage === 'intake') { refreshFieldStatus(); return; }
   if (state.stage === 'extracting') { continueExtraction(); return; }
   if (state.stage === 'review' && !state.fields && state.answers.length) { continueExtraction(); return; }
+  /* A reload that lands on the review screen while zero-touch is on must not stall the journey on a
+     screen the visitor never asked for: continue the hand-off the reload interrupted. The mode
+     arrives with /api/config, so wait for it before deciding. */
+  if (state.stage === 'review' && !state.autoFullReview) {
+    awaitConfig().then(() => { if (state.auto) afterExtraction(); });
+    return;
+  }
   const needsBlueprint = state.stage === 'generating' || state.stage === 'blueprint' ||
     state.stage === 'booking' || state.stage === 'done';
   if (needsBlueprint && !state.blueprint) {
@@ -3024,7 +3160,91 @@ function loaderView(kind) {
 }
 
 /* ---------------- review ---------------- */
+/* Zero-touch, exception path: the call ended without one of the figures the blueprint has to be
+   grounded in. Ask for exactly those - not the whole form, and never a guess - then carry on to
+   the blueprint automatically. Everything the call did capture is listed, so the visitor can see
+   their answers were kept. */
+function autoNeedsView() {
+  const f = state.fields || {};
+  const miss = autoMissing(f);
+  const labels = miss.numbers.map(k => FIELD_LABELS[k] || k);
+  const title = labels.length + (miss.closeType ? 1 : 0) === 1
+    ? 'One thing Nova still needs' : 'A couple of things Nova still needs';
+  const captured = Object.keys(FIELD_LABELS)
+    .filter(k => k !== 'current_tools' && f[k] != null && f[k] !== '' && !miss.numbers.includes(k) && !(k === 'close_type' && miss.closeType))
+    .slice(0, 8)
+    .map(k => '<div class="kv"><span class="k">' + esc(FIELD_LABELS[k]) + '</span><span class="v">' + esc(fmtCaptured(f[k])) + '</span></div>')
+    .join('');
+  const numFields = miss.numbers.map(k => {
+    const money = k === 'typical_deal_size' || k === 'monthly_lead_volume';
+    return '<div class="field"><label for="auto-' + k + '">' + esc(FIELD_LABELS[k] || k) + '</label>' +
+      '<input type="number" id="auto-' + k + '" data-key="' + k + '" data-type="number" inputmode="decimal" step="any"' +
+      (money ? ' placeholder="PHP per month"' : ' placeholder="%"') + ' value="' + esc(f[k]) + '" aria-label="' + esc(FIELD_LABELS[k] || k) + '"></div>';
+  }).join('');
+  const closeField = miss.closeType
+    ? '<div class="field"><label for="auto-close-type">' + esc(FIELD_LABELS.close_type) + '</label>' +
+      '<select id="auto-close-type" data-key="close_type" data-type="select" aria-label="Close type">' +
+      '<option value="">Select</option>' +
+      '<option value="one-call">One call</option>' +
+      '<option value="two-call">Two calls or more</option>' +
+      '</select></div>'
+    : '';
+  return '<div class="card hud-frame">' +
+    '<div class="review-header"><h2>' + title + '</h2></div>' +
+    '<p>The call is done and Nova has written up everything else. These are the figures the ' +
+      'blueprint has to be built on, and Nova will not guess them: ' + esc(labels.concat(miss.closeType ? [FIELD_LABELS.close_type] : []).join(', ')) + '.</p>' +
+    '<div class="grid-2">' + numFields + closeField + '</div>' +
+    '<div class="btn-row"><button class="btn btn-primary" id="auto-needs-go" disabled>Build my blueprint</button>' +
+      '<button class="btn btn-ghost" id="auto-needs-review">Review everything</button></div>' +
+    '<p class="small muted mt8" id="auto-needs-hint" role="status"></p>' +
+    (captured ? '<details class="mt8"><summary>What Nova captured on the call</summary><div class="kv-list">' + captured + '</div></details>' : '') +
+    '</div>';
+}
+function bindAutoNeeds() {
+  const hint = $('#auto-needs-hint');
+  const check = () => {
+    const f = collectFields();
+    const miss = autoMissing(f);
+    const btn = $('#auto-needs-go');
+    if (miss.numbers.length || miss.closeType) {
+      if (hint) {
+        hint.textContent = 'Still needed: ' + miss.numbers.map(k => FIELD_LABELS[k] || k)
+          .concat(miss.closeType ? [FIELD_LABELS.close_type] : []).join(', ') + '.';
+        hint.style.color = 'var(--amber)';
+      }
+      if (btn) btn.disabled = true;
+      return false;
+    }
+    if (hint) {
+      hint.textContent = 'Ready. The blueprint is built from these figures.';
+      hint.style.color = 'var(--green)';
+    }
+    if (btn) btn.disabled = false;
+    return true;
+  };
+  const inputs = Array.prototype.slice.call(document.querySelectorAll('#app input[data-key], #app select[data-key]'));
+  inputs.forEach(el => {
+    el.addEventListener('input', () => { state.fields = collectFields(); check(); });
+    el.addEventListener('change', () => { state.fields = collectFields(); check(); });
+  });
+  const go = $('#auto-needs-go');
+  const review = $('#auto-needs-review');
+  check();
+  if (go) go.onclick = () => {
+    const f = collectFields();
+    state.fields = f;
+    if (!check()) return;
+    startGeneration(f);
+  };
+  if (review) review.onclick = () => { state.fields = collectFields(); state.autoFullReview = true; render(); };
+  const firstEmpty = inputs.filter(el => !String(el.value || '').trim())[0];
+  if (firstEmpty) firstEmpty.focus();
+}
 function reviewView() {
+  /* Zero-touch never lands here with everything it needs; when a required figure is missing this
+     is the short card instead of the full editable contract. "Review everything" opens the full
+     form, which is the original manual screen - one link away, never in the way. */
+  if (state.auto && !state.autoFullReview && !autoReady(state.fields || {})) return autoNeedsView();
   const f = state.fields;
   // Nothing captured yet (a session opened without a call): say so and offer the way in,
   // rather than the screen reading a field set that does not exist.
@@ -3310,10 +3530,15 @@ async function startGeneration(fields) {
     if (bp.fields) state.fields = bp.fields;
     state.stage = 'blueprint';
     state.progress = null;
+    // Zero-touch: no review screen, no unlock click - deliver it now.
+    if (state.auto && !state.delivered) { autoDeliverNow(); return; }
     render();
   } catch (e) {
     state.stage = 'review';
     state.progress = null;
+    /* Anything the server refused (a figure out of range, a failed job) has to be fixable, and the
+       short zero-touch card only carries the missing inputs - so a failure opens the full form. */
+    if (state.auto) state.autoFullReview = true;
     render();
     if (e.body && e.body.fieldErrors) {
       state.fieldErrors = e.body.fieldErrors;
@@ -3515,6 +3740,12 @@ function blueprintView() {
       h += '<p class=\"small muted mt8\">Email: ' + esc(mail.error) + '</p>';
     }
   } else {
+    /* Zero-touch tried and failed (no email key, a cap, the network): say so plainly and leave the
+       manual unlock in place rather than pretending the PDF went out. */
+    if (state.auto && state.deliverError) {
+      h += '<p class=\"small muted mt8\" role=\"status\">The blueprint is ready, but Nova could not send it automatically (' +
+        esc(state.deliverError) + '). You can still download it here.</p>';
+    }
     h += '<div id=\"unlock-holder\"></div>';
   }
   return h;
@@ -4263,6 +4494,8 @@ function routeBindings() {
       // The empty state (nothing captured yet) has one control, and none of the review bindings.
       const es = document.getElementById('empty-start');
       if (es) { es.onclick = () => beginCall(); break; }
+      // Zero-touch asks for the missing figures only; the full review form binds as before.
+      if (document.getElementById('auto-needs-go')) { bindAutoNeeds(); break; }
       bindReview();
       break;
     }

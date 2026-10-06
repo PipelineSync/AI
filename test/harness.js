@@ -41,6 +41,10 @@ async function startServer(port, extraEnv) {
     DEMO_MODE: 'true',
     EMAIL_VERIFY: 'false',
     PS_TOKEN_SECRET: 'test-secret-0123456789abcdef',
+    /* Zero-touch (AUTO_DELIVER) is the product default, but the manual review -> confirm -> unlock
+       journey still has to be tested exactly as it was, so the shared harness pins it off. The
+       zero-touch suite starts its own instance with AUTO_DELIVER=true (test/zero-touch.js). */
+    AUTO_DELIVER: 'false',
   }, extraEnv || {});
 
   const child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
