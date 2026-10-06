@@ -28,6 +28,9 @@ process.env.VOICE_STT = 'openai'; // force the MediaRecorder + OpenAI transcript
 process.env.DEMO_MODE = 'true';
 process.env.DELIVER_PER_EMAIL_DAY = '1000';
 process.env.PDF_EMAIL_DAILY_MAX = '1000';
+/* The manual journey is what this file tests (the review screen after the call), so zero-touch is
+   pinned off here exactly as test/harness.js does. AUTO_DELIVER defaults on in the product. */
+process.env.AUTO_DELIVER = 'false';
 
 const mock = createMock(MOCK_PORT);
 

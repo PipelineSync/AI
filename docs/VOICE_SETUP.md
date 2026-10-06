@@ -65,7 +65,9 @@ first word to the last. If those requirements are not met, the same call continu
    question once.
 6. **Three required fields must land:** typical deal size, monthly lead volume, close rate. `end_call`
    is refused while one of them is still missing and unasked; if the client declines or skips, the
-   review screen blocks generation until a human fills them in. Nothing is ever invented. The one
+   review screen blocks generation until a human fills them in. Nothing is ever invented. In
+   zero-touch (`AUTO_DELIVER`, the default) the same rule holds - the browser asks for exactly the
+   missing figure on a short card instead of showing the whole review form. The one
    exception is a stop the client asks for themselves: that closes the call immediately, because the
    client's word is final (`KB-CALL-02`), and what is still missing is left to the review screen.
 7. **No audio is kept.** The session stores transcripts only; the lead carries
@@ -77,8 +79,8 @@ Three controls sit in the call controls bar while the live session is up (and no
 
 - **End conversation.** Stops the microphone tracks, stops the AI audio, closes the peer connection
   and its data channel, tells the server the call has ended (`/api/voice/realtime/end`, which is what
-  actually stops the billing), and hands over to the review screen with the transcript, the captured
-  signals and every refused capture kept. Hanging up mid-call is the same path as a network drop: the
+  actually stops the billing), and hands over with the transcript, the captured signals and every
+  refused capture kept - the review screen, or the zero-touch loader when `AUTO_DELIVER` is on. Hanging up mid-call is the same path as a network drop: the
   call carries on step by step from where it left off.
 - **Pause my mic** (microphone). Disables the live audio track, so the model stops hearing. The AI's
   voice keeps playing.
