@@ -1,40 +1,50 @@
 /* Static Nova assets. @resvg/resvg-js is a build-time-only tool, never an app
  * dependency. Install: npm i --no-save --package-lock=false @resvg/resvg-js
  * Or set RESVG_PATH to its package directory. Generated assets are committed.
+ *
+ * Nova Ink v4 geometry and palette (shared with the web component via the
+ * PSBrand export in public/components/brand/Logo.js):
+ *   - mark 220x140, three lines sw10, three dots r9, one 4-quadrant star
+ *   - ember tile (favicon): #E8590C ground, paper mark, deep-navy star
+ *   - navy tile (app):      #1C3D6E ground, paper lines, sky dots, ember star
  */
 const fs = require('fs');
 const path = require('path');
 const PUBLIC = path.join(__dirname, '..', 'public');
 const { NOVA_MARK: mark, LogoMark, LOGO_COLORS } = require('../public/components/brand/Logo.js').PSBrand;
 
-function iconMark(tileColor) {
-  const orange = tileColor === '#FF7A1A';
-  const dot = orange ? '#FFFFFF' : '#8FB0D0';
-  const star = orange ? '#0C2B5E' : '#FF7A1A';
-  return mark.lines.map(d => `<path d="${d}" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>`).join('') +
-    mark.dots.map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="13" fill="${dot}"/>`).join('') +
-    `<path d="${mark.star}" fill="${star}"/>`;
+const TILE = {
+  ember: { ground: '#E8590C', line: '#F6F3EC', dot: '#F6F3EC', star: '#17335C' },
+  navy: { ground: '#1C3D6E', line: '#F6F3EC', dot: '#8FA6C4', star: '#F76B15' }
+};
+
+function iconMark(kind) {
+  const c = TILE[kind];
+  return mark.lines.map(d => `<path d="${d}" fill="none" stroke="${c.line}" stroke-width="14" stroke-linecap="round"/>`).join('') +
+    mark.dots.map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="12" fill="${c.dot}"/>`).join('') +
+    `<path d="${mark.star}" fill="${c.star}"/>`;
 }
-function tile(size, color = '#0C2B5E', fraction = 0.72) {
+function tile(size, kind = 'navy', fraction = 0.72) {
+  const c = TILE[kind];
   const scale = size * fraction / mark.width;
   const x = (size - mark.width * scale) / 2;
   const y = (size - mark.height * scale) / 2;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="Nova PipelineSync AI">` +
-    `<rect width="${size}" height="${size}" rx="${size * 0.22}" fill="${color}"/>` +
-    `<g transform="translate(${x} ${y}) scale(${scale}) translate(10 -16)">${iconMark(color)}</g></svg>\n`;
+    `<rect width="${size}" height="${size}" rx="${size * 0.22}" fill="${c.ground}"/>` +
+    `<g transform="translate(${x} ${y}) scale(${scale})">${iconMark(kind)}</g></svg>\n`;
 }
 function standalone(variant) {
-  let svg = LogoMark({ variant, size: 162 });
-  if (variant === 'dark') svg = svg.replace(/(<svg[^>]*>)/, '$1<rect x="-10" y="16" width="222" height="162" fill="#0A0E17"/>');
+  let svg = LogoMark({ variant, size: 140 });
+  if (variant === 'dark') svg = svg.replace(/(<svg[^>]*>)/, '$1<rect x="-10" y="-8" width="240" height="156" fill="#14161B" rx="12"/>');
   return svg + '\n';
 }
 function lockup(variant) {
   const c = LOGO_COLORS[variant];
-  const bg = variant === 'dark' ? '<rect width="690" height="194" fill="#0A0E17"/>' : '';
-  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 690 194" width="690" height="194" role="img" aria-label="Nova PipelineSync AI">' + bg +
-    '<g transform="translate(16 16)">' + LogoMark({ variant, size: 162 }) + '</g>' +
-    `<g font-family="Arial, Helvetica, sans-serif"><text x="266" y="100" fill="${c.text}" font-size="97.2" font-weight="800" letter-spacing="0.09em">NOVA</text>` +
-    `<text x="268" y="175" fill="${c.sync}" font-size="45.36" font-weight="600">PipelineSync <tspan fill="#FF7A1A" font-weight="800">AI</tspan></text></g></svg>\n`;
+  const bg = variant === 'dark' ? '<rect width="620" height="170" fill="#14161B"/>' : '';
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 170" width="620" height="170" role="img" aria-label="Nova PipelineSync AI">' + bg +
+    '<g transform="translate(16 15)">' + LogoMark({ variant, size: 140 }) + '</g>' +
+    `<g font-family="Arial, Helvetica, sans-serif"><text x="272" y="88" fill="${c.text}" font-size="84" font-weight="700" letter-spacing="0.14em">NOVA</text>` +
+    `<text x="274" y="142" fill="${c.sync}" font-size="39" font-weight="600">PipelineSync <tspan fill="${c.star}" font-weight="700">AI</tspan></text></g></svg>\n`;
 }
 
 function write(name, text) {
@@ -85,11 +95,11 @@ write('logo.svg', standalone('light'));
 write('logo-on-dark.svg', standalone('dark'));
 write('logo-lockup.svg', lockup('light'));
 write('logo-lockup-dark.svg', lockup('dark'));
-write('favicon.svg', tile(512, '#FF7A1A'));
-write('app-icons.svg', tile(512));
-write('icon-512.png', png(tile(512), 512));
+write('favicon.svg', tile(512, 'ember'));
+write('app-icons.svg', tile(512, 'navy'));
+write('icon-512.png', png(tile(512, 'navy'), 512));
 // 60% width puts the ENTIRE mark in the central 80%-diameter circle, not
 // merely its central square. The tile background intentionally reaches edges.
-write('icon-maskable-512.png', png(tile(512, '#0C2B5E', 0.60), 512));
-write('apple-touch-icon.png', png(tile(180), 180));
-write('favicon.ico', ico([16, 32, 48].map(size => ({ size, png: png(tile(size, '#FF7A1A'), size) }))));
+write('icon-maskable-512.png', png(tile(512, 'navy', 0.60), 512));
+write('apple-touch-icon.png', png(tile(180, 'navy'), 180));
+write('favicon.ico', ico([16, 32, 48].map(size => ({ size, png: png(tile(size, 'ember'), size) }))));

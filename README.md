@@ -208,23 +208,31 @@ or build step for the app.
 
 | Component | File | Used for |
 |---|---|---|
-| `LogoMark({ variant, size, animated })` | `Logo.js` | Nova's three incoming lines/dots, four-point star and spark; `size` is height, width is `size × 222 / 162` |
-| `Logo({ variant, size })` | `Logo.js` | mark beside real HTML text: **NOVA**, then **Nova PipelineSync AI**; accessible name “Nova PipelineSync AI” |
-| `Nova({ pose, avatar, size })` / `NovaAvatar({ pose, size, ring })` | `Nova.js` | retained mascot component API; not rendered in the current app |
+| `LogoMark({ variant, size, animated })` | `Logo.js` | Nova's three incoming lines/dots and four-quadrant star (the v3 spark is retired); `size` is height, width is `size × 220 / 140` |
+| `Logo({ variant, size })` | `Logo.js` | mark beside real HTML text: **NOVA**, then **PipelineSync AI** (the **AI** in ember); accessible name “Nova PipelineSync AI” |
+| `Nova({ pose, avatar, size })` / `NovaAvatar({ pose, size, ring })` | `Nova.js` | retained mascot component API (recoloured with the v4 palette); not rendered in the current app |
 
-`Logo.js` is the geometry source of truth (`NOVA_MARK`): viewBox `-10 16 222 162`,
-three round-capped 14px lines, three 12px dots, star and spark, in that paint order.
-The **light** palette uses navy `#0C2B5E` lines and steel `#3E6892` dots/spark.
-The **dark** palette uses mist `#E8EFF7` lines and sky `#8FB0D0` dots/spark.
-Both use the orange `#FF7A1A` star. Never stretch the mark.
+`Logo.js` is the geometry source of truth (`NOVA_MARK`): viewBox `0 0 220 140`,
+three round-capped 10px lines, three 9px dots at their origins, one 4-quadrant
+star, in that paint order.
+The **paper (light)** palette uses ink `#1B1E24` lines, steel `#6E88AB` dots and
+the ember `#E8590C` star; the **ink (dark)** palette uses mist `#EDEAE1` lines,
+sky `#8FA6C4` dots and the brighter ember `#F76B15` star. Never stretch the mark.
 
-The topbar, entry gate, completion mark and loading mark follow the active theme:
+The app is a **dual-theme “Nova Ink” system**: light “paper” is the default
+(warm off-white `#F6F3EC`, flat panels, hairline rules, zero glass/blur) and
+dark “ink” (`#14161B`) is one click away. A toggle sits in the entry-gate
+corner and the signed-in topbar; the choice persists in `ps_theme`, a fresh
+visit follows the OS colour-scheme preference, and `applyTheme()` flips the
+body attribute, the colour scheme and the `theme-color` meta together. The
+topbar, entry gate, completion mark and loading mark follow the active theme:
 light artwork only on light surfaces, dark artwork directly on dark surfaces,
-**without a white plate**. The voice orb stays dark in both themes and therefore
-always uses the dark mark. At narrow header widths the product name is shortened
-to **Nova**, rather than cropping the text. Loading animates the three dots into
-the star, then pulses the star gently; `prefers-reduced-motion` restores static
-original dots and disables the pulse.
+**without a white plate** (the marks are inline SVG with baked colours, so the
+toggle re-renders just those). The voice orb stays a dark disc in both themes
+and therefore always uses the dark mark. At narrow header widths the product
+name is shortened to **Nova**, rather than cropping the text. Loading animates
+the three dots into the star, then pulses the star gently;
+`prefers-reduced-motion` restores static original dots and disables the pulse.
 
 ### Generated brand assets
 
@@ -245,16 +253,16 @@ alongside new SVGs.
 
 | Asset | Treatment |
 |---|---|
-| `public/logo.svg` | light mark, transparent background |
-| `public/logo-on-dark.svg` | dark mark directly on `#0A0E17` |
+| `public/logo.svg` | paper mark, transparent background |
+| `public/logo-on-dark.svg` | dark mark directly on the void `#14161B` |
 | `public/logo-lockup.svg`, `public/logo-lockup-dark.svg` | two-line wordmark beside the light/dark mark |
-| `public/favicon.svg`, `public/favicon.ico` | orange tile, white incoming lines/dots, navy star; ICO contains 16/32/48px PNGs |
-| `public/app-icons.svg`, `public/icon-512.png` | navy 512px tile, white lines, sky dots, orange star |
+| `public/favicon.svg`, `public/favicon.ico` | ember `#E8590C` tile, paper lines/dots, deep-navy `#17335C` star; ICO contains 16/32/48px PNGs |
+| `public/app-icons.svg`, `public/icon-512.png` | navy `#1C3D6E` 512px tile, paper lines, sky dots, ember star |
 | `public/apple-touch-icon.png` | same navy icon at 180px |
 | `public/icon-maskable-512.png` | navy tile; entire mark inside the central 80%-diameter safe circle |
 
-Icons omit the spark, use 16px lines and 13px dots, and have a corner radius of
-22% of tile size. Normal icons use a centred, undistorted mark at 72% tile width;
+Icons use 14px lines and 12px dots, and have a corner radius of 22% of tile
+size. Normal icons use a centred, undistorted mark at 72% tile width;
 the maskable icon uses 60% width for safe circular cropping. The PDF and email
 headers are text-only and use **Nova PipelineSync AI**; no mascot or old artwork
 is embedded. App metadata uses the full name and the short name **Nova**. Branding
@@ -285,15 +293,18 @@ scaled-down desktop.
 
 Design rules that `node test/ui-design.js` enforces:
 
-- **Colour is the brand mark** - the brand sheet's palette: navy `#0C2B5E` (Nova's head), steel
-  `#3E6892` (his arms), steel-deep `#2E5580`, sync-orange `#FF7A1A` (primary buttons, live
-  indicators), sky `#8FB0D0` (soft accents and the waveform) and mist `#E8EFF7` (the light circle
-  Nova stands on). These are declared as tokens (`--navy-brand`, `--steel-brand`, `--steel-deep`,
-  `--sync-orange`, `--sky`, `--mist`) alongside the design system's own compatibility tokens, not in
-  place of them: the background stays `#0A0E17` (`--bg`, `--void`). Orange is the one fill that
-  carries white text, because the brand sheet specifies it for primary buttons; every other pair is
-  read back out of the stylesheet and asserted against WCAG AA (4.5:1, or 3:1 for large marks), and a
-  redesign that drops a contrast ratio fails the build.
+- **Colour is the brand mark, in two themes** - the Nova Ink v4 palette. Paper (light, the
+  default): ink `#1B1E24` text on a warm off-white `#F6F3EC` canvas, navy `#1C3D6E` headings,
+  steel `#6E88AB` accents, sync-ember `#E8590C` for primary buttons and the mark's star, sky
+  `#6E88AB` for the waveform. Ink (dark): a `#14161B` void with mist `#EDEAE1` text,
+  `#1B1F26` panels, a brighter ember `#F76B15` and sky `#8FA6C4`. Both themes are declared as
+  tokens - `:root` for paper and a `body[data-theme="dark"]` block for ink (`--navy`, `--steel`,
+  `--sync-orange`, `--sky`, `--mist`, `--void`, ...). The primary button is the ember fill with
+  **ink** text (it clears 4.5:1, so no white-on-brand text exists anywhere in the stylesheet).
+  Every text/background pair in **both** themes is read back out of the stylesheet and asserted
+  against WCAG AA (4.5:1, or 3:1 for large marks and the icon tiles), and a redesign that drops a
+  contrast ratio fails the build. The design is flat: hairline borders and a static paper wash -
+  no `backdrop-filter` and no `blur()` anywhere.
 - **Fluid type**: headings use `clamp()`, so one markup scales from a 320px phone to a wide monitor.
 - **Touch first**: `--tap` is the 44px floor for every button, input, day and slot; the call controls
   are sticky above the on-screen keyboard on phones, and the layout honours
@@ -305,12 +316,16 @@ Design rules that `node test/ui-design.js` enforces:
 - **Preferences respected**: `prefers-reduced-motion` stops the orb pulse and the spinners,
   `forced-colors` mode gets real borders, and the print stylesheet prints just the blueprint.
 - **The logo is the exact Nova mark.** Component and generated SVG tests pin the
-  `222:162` viewBox ratio, all five paths, dot positions, draw order, palettes,
-  two-line HTML wordmark and icon simplification. `logoTile()` preserves the ratio.
+  `220:140` viewBox ratio, the three 10px lines, three 9px dots and the single
+  4-quadrant star (paint order included), both theme palettes, the two-line HTML
+  wordmark and the icon simplification. `logoTile()` preserves the ratio.
 - **A light mark never sits on a dark surface.** Theme-following surfaces select
   their variant; the permanently dark call orb always uses the dark mark. There
-  are no white logo plates. Tests measure dark-mark contrast on `#0A0E17` and
-  require both icon stars to clear 3:1 against their orange/navy tiles.
+  are no white logo plates. Tests measure dark-mark contrast on the void
+  `#14161B` and require both icon stars to clear 3:1 against their ember/navy
+  tiles. The restored theme toggle (entry-gate corner and topbar) must re-render
+  the baked-colour marks without a full re-render mid-call, and the choice must
+  persist in `ps_theme`.
 - **Nova is transparent artwork: nothing paints behind him.** No plate, no circle, no ground
   shadow - `.nova-fig-card` (and every other figure wrapper) only reserves his space, and
   `NovaAvatar` draws just the optional orange ring, so the app's own surface shows through on dark,
@@ -472,15 +487,15 @@ pipelinesync/
   public/index.html      shell (no CDN, works offline; includes pdfmake for client-side PDF)
   public/components/brand/Logo.js  Nova mark geometry, animated dots/star and two-line HTML lockup
   public/components/brand/Nova.js  retained mascot component (not rendered in the current UI)
-  public/logo.svg        transparent light Nova mark
-  public/logo-on-dark.svg  dark Nova mark directly on #0A0E17
+  public/logo.svg        transparent paper Nova mark
+  public/logo-on-dark.svg  dark Nova mark directly on the #14161B void
   public/logo-lockup.svg, public/logo-lockup-dark.svg  mark + two-line wordmark
-  public/favicon.svg     orange tile, white lines/dots, navy star (no spark)
-  public/favicon.ico     16/32/48 PNG entries of the orange tile
-  public/app-icons.svg, public/icon-512.png  navy 512px tile
+  public/favicon.svg     ember tile, paper lines/dots, deep-navy star (no spark)
+  public/favicon.ico     16/32/48 PNG entries of the ember tile
+  public/app-icons.svg, public/icon-512.png  navy 512px tile, paper lines, sky dots, ember star
   public/icon-maskable-512.png  padded navy tile, central 80% safe circle
   public/apple-touch-icon.png  navy tile at 180x180
-  public/manifest.webmanifest  Nova PipelineSync AI / Nova; theme #0A0E17
+  public/manifest.webmanifest  Nova PipelineSync AI / Nova; paper #F6F3EC theme (dark is a toggle)
   scripts/make-brand-assets.js  generates all vectors and rasters from Logo.js geometry;
                          @resvg/resvg-js is build-time only, never an app dependency
   public/styles.css      design system + responsive layout (mobile-first, see below)

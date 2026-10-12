@@ -153,9 +153,10 @@ async function passGate(page, details) {
   ok(!document.querySelector('.gate-card svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not greet the visitor on the start screen');
   ok(!/Hi, I'm Nova\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
     'and his greeting line is gone from the start screen');
-  // Dark-only premium glass theme: no colour-mode switch anywhere.
-  ok(!document.querySelector('#theme-toggle'), 'there is no colour-mode switch on the entry gate');
-  ok(document.body.dataset.theme === 'dark', 'the theme is locked to dark');
+  // Dual Nova Ink theme: light "paper" is the default on a fresh visit, and the
+  // corner toggle offers the dark "ink" mode.
+  ok(!!document.querySelector('#theme-toggle'), 'the entry gate offers the light/dark theme toggle');
+  ok(document.body.dataset.theme === 'light', 'the theme defaults to light "paper" on a fresh visit');
 
   // Entry notice must exist before submit (Nova is an AI assistant...)
   const entryNoticePre = document.querySelector('#entry-consent-notice');
@@ -190,10 +191,11 @@ async function passGate(page, details) {
 async function reachCall(page, details) {
   const { document, spoken, speechTimes, window } = page;
   await passGate(page, details);
-  // Dark-only theme: the signed-in topbar carries no colour-mode switch.
-  ok(!document.querySelector('#theme-toggle') && !document.querySelector('.theme-switch-top'),
-    'the signed-in dashboard has no colour-mode switch');
-  ok(document.body.dataset.theme === 'dark', 'the signed-in theme stays dark');
+  // Dual theme: the signed-in topbar keeps the toggle, and a fresh visit stays
+  // on light "paper" (the dark mode is one click away, not the default).
+  ok(!!document.querySelector('#theme-toggle') && !document.querySelector('.theme-switch-top'),
+    'the signed-in dashboard keeps the light/dark theme toggle');
+  ok(document.body.dataset.theme === 'light', 'the signed-in theme defaults to light "paper"');
   ok(/OpenAI for the voice call/.test(document.body.textContent) || /OpenAI/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
   ok(/starts speaking/i.test(document.getElementById('consent-note').textContent), 'the consent screen says the AI starts speaking on agreement');
   ok(/Agree and start the voice call/.test(document.getElementById('consent-go').textContent), 'the button that agrees to the disclaimer is the one that starts the call');
