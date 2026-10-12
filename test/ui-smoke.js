@@ -148,8 +148,9 @@ async function passGate(page, details) {
   ok(!/\bLog in\b/.test(document.body.textContent), 'nothing on the gate says "Log in"');
   ok(/voice call/i.test(document.body.textContent), 'the gate says the next step is the AI voice call');
   ok(!!document.querySelector('#start-form button[type=submit]'), 'the gate has one submit action');
-  // Brand: the S-mark lockup in the hero. The mascot stays off the start screen: no figure, no greeting line.
-  ok(!!document.querySelector('.gate-brand .brand-logo .ps-lockup[aria-label="Nova PipelineSync AI"] img.ps-mark-img'), 'the entry gate carries the brand lockup (S-mark + wordmark)');
+  // Brand: the PipelineSync S-mark alone in the upper-left corner (no wordmark).
+  // The mascot stays off the start screen: no figure, no greeting line.
+  ok(!!document.querySelector('.gate-logo .ps-mark img.ps-mark-img'), 'the entry gate carries the S-mark in the upper-left corner');
   ok(!document.querySelector('.gate-card svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not greet the visitor on the start screen');
   ok(!/Hi, I'm Nova\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
     'and his greeting line is gone from the start screen');
@@ -332,7 +333,7 @@ async function reachCall(page, details) {
   await sleep(500);
   const loaderStep = d1.querySelector('#loader-step');
   ok(!!loaderStep, 'the generation loader shows a progress state');
-  ok(!!d1.querySelector('.nova-splash-card svg'), 'the loading screen shows the animated Nova mark on the glass card');
+  ok(!d1.querySelector('.nova-splash'), 'the loading screen no longer shows the Nova mark');
   ok(!d1.querySelector('.loader svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not appear on the loading screen');
   ok(!d1.querySelector('.doc'), 'the blueprint is not rendered while the job is still running');
   for (let i = 0; i < 60 && !d1.querySelector('.doc'); i++) await sleep(250);

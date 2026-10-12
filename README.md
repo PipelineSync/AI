@@ -208,8 +208,9 @@ or build step for the app.
 
 | Component | File | Used for |
 |---|---|---|
-| `LogoMark({ variant, size, animated })` | `Logo.js` | Nova's three incoming lines/dots and four-quadrant star (the v3 spark is retired); `size` is height, width is `size × 220 / 140`. The app renders it as the AI's face in the voice orb, on the splash and the done screen |
-| `Logo({ variant, size })` | `Logo.js` | the PipelineSync S-mark raster beside real HTML text: **Nova**, then **PipelineSync AI** (the **AI** in ember 700); accessible name “Nova PipelineSync AI”. Used in the topbar and the entry gate |
+| `LogoMark({ variant, size, animated })` | `Logo.js` | Nova's three incoming lines/dots and four-quadrant star (the v3 spark is retired); `size` is height, width is `size × 220 / 140`. Retained as a brand component and the source of the `logo*.svg` exports, but no longer rendered anywhere in the app |
+| `Logo({ variant, size })` | `Logo.js` | the PipelineSync S-mark raster beside real HTML text: **Nova**, then **PipelineSync AI** (the **AI** in ember 700); accessible name “Nova PipelineSync AI”. Used in the signed-in topbar |
+| `SMark({ size })` | `Logo.js` | the PipelineSync S-mark alone (no wordmark), white with the site navbar's ember glow. Used in the upper-left corner of the login screen |
 | `Nova({ pose, avatar, size })` / `NovaAvatar({ pose, size, ring })` | `Nova.js` | retained mascot component API (recoloured with the neon palette); not rendered in the current app |
 
 `Logo.js` is the geometry source of truth for Nova's mark (`NOVA_MARK`):
@@ -233,11 +234,13 @@ hairline grid, the blue top-glow and the two drifting aurora orbs (34s/42s
 cycles). `state.theme` is pinned to `dark`, `applyTheme()` marks the body
 dataset only, and there is no light variant, no toggle and no `ps_theme`
 persistence to read. Glass surfaces are always translucent, so a light mark
-never sits on a light surface. The voice orb stays a deep navy disc with the
-dark mark. At narrow header widths the product name is shortened to **Nova**,
-rather than cropping the text. Loading animates the three dots into the star,
-then pulses the star gently; `prefers-reduced-motion` restores static dots,
-disables the pulse, removes the aurora drift and stops the 8s accent gradient.
+never sits on a light surface. The Nova mark no longer appears anywhere in the
+app: the voice orb is a plain deep-navy disc, and the loading and done screens
+show no mark. The only on-screen logos are the PipelineSync S-mark — the full
+lockup in the signed-in topbar and the S-mark alone in the upper-left corner of
+the login screen. At narrow header widths the product name is shortened to
+**Nova**, rather than cropping the text. `prefers-reduced-motion` removes the
+aurora drift and stops the 8s accent gradient.
 
 ### Generated brand assets
 
@@ -316,22 +319,23 @@ Design rules that `node test/ui-design.js` enforces:
   a restyle cannot silently drop a style the UI depends on.
 - **Preferences respected**: `prefers-reduced-motion` stops the orb pulse and the spinners,
   `forced-colors` mode gets real borders, and the print stylesheet prints just the blueprint.
-- **The logo is the exact Nova mark.** Component and generated SVG tests pin the
-  `220:140` viewBox ratio, the three 10px lines, three 9px dots and the single
-  4-quadrant star (paint order included), both theme palettes, the two-line HTML
-  wordmark and the icon simplification. `logoTile()` preserves the ratio.
+- **The Nova mark's geometry is pinned even though it's off-screen.** Component
+  and generated SVG tests pin the `220:140` viewBox ratio, the three 10px lines,
+  three 9px dots and the single 4-quadrant star (paint order included) and both
+  theme palettes, so the `logo*.svg` exports stay exact. The S-mark lockup keeps
+  its real HTML wordmark and the S-mark raster's measured proportions.
 - **A light mark never sits on a dark surface.** The app is dark-only, so every
-  surface selects the dark variant; the permanently dark call orb always uses
-  the dark mark. There are no white logo plates. Tests measure dark-mark
-  contrast on the deep navy `#040B16` and require the S-mark silhouette and its
-  ember dot to clear 3:1 against the navy tile, and they pixel-decode the
+  surface selects the dark variant. There are no white logo plates. Tests measure
+  dark-mark contrast on the deep navy `#040B16` and require the S-mark silhouette
+  and its ember dot to clear 3:1 against the navy tile, and they pixel-decode the
   maskable icon to keep every ink pixel inside the 80% safe circle.
-- **Nova is retained but off-screen.** The mascot component (`Nova.js`) is recoloured with the
-  neon palette and keeps its full pose API, both view boxes, reduced-motion CSS and the five
-  copy lines verbatim, but the current app renders none of it - no figure, no avatar, no
-  greeting line, and the mascot's rules are gone from the stylesheet. The only Nova traces on
-  screen are his name (the AI line, the call screen, the PDF and email headers) and his mark
-  in the voice orb, the splash and the done screen.
+- **Nova is retained but off-screen.** The mascot component (`Nova.js`) and the Nova mark
+  component (`LogoMark` in `Logo.js`) are recoloured with the neon palette and keep their full
+  geometry, pose API, reduced-motion CSS and copy lines, but the current app renders none of
+  the Nova artwork - no figure, no avatar, no greeting line, and no mark in the orb, the
+  loader or the done screen. The only on-screen logos are the PipelineSync S-mark (the topbar
+  lockup and the login screen's upper-left corner) and Nova's name (the AI line, the call
+  screen, the PDF and email headers).
 - **Accessibility is in the markup, not bolted on**: skip link, `aria-current="step"` on the rail,
   `aria-live` on the AI line and the call status, `aria-expanded` on both drawers, and visible
   `:focus-visible` rings throughout.
@@ -484,7 +488,7 @@ pipelinesync/
   netlify/functions/     start (the name + email gate; login.js is its alias), logout, ai (Claude API),
                          generate (B), deliver (C+D), voice, outbox, health
   public/index.html      shell (no CDN, works offline; includes pdfmake for client-side PDF)
-  public/components/brand/Logo.js  Nova mark geometry, animated dots/star, and the S-mark lockup
+  public/components/brand/Logo.js  Nova mark geometry (export-only), S-mark lockup + SMark corner logo
   public/components/brand/Nova.js  retained mascot component (not rendered in the current UI)
   public/components/brand/pipelinesync-mark.png  the PipelineSync S-mark raster (favicon/app-icon source)
   public/logo.svg        transparent light Nova mark

@@ -564,9 +564,6 @@ img, svg { max-width: 100%; }
 }
 .topbar .brand { display: flex; align-items: center; }
 .brand-logo { display: inline-flex; align-items: center; }
-.brand-lg .brand-logo svg { height: 54px; width: auto; }
-.brand-lg .brand-logo img { height: 54px; width: auto; }
-.logo-plate { background: transparent; box-shadow: none; display: inline-flex; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .userchip {
   display: flex; align-items: center; gap: 10px;
@@ -635,8 +632,11 @@ img, svg { max-width: 100%; }
 /* =============================================================================
    Entry gate
    ========================================================================== */
-body.entry-screen { height: 100dvh; overflow: hidden; }
+body.entry-screen { height: 100dvh; overflow: hidden; position: relative; }
 body.entry-screen #app { height: 100dvh; }
+/* Login screen: the PipelineSync S-mark alone, pinned to the upper-left corner. */
+.gate-logo { position: absolute; top: clamp(14px, 3vh, 28px); left: clamp(16px, 3vw, 32px); z-index: 6; }
+.gate-logo .ps-mark { display: inline-flex; }
 .gate-brand { text-align: center; max-width: 560px; }
 .gate-brand-inner { display: flex; flex-direction: column; align-items: center; }
 .gate-brand h1 { margin: 22px 0 8px; text-wrap: balance; }
@@ -843,8 +843,6 @@ body.entry-screen #app { height: 100dvh; }
   padding: clamp(28px, 5vw, 48px); text-align: center;
 }
 .loader h2 { margin: 18px 0 6px; }
-.nova-splash { display: flex; justify-content: center; }
-.nova-splash-card { background: transparent; box-shadow: none; display: inline-flex; }
 .nova-empty { max-width: 560px; margin: 0 auto; padding: clamp(28px, 5vw, 48px); text-align: center; }
 .nova-empty h2 { margin-bottom: 18px; }
 .scanline-sweep { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; }
@@ -1102,7 +1100,6 @@ body.entry-screen #app { height: 100dvh; }
    Done
    ========================================================================== */
 .done-card { max-width: 600px; margin: 0 auto; padding: clamp(26px, 5vw, 44px); text-align: center; }
-.done-mark { display: flex; justify-content: center; margin-bottom: 16px; }
 .done-list { text-align: left; margin: 18px 0 6px; }
 .rounded-full { border-radius: var(--r-pill); }
 .relative { position: relative; }
@@ -1189,8 +1186,9 @@ body.entry-screen .gate-card { max-height: 100%; overflow-y: auto; overscroll-be
   .gate-brand h1 { font-size: 1.5rem; margin: 10px 0 4px; }
   .gate-brand .lede { font-size: 0.9rem; margin-bottom: 8px; }
   .gate-trust { display: none; }
-  .brand-lg .brand-logo svg { height: 40px; }
-  .brand-lg .brand-logo img { height: 40px; }
+  .gate-logo { top: 12px; left: 14px; }
+  .gate-logo img { height: 30px; width: auto; }
+  body.entry-screen .gate-brand { padding-top: 34px; }
   .gate-card { padding: 18px; }
   .notice { margin: 10px 0; padding: 10px 12px; }
 }

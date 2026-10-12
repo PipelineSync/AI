@@ -2227,7 +2227,7 @@ function armPageExitGuard() {
  * The UI no longer renders the mascot: only the logo appears on screen. The mascot's pose and size are
  * no longer derived from call state; the waveform follows the state the call is already in. */
 const Logo = opts => window.PSBrand.Logo(opts);
-const LogoMark = opts => window.PSBrand.LogoMark(opts);
+const SMark = opts => window.PSBrand.SMark(opts);
 
 /* True while the call is actually live: the AI is speaking, or the microphone is open. The
    waveform follows this, so one function answers for it. */
@@ -2261,12 +2261,6 @@ function novaWaveHtml(id) {
   return '<div class="nova-wave"' + (id ? ' id="' + esc(id) + '"' : '') + ' aria-hidden="true">' +
     NOVA_WAVE_BARS.map((h, i) =>
       '<span class="nova-wave-bar" style="height:' + h + 'px;animation-delay:' + (-(i * 0.12).toFixed(2)) + 's"></span>').join('') +
-    '</div>';
-}
-/* Loading mark: Nova's face (animated dark mark) on the glass loader card. */
-function novaSplashHtml() {
-  return '<div class="nova-splash" role="img" aria-label="Nova PipelineSync AI">' +
-    '<span class="nova-splash-card" aria-hidden="true">' + LogoMark({ variant: brandVariant(), animated: true, size: 96 }) + '</span>' +
     '</div>';
 }
 /* The empty state: no data yet, so the screen offers the way in. */
@@ -2321,13 +2315,9 @@ function initialsFor(name) {
 function firstName() {
   return String((state.user && state.user.name) || '').trim().split(/\s+/)[0] || '';
 }
-/* Theme-following surfaces use matching mark colours. The voice orb stays dark
-   in both themes, so its mark explicitly keeps the dark variant. */
+/* brandVariant selects the palette for the signed-in topbar lockup. The app is
+   dark-only, so it always resolves to 'dark'. */
 function brandVariant() { return state.theme === 'light' ? 'light' : 'dark'; }
-function logoTile(h) {
-  return '<span class="logo-plate" style="width:' + (h * 220 / 140) + 'px;height:' + h + 'px">' +
-    LogoMark({ variant: brandVariant(), size: h }) + '</span>';
-}
 /* Dark-only theme: the body dataset marks the single theme for CSS scoping
    and the UI tests. There is no light variant to swap to. */
 function applyTheme() {
@@ -2416,9 +2406,9 @@ function startView() {
   }
   const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Nova is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
   return '<div class="gate">' +
+    '<div class="gate-logo">' + SMark({ size: 40 }) + '</div>' +
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
-        '<div class="brand brand-lg"><span class="brand-logo">' + Logo({ variant: brandVariant(), size: 54 }) + '</span></div>' +
         '<h1>Build a <span class="accent">predictable pipeline.</span></h1>' +
         '<p class="lede">AI discovery call. Personalised HubSpot blueprint.</p>' +
         '<div class="gate-trust">' +
@@ -2621,7 +2611,6 @@ function voiceOrbHtml(status, listening) {
       '</div>' +
       '<div class="reticle" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
       '<div class="orb-center">' +
-        LogoMark({ variant: 'dark', size: 24 }) +
         waveHtml +
       '</div>' +
     '</div>' +
@@ -3149,8 +3138,6 @@ function loaderView(kind) {
   const pct = typeof p.percent === 'number' ? Math.max(0, Math.min(100, p.percent)) : null;
   let h = '<div class="card loader hud-frame">' +
     '<div class="scanline-sweep" aria-hidden="true"></div>' +
-    // The loading splash: the animated light mark on its white card, as the brand sheet asks.
-    novaSplashHtml() +
     '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>AI ADVISOR SYNTHESIS &bull; ACTIVE</div>' +
     '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' +
     '<div class="lstep active" id="loader-step" role="status" aria-live="polite">' +
@@ -4432,7 +4419,6 @@ function doneView() {
     ? 'Your blueprint is on its way'
     : (hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready');
   let h = '<div class="card done-card">' +
-    '<div class="done-mark">' + logoTile(54) + '</div>' +
     '<h2>' + esc(heading) + '</h2>' +
     '<div class="done-list">' +
     '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ', ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +

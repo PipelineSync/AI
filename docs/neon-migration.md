@@ -144,6 +144,19 @@ makes obsolete — no assertion was deleted without a replacement).
   ink `#111A2E`, borders `#D5DEED` (the white email card and the v3
   `pdf-email` test’s card assertion stand).
 
+## Addendum — logo placement (subsequent change)
+
+After the neon theme landed, the app's logo was simplified: the Nova star mark is
+no longer rendered anywhere in the UI (the voice orb is now a plain deep-navy
+disc, and the loading and done screens show no mark). The PipelineSync S-mark is
+the only on-screen logo — the full lockup in the signed-in topbar, and the
+S-mark alone (new `SMark` component, no wordmark) pinned to the upper-left corner
+of the login screen. The `LogoMark` component and the `logo*.svg` exports are
+retained in the brand library (the generator depends on them) but are no longer
+rendered in the app. All design assertions were migrated (none deleted): the orb,
+loader and done-screen now assert the mark's absence, and a new assertion pins the
+S-mark to the login screen's upper-left corner.
+
 ## Related documentation
 
 - `docs/nova-ink-migration.md` — the v4 paper/ink dual-theme audit (now superseded

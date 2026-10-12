@@ -229,12 +229,12 @@ ok(/@media \(prefers-reduced-motion:reduce\)\{\.ps-flow-dot\{animation:none;offs
 ok(!/function logoMark\(/.test(appJs), 'the app uses the shared component rather than an inline duplicate');
 ok(/function brandVariant\(\) \{ return state\.theme === 'light' \? 'light' : 'dark'; \}/.test(appJs), 'theme-following surfaces select light only in light mode');
 ok(!/Logo(?:Mark)?\(\{[^}]*variant: 'light'/.test(appJs), 'no app call site places a fixed light mark on a potentially dark surface');
-ok(/LogoMark\(\{ variant: 'dark', size: 24 \}\)/.test(appJs) && /rgba\(4, 11, 22, 0\.94\)/.test(css), 'the call orb is the deep navy disc with the dark mark');
-ok(/Logo\(\{ variant: brandVariant\(\), size: 40 \}\)/.test(appJs) && /Logo\(\{ variant: brandVariant\(\), size: 54 \}\)/.test(appJs), 'topbar and entry gate both use the S-mark lockup');
-ok(/LogoMark\(\{ variant: brandVariant\(\), animated: true, size: 96 \}\)/.test(appJs), 'the splash uses Nova\'s animated mark');
-ok(/h \* 220 \/ 140/.test(appJs) && /LogoMark\(\{ variant: brandVariant\(\), size: h \}\)/.test(appJs) && /logoTile\(54\)/.test(appJs), 'done-screen logoTile preserves 220:140 and follows the theme');
-ok(/\.logo-plate\s*\{[^}]*background: transparent;[^}]*box-shadow: none;/s.test(css), 'logoTile has no plate or shadow');
-ok(/\.nova-splash-card\s*\{[^}]*background: transparent;[^}]*box-shadow: none;/s.test(css), 'the loading mark has no plate or shadow');
+ok(!/LogoMark\(/.test(appJs) && /rgba\(4, 11, 22, 0\.94\)/.test(css), 'the call orb is a plain deep navy disc (the Nova mark is removed)');
+ok(/Logo\(\{ variant: brandVariant\(\), size: 40 \}\)/.test(appJs) && /SMark\(\{ size: 40 \}\)/.test(appJs), 'the topbar uses the S-mark lockup and the login screen the S-mark alone');
+ok(!/nova-splash|novaSplashHtml/.test(appJs), 'the loader no longer renders the Nova mark');
+ok(!/logoTile|done-mark/.test(appJs), 'the done screen no longer renders the Nova mark');
+ok(/\.gate-logo\s*\{[^}]*position: absolute;[^}]*left:/.test(css), 'the login screen pins the S-mark to the upper-left corner');
+ok(!/nova-splash|logo-plate|done-mark|brand-lg/.test(css), 'no orphaned Nova-mark CSS rules remain (splash, plate, done-mark, brand-lg)');
 
 const vectors = {};
 for (const f of ['logo.svg', 'logo-on-dark.svg', 'logo-lockup.svg', 'logo-lockup-dark.svg', 'favicon.svg', 'app-icons.svg']) {

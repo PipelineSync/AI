@@ -81,6 +81,17 @@
         '<span class="ps-wordmark-sub" style="color:' + c.sync + ';font-size:' + (size * 0.27) + 'px">PipelineSync <span style="color:' + c.star + ';font-weight:700">AI</span></span>' +
       '</span></span>';
   }
+  // The PipelineSync S-mark alone (no wordmark), for corner placements such as
+  // the upper-left of the login screen. The .ps-mark-img filter renders it white
+  // with the site navbar's ember glow, exactly as inside the lockup.
+  function SMark(opts) {
+    opts = opts || {};
+    var size = opts.size == null ? 40 : opts.size;
+    var w = Math.round(size * PS_MARK.width / PS_MARK.height * 10) / 10;
+    return '<span class="ps-mark" role="img" aria-label="Nova PipelineSync AI">' +
+      '<img class="ps-mark-img" src="' + PS_MARK.src + '" width="' + w + '" height="' + size + '" alt="">' +
+      '</span>';
+  }
   var BRAND = {
     navy: '#040B16', navy2: '#081226', navy3: '#0E1C36',
     steel: '#8FB6FF', steelDeep: '#03265C',
@@ -90,6 +101,6 @@
   };
   root.PSBrand = Object.assign(root.PSBrand || {}, {
     NOVA_MARK: NOVA_MARK, PS_MARK: PS_MARK, LOGO_COLORS: LOGO_COLORS, BRAND: BRAND,
-    LogoMark: LogoMark, Logo: Logo
+    LogoMark: LogoMark, Logo: Logo, SMark: SMark
   });
 })(typeof window !== 'undefined' ? window : this);
