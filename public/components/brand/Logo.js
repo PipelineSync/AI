@@ -1,6 +1,14 @@
-/* Nova brand components. No runtime dependencies or build step.
- * size is the mark's height; its 220:140 aspect ratio is never stretched.
- * The generator imports NOVA_MARK so component and static assets share geometry.
+/* Nova PipelineSync AI brand components. No runtime dependencies or build step.
+ *
+ * Identity split (PipelineSync "Ember/Navy elevated neon" theme):
+ *   - PS lockup  = the PipelineSync S-mark (raster, components/brand/
+ *     pipelinesync-mark.png) + the "Nova / PipelineSync AI" wordmark. This is
+ *     the product identity: topbar, entry gate, icons, manifest.
+ *   - NOVA_MARK  = Nova's own face (220x140 line/dot/star geometry, unchanged),
+ *     used only where Nova herself appears: the voice orb, the loading splash,
+ *     the done screen.
+ * The generator (scripts/make-brand-assets.js) imports NOVA_MARK and the mark
+ * geometry constants so static assets share them.
  */
 (function (root) {
   'use strict';
@@ -10,13 +18,19 @@
     lines: ['M14 30 L146 70', 'M6 70 L146 70', 'M14 110 L146 70'],
     dots: [[14, 30], [6, 70], [14, 110]]
   };
+  // The PipelineSync S-mark raster is 478x641 (aspect 0.7457).
+  var PS_MARK = { src: '/components/brand/pipelinesync-mark.png', width: 478, height: 641 };
   var LOGO_COLORS = {
-    light: { line: '#1B1E24', dot: '#6E88AB', star: '#E8590C', text: '#1B1E24', sync: '#4A5262' },
-    dark: { line: '#EDEAE1', dot: '#8FA6C4', star: '#F76B15', text: '#EDEAE1', sync: '#A9B4C6' }
+    light: { line: '#0E1C36', dot: '#4C8DFF', star: '#F97A1A', text: '#0E1C36', sync: '#47546E' },
+    dark: { line: '#4C8DFF', dot: '#8FB6FF', star: '#F97A1A', text: '#F4F7FF', sync: '#B7C3DE' }
   };
   function escAttr(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      if (c === '&') return '&amp;';
+      if (c === '<') return '&lt;';
+      if (c === '>') return '&gt;';
+      if (c === '"') return '&quot;';
+      return '&#39;';
     });
   }
   // CSS motion paths use the exact line geometry. Reduced motion restores the
@@ -47,23 +61,35 @@
     h += '<path d="' + NOVA_MARK.star + '" fill="' + c.star + '"' + (animated ? ' class="ps-pulse-star"' : '') + '/>';
     return h + '</svg>';
   }
+  // The product lockup: PipelineSync S-mark + wordmark. The S-mark is white in
+  // the browser via the .ps-mark-img CSS filter (brightness(0) invert(1) plus
+  // the ember drop-shadow glow the site uses in its navbar). The raster keeps
+  // its original colours in static exports, where the tile generator renders
+  // it white at build time instead.
   function Logo(opts) {
     opts = opts || {};
     var variant = opts.variant === 'dark' ? 'dark' : 'light';
     var size = opts.size == null ? 32 : opts.size;
     var c = LOGO_COLORS[variant];
+    var w = Math.round(size * PS_MARK.width / PS_MARK.height * 10) / 10;
     return '<span class="ps-lockup" role="img" aria-label="Nova PipelineSync AI">' +
-      '<span class="ps-lockup-mark" aria-hidden="true">' + LogoMark({ variant: variant, size: size }) + '</span>' +
+      '<span class="ps-lockup-mark" aria-hidden="true">' +
+        '<img class="ps-mark-img" src="' + PS_MARK.src + '" width="' + w + '" height="' + size + '" alt="">' +
+      '</span>' +
       '<span class="ps-wordmark" aria-hidden="true" style="gap:' + (size * 0.12) + 'px">' +
-        '<span class="ps-wordmark-name" style="color:' + c.text + ';font-size:' + (size * 0.55) + 'px">NOVA</span>' +
+        '<span class="ps-wordmark-name" style="color:' + c.text + ';font-size:' + (size * 0.55) + 'px">Nova</span>' +
         '<span class="ps-wordmark-sub" style="color:' + c.sync + ';font-size:' + (size * 0.27) + 'px">PipelineSync <span style="color:' + c.star + ';font-weight:700">AI</span></span>' +
       '</span></span>';
   }
   var BRAND = {
-    navy: '#1C3D6E', steel: '#6E88AB', steelDeep: '#142C50',
-    syncOrange: '#E8590C', syncOrangeDark: '#F76B15', syncOrangeHover: '#C74A08', sky: '#8FA6C4', mist: '#F6F3EC', ink: '#1B1E24', paper: '#F6F3EC', void: '#14161B'
+    navy: '#040B16', navy2: '#081226', navy3: '#0E1C36',
+    steel: '#8FB6FF', steelDeep: '#03265C',
+    syncOrange: '#F97A1A', syncOrangeSoft: '#FFB25C', syncOrangeHover: '#FF8F3D',
+    sky: '#4C8DFF', mist: '#F4F7FF', muted: '#B7C3DE', faint: '#7C8AAB',
+    ember: '#F97A1A', blue: '#4C8DFF', gold: '#FFC24B', green: '#2FD98A'
   };
   root.PSBrand = Object.assign(root.PSBrand || {}, {
-    NOVA_MARK: NOVA_MARK, LOGO_COLORS: LOGO_COLORS, BRAND: BRAND, LogoMark: LogoMark, Logo: Logo
+    NOVA_MARK: NOVA_MARK, PS_MARK: PS_MARK, LOGO_COLORS: LOGO_COLORS, BRAND: BRAND,
+    LogoMark: LogoMark, Logo: Logo
   });
 })(typeof window !== 'undefined' ? window : this);

@@ -4,8 +4,8 @@
   "description": "Talk through your business with Nova, the AI interviewer, and get a HubSpot revenue operations blueprint.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F6F3EC",
-  "theme_color": "#F6F3EC",
+  "background_color": "#040B16",
+  "theme_color": "#040B16",
   "lang": "en-GB",
   "icons": [
     {

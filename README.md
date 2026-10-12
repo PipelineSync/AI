@@ -208,66 +208,68 @@ or build step for the app.
 
 | Component | File | Used for |
 |---|---|---|
-| `LogoMark({ variant, size, animated })` | `Logo.js` | Nova's three incoming lines/dots and four-quadrant star (the v3 spark is retired); `size` is height, width is `size × 220 / 140` |
-| `Logo({ variant, size })` | `Logo.js` | mark beside real HTML text: **NOVA**, then **PipelineSync AI** (the **AI** in ember); accessible name “Nova PipelineSync AI” |
-| `Nova({ pose, avatar, size })` / `NovaAvatar({ pose, size, ring })` | `Nova.js` | retained mascot component API (recoloured with the v4 palette); not rendered in the current app |
+| `LogoMark({ variant, size, animated })` | `Logo.js` | Nova's three incoming lines/dots and four-quadrant star (the v3 spark is retired); `size` is height, width is `size × 220 / 140`. The app renders it as the AI's face in the voice orb, on the splash and the done screen |
+| `Logo({ variant, size })` | `Logo.js` | the PipelineSync S-mark raster beside real HTML text: **Nova**, then **PipelineSync AI** (the **AI** in ember 700); accessible name “Nova PipelineSync AI”. Used in the topbar and the entry gate |
+| `Nova({ pose, avatar, size })` / `NovaAvatar({ pose, size, ring })` | `Nova.js` | retained mascot component API (recoloured with the neon palette); not rendered in the current app |
 
-`Logo.js` is the geometry source of truth (`NOVA_MARK`): viewBox `0 0 220 140`,
-three round-capped 10px lines, three 9px dots at their origins, one 4-quadrant
-star, in that paint order.
-The **paper (light)** palette uses ink `#1B1E24` lines, steel `#6E88AB` dots and
-the ember `#E8590C` star; the **ink (dark)** palette uses mist `#EDEAE1` lines,
-sky `#8FA6C4` dots and the brighter ember `#F76B15` star. Never stretch the mark.
+`Logo.js` is the geometry source of truth for Nova's mark (`NOVA_MARK`):
+viewBox `0 0 220 140`, three round-capped 10px lines, three 9px dots at their
+origins, one 4-quadrant star, in that paint order. The **light** palette uses
+navy `#0E1C36` lines, blue `#4C8DFF` dots and the ember `#F97A1A` star; the
+**dark** palette uses blue `#4C8DFF` lines, blue-soft `#8FB6FF` dots and the
+same ember star. Never stretch the mark.
 
-The app is a **dual-theme “Nova Ink” system**: light “paper” is the default
-(warm off-white `#F6F3EC`, flat panels, hairline rules, zero glass/blur) and
-dark “ink” (`#14161B`) is one click away. A toggle sits in the entry-gate
-corner and the signed-in topbar; the choice persists in `ps_theme`, a fresh
-visit follows the OS colour-scheme preference, and `applyTheme()` flips the
-body attribute, the colour scheme and the `theme-color` meta together. The
-topbar, entry gate, completion mark and loading mark follow the active theme:
-light artwork only on light surfaces, dark artwork directly on dark surfaces,
-**without a white plate** (the marks are inline SVG with baked colours, so the
-toggle re-renders just those). The voice orb stays a dark disc in both themes
-and therefore always uses the dark mark. At narrow header widths the product
-name is shortened to **Nova**, rather than cropping the text. Loading animates
-the three dots into the star, then pulses the star gently;
-`prefers-reduced-motion` restores static original dots and disables the pulse.
+The S-mark raster (`public/components/brand/pipelinesync-mark.png`, a 478×641
+four-bit palette PNG copied from the PipelineSync website) is the product's
+identity in the lockup, the favicon and the app icons. On screen it renders
+white — `filter: brightness(0) invert(1)` — with the site navbar's ember glow;
+the favicon and app icons recolor it white via `feColorMatrix` and re-add the
+dot from the mark's own orange pixels at their measured centre (0.638, 0.559).
+
+The app is **dark-only**, on the PipelineSync website's “Ember/Navy” neon
+theme: one deep-navy canvas `#040B16` with `#081226` sunk panels, glass cards
+(white gradient over `backdrop-filter: blur(20px) saturate(150%)`), a 56px
+hairline grid, the blue top-glow and the two drifting aurora orbs (34s/42s
+cycles). `state.theme` is pinned to `dark`, `applyTheme()` marks the body
+dataset only, and there is no light variant, no toggle and no `ps_theme`
+persistence to read. Glass surfaces are always translucent, so a light mark
+never sits on a light surface. The voice orb stays a deep navy disc with the
+dark mark. At narrow header widths the product name is shortened to **Nova**,
+rather than cropping the text. Loading animates the three dots into the star,
+then pulses the star gently; `prefers-reduced-motion` restores static dots,
+disables the pulse, removes the aurora drift and stops the 8s accent gradient.
 
 ### Generated brand assets
 
-Run `npm run brand:icons` after a geometry change. The generator imports the mark
-geometry from `Logo.js` and writes every asset below; these files are committed.
-`@resvg/resvg-js` is **build-time only**, loaded only by `scripts/make-brand-assets.js`:
+Run `npm run brand:icons` after a geometry change. The generator
+(`scripts/make-brand-assets.js`) is **pure Node** — it decodes the mark PNG
+with `zlib` and rasterizes the tiles with its own RGBA encoder — so it needs no
+build-time package at all (the old `@resvg/resvg-js` dev dependency is gone).
+The files below are committed:
 
 ```sh
-npm ci
-npm install --no-save --package-lock=false @resvg/resvg-js
 npm run brand:icons
-# Alternatively, RESVG_PATH=/path/to/@resvg/resvg-js npm run brand:icons
 ```
-
-No new application dependencies are required. The command fails before writing
-assets if the raster renderer is unavailable, so old PNGs cannot silently survive
-alongside new SVGs.
 
 | Asset | Treatment |
 |---|---|
-| `public/logo.svg` | paper mark, transparent background |
-| `public/logo-on-dark.svg` | dark mark directly on the void `#14161B` |
+| `public/logo.svg` | light mark, transparent background |
+| `public/logo-on-dark.svg` | dark mark directly on the deep navy `#040B16` |
 | `public/logo-lockup.svg`, `public/logo-lockup-dark.svg` | two-line wordmark beside the light/dark mark |
-| `public/favicon.svg`, `public/favicon.ico` | ember `#E8590C` tile, paper lines/dots, deep-navy `#17335C` star; ICO contains 16/32/48px PNGs |
-| `public/app-icons.svg`, `public/icon-512.png` | navy `#1C3D6E` 512px tile, paper lines, sky dots, ember star |
+| `public/favicon.svg`, `public/favicon.ico` | deep-navy `#040B16` tile, white S-mark via `feColorMatrix`, ember dot at the mark's own orange centre; ICO contains 16/32/48px PNGs |
+| `public/app-icons.svg`, `public/icon-512.png` | deep-navy 512px tile, white S-mark at 72% width, ember dot |
 | `public/apple-touch-icon.png` | same navy icon at 180px |
-| `public/icon-maskable-512.png` | navy tile; entire mark inside the central 80%-diameter safe circle |
+| `public/icon-maskable-512.png` | navy tile; the whole S-mark at 50% width so every ink pixel, including the dot, sits inside the central 80%-diameter safe circle |
 
-Icons use 14px lines and 12px dots, and have a corner radius of 22% of tile
-size. Normal icons use a centred, undistorted mark at 72% tile width;
-the maskable icon uses 60% width for safe circular cropping. The PDF and email
-headers are text-only and use **Nova PipelineSync AI**; no mascot or old artwork
-is embedded. App metadata uses the full name and the short name **Nova**. Branding
-changes must not rename routes, environment variables, HubSpot properties,
-`pipelinesync_ai`, Supabase tables, or existing test/export filenames.
+Tiles use a corner radius of 22% of tile size. The mark sits centred and
+undistorted at 72% tile width; the maskable icon uses 50% because the tall
+S-mark's ink reaches near its canvas corners (the test pixel-decodes the
+maskable icon and fails if any ink leaves the safe circle). The PDF and email
+headers are text-only and use **Nova PipelineSync AI**; no mascot or old
+artwork is embedded. App metadata uses the full name and the short name
+**Nova**, on the deep-navy `#040B16` theme colour. Branding changes must not
+rename routes, environment variables, HubSpot properties, `pipelinesync_ai`,
+Supabase tables, or existing test/export filenames.
 
 **One name, said and seen.** Nova is what the client reads on screen *and* what they hear on the
 call. The step-by-step identity and first greeting, `MASTER_INTERVIEW_IDENTITY` in `lib/prompts.js`,
@@ -293,18 +295,17 @@ scaled-down desktop.
 
 Design rules that `node test/ui-design.js` enforces:
 
-- **Colour is the brand mark, in two themes** - the Nova Ink v4 palette. Paper (light, the
-  default): ink `#1B1E24` text on a warm off-white `#F6F3EC` canvas, navy `#1C3D6E` headings,
-  steel `#6E88AB` accents, sync-ember `#E8590C` for primary buttons and the mark's star, sky
-  `#6E88AB` for the waveform. Ink (dark): a `#14161B` void with mist `#EDEAE1` text,
-  `#1B1F26` panels, a brighter ember `#F76B15` and sky `#8FA6C4`. Both themes are declared as
-  tokens - `:root` for paper and a `body[data-theme="dark"]` block for ink (`--navy`, `--steel`,
-  `--sync-orange`, `--sky`, `--mist`, `--void`, ...). The primary button is the ember fill with
-  **ink** text (it clears 4.5:1, so no white-on-brand text exists anywhere in the stylesheet).
-  Every text/background pair in **both** themes is read back out of the stylesheet and asserted
-  against WCAG AA (4.5:1, or 3:1 for large marks and the icon tiles), and a redesign that drops a
-  contrast ratio fails the build. The design is flat: hairline borders and a static paper wash -
-  no `backdrop-filter` and no `blur()` anywhere.
+- **Colour is the brand mark, on one dark canvas** - the Ember/Navy neon palette from the
+  PipelineSync website. Deep navy `#040B16` canvas with `#081226` sunk panels, mist `#F4F7FF`
+  text, muted `#B7C3DE`, ember `#F97A1A` (soft `#FFB25C`) for primary buttons and accents,
+  sky `#4C8DFF` (soft `#8FB6FF`) for links and the AI line. All of it is declared as tokens
+  in `:root` (`--sync-orange`, `--sky`, `--mist`, `--void`, `--bg`, ...). The primary button is
+  the ember gradient with the deep warm **ink** text `#1A0C02` (it clears 4.5:1, so no
+  white-on-brand text exists anywhere in the stylesheet). Every text/background pair is read
+  back out of the stylesheet and asserted against WCAG AA (4.5:1, or 3:1 for large marks and
+  the icon tiles), and a redesign that drops a contrast ratio fails the build. The canvas is
+  the site's: a blue top-glow, the 56px hairline grid and the two aurora orbs drifting on
+  34s/42s cycles behind translucent glass panels.
 - **Fluid type**: headings use `clamp()`, so one markup scales from a 320px phone to a wide monitor.
 - **Touch first**: `--tap` is the 44px floor for every button, input, day and slot; the call controls
   are sticky above the on-screen keyboard on phones, and the layout honours
@@ -319,20 +320,18 @@ Design rules that `node test/ui-design.js` enforces:
   `220:140` viewBox ratio, the three 10px lines, three 9px dots and the single
   4-quadrant star (paint order included), both theme palettes, the two-line HTML
   wordmark and the icon simplification. `logoTile()` preserves the ratio.
-- **A light mark never sits on a dark surface.** Theme-following surfaces select
-  their variant; the permanently dark call orb always uses the dark mark. There
-  are no white logo plates. Tests measure dark-mark contrast on the void
-  `#14161B` and require both icon stars to clear 3:1 against their ember/navy
-  tiles. The restored theme toggle (entry-gate corner and topbar) must re-render
-  the baked-colour marks without a full re-render mid-call, and the choice must
-  persist in `ps_theme`.
-- **Nova is transparent artwork: nothing paints behind him.** No plate, no circle, no ground
-  shadow - `.nova-fig-card` (and every other figure wrapper) only reserves his space, and
-  `NovaAvatar` draws just the optional orange ring, so the app's own surface shows through on dark,
-  on light and in an export. His pose always comes from state the app already tracks
-  (`novaPoseNow()` reads the voice status and the stage) - never a new flag. His figures reserve a
-  fixed box, so a pose change cannot shift the layout, and his motion stops under
-  `prefers-reduced-motion`.
+- **A light mark never sits on a dark surface.** The app is dark-only, so every
+  surface selects the dark variant; the permanently dark call orb always uses
+  the dark mark. There are no white logo plates. Tests measure dark-mark
+  contrast on the deep navy `#040B16` and require the S-mark silhouette and its
+  ember dot to clear 3:1 against the navy tile, and they pixel-decode the
+  maskable icon to keep every ink pixel inside the 80% safe circle.
+- **Nova is retained but off-screen.** The mascot component (`Nova.js`) is recoloured with the
+  neon palette and keeps its full pose API, both view boxes, reduced-motion CSS and the five
+  copy lines verbatim, but the current app renders none of it - no figure, no avatar, no
+  greeting line, and the mascot's rules are gone from the stylesheet. The only Nova traces on
+  screen are his name (the AI line, the call screen, the PDF and email headers) and his mark
+  in the voice orb, the splash and the done screen.
 - **Accessibility is in the markup, not bolted on**: skip link, `aria-current="step"` on the rail,
   `aria-live` on the AI line and the call status, `aria-expanded` on both drawers, and visible
   `:focus-visible` rings throughout.
@@ -485,25 +484,26 @@ pipelinesync/
   netlify/functions/     start (the name + email gate; login.js is its alias), logout, ai (Claude API),
                          generate (B), deliver (C+D), voice, outbox, health
   public/index.html      shell (no CDN, works offline; includes pdfmake for client-side PDF)
-  public/components/brand/Logo.js  Nova mark geometry, animated dots/star and two-line HTML lockup
+  public/components/brand/Logo.js  Nova mark geometry, animated dots/star, and the S-mark lockup
   public/components/brand/Nova.js  retained mascot component (not rendered in the current UI)
-  public/logo.svg        transparent paper Nova mark
-  public/logo-on-dark.svg  dark Nova mark directly on the #14161B void
+  public/components/brand/pipelinesync-mark.png  the PipelineSync S-mark raster (favicon/app-icon source)
+  public/logo.svg        transparent light Nova mark
+  public/logo-on-dark.svg  dark Nova mark directly on the #040B16 deep navy
   public/logo-lockup.svg, public/logo-lockup-dark.svg  mark + two-line wordmark
-  public/favicon.svg     ember tile, paper lines/dots, deep-navy star (no spark)
-  public/favicon.ico     16/32/48 PNG entries of the ember tile
-  public/app-icons.svg, public/icon-512.png  navy 512px tile, paper lines, sky dots, ember star
-  public/icon-maskable-512.png  padded navy tile, central 80% safe circle
+  public/favicon.svg     navy #040B16 tile, white S-mark, ember dot at the mark's orange centre
+  public/favicon.ico     16/32/48 PNG entries of the navy tile
+  public/app-icons.svg, public/icon-512.png  navy 512px tile, white S-mark at 72%, ember dot
+  public/icon-maskable-512.png  navy tile, S-mark at 50% inside the central 80% safe circle
   public/apple-touch-icon.png  navy tile at 180x180
-  public/manifest.webmanifest  Nova PipelineSync AI / Nova; paper #F6F3EC theme (dark is a toggle)
-  scripts/make-brand-assets.js  generates all vectors and rasters from Logo.js geometry;
-                         @resvg/resvg-js is build-time only, never an app dependency
+  public/manifest.webmanifest  Nova PipelineSync AI / Nova; dark-only #040B16 theme
+  scripts/make-brand-assets.js  pure-Node generator for all vectors and rasters (no build deps)
   public/styles.css      design system + responsive layout (mobile-first, see below)
   public/app.js          SPA: entry gate, consent, both voice engines (continuous WebRTC call and
                          step-by-step call), review, blueprint, unlock, booking, done
   test/                  voice, voice-openai, voice-realtime, mock-openai, e2e, pdf-email,
                          netlify-sim, pdfcheck, ui-smoke, ui-design, personas, sample PDFs
   docs/VOICE_SETUP.md    how to switch the voice layer on, verify it, cost it, fix it
+  docs/neon-migration.md the v5 Ember/Navy neon theme audit (old -> new, every retired token)
   .env.example           every setting the app understands (copy to .env, which is gitignored)
   README.md              this file
 ```

@@ -148,15 +148,15 @@ async function passGate(page, details) {
   ok(!/\bLog in\b/.test(document.body.textContent), 'nothing on the gate says "Log in"');
   ok(/voice call/i.test(document.body.textContent), 'the gate says the next step is the AI voice call');
   ok(!!document.querySelector('#start-form button[type=submit]'), 'the gate has one submit action');
-  // Brand: the lockup in the hero. The mascot stays off the start screen: no figure, no greeting line.
-  ok(!!document.querySelector('.gate-brand .brand-logo svg[aria-label="Nova PipelineSync AI"]'), 'the entry gate carries the brand lockup');
+  // Brand: the S-mark lockup in the hero. The mascot stays off the start screen: no figure, no greeting line.
+  ok(!!document.querySelector('.gate-brand .brand-logo .ps-lockup[aria-label="Nova PipelineSync AI"] img.ps-mark-img'), 'the entry gate carries the brand lockup (S-mark + wordmark)');
   ok(!document.querySelector('.gate-card svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not greet the visitor on the start screen');
   ok(!/Hi, I'm Nova\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
     'and his greeting line is gone from the start screen');
-  // Dual Nova Ink theme: light "paper" is the default on a fresh visit, and the
-  // corner toggle offers the dark "ink" mode.
-  ok(!!document.querySelector('#theme-toggle'), 'the entry gate offers the light/dark theme toggle');
-  ok(document.body.dataset.theme === 'light', 'the theme defaults to light "paper" on a fresh visit');
+  // Dark-only neon theme: the page ships on the deep navy canvas, with no
+  // light variant and no toggle to offer.
+  ok(!document.querySelector('#theme-toggle'), 'the dark-only neon theme offers no theme toggle');
+  ok(document.body.dataset.theme === 'dark', 'the theme is the single dark neon canvas on a fresh visit');
 
   // Entry notice must exist before submit (Nova is an AI assistant...)
   const entryNoticePre = document.querySelector('#entry-consent-notice');
@@ -191,11 +191,11 @@ async function passGate(page, details) {
 async function reachCall(page, details) {
   const { document, spoken, speechTimes, window } = page;
   await passGate(page, details);
-  // Dual theme: the signed-in topbar keeps the toggle, and a fresh visit stays
-  // on light "paper" (the dark mode is one click away, not the default).
-  ok(!!document.querySelector('#theme-toggle') && !document.querySelector('.theme-switch-top'),
-    'the signed-in dashboard keeps the light/dark theme toggle');
-  ok(document.body.dataset.theme === 'light', 'the signed-in theme defaults to light "paper"');
+  // Dark-only: the signed-in topbar carries no theme toggle; the single dark
+  // theme persists across the journey.
+  ok(!document.querySelector('#theme-toggle') && !document.querySelector('.theme-switch-top'),
+    'the signed-in dashboard has no theme toggle (dark-only theme)');
+  ok(document.body.dataset.theme === 'dark', 'the signed-in theme stays the dark neon canvas');
   ok(/OpenAI for the voice call/.test(document.body.textContent) || /OpenAI/.test(document.body.textContent), 'disclaimer names the OpenAI voice layer');
   ok(/starts speaking/i.test(document.getElementById('consent-note').textContent), 'the consent screen says the AI starts speaking on agreement');
   ok(/Agree and start the voice call/.test(document.getElementById('consent-go').textContent), 'the button that agrees to the disclaimer is the one that starts the call');
@@ -246,7 +246,7 @@ async function reachCall(page, details) {
 
   // Brand: the header lockup on every screen, and the live call panel the brand sheet specifies.
   // The mascot no longer appears anywhere: no figure on the panel, no avatar on the bubbles.
-  ok(!!d1.querySelector('.topbar .brand-logo svg[aria-label="Nova PipelineSync AI"]'), 'the header carries the logo lockup on the call screen');
+  ok(!!d1.querySelector('.topbar .brand-logo .ps-lockup[aria-label="Nova PipelineSync AI"]'), 'the header carries the logo lockup on the call screen');
   ok(!d1.querySelector('.call svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova is not on the call screen');
   ok(!d1.querySelector('#call-progress') && !d1.querySelector('#call-bar') && !d1.querySelector('.side-toggle-count'),
     'no question counter on the call screen: the conversation leads');
@@ -332,7 +332,7 @@ async function reachCall(page, details) {
   await sleep(500);
   const loaderStep = d1.querySelector('#loader-step');
   ok(!!loaderStep, 'the generation loader shows a progress state');
-  ok(!!d1.querySelector('.nova-splash-card svg'), 'the loading screen shows the animated brand mark on its white card');
+  ok(!!d1.querySelector('.nova-splash-card svg'), 'the loading screen shows the animated Nova mark on the glass card');
   ok(!d1.querySelector('.loader svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not appear on the loading screen');
   ok(!d1.querySelector('.doc'), 'the blueprint is not rendered while the job is still running');
   for (let i = 0; i < 60 && !d1.querySelector('.doc'); i++) await sleep(250);

@@ -171,19 +171,13 @@ const FIELD_LABELS = {
 const REQUIRED = ['typical_deal_size', 'monthly_lead_volume', 'close_rate'];
 
 /* ---------------- state ---------------- */
-/* Dual-theme "Nova Ink" system: light "paper" is the default, dark "ink" is
-   available. The choice is persisted in ps_theme; a first visit follows the
-   OS colour-scheme preference. */
-function initTheme() {
-  const stored = store.get('ps_theme');
-  if (stored === 'dark' || stored === 'light') return stored;
-  const prefersDark = (typeof matchMedia !== 'undefined') && matchMedia('(prefers-color-scheme: dark)').matches;
-  return prefersDark ? 'dark' : 'light';
-}
+/* Single dark theme — the PipelineSync "Ember/Navy elevated neon" canvas.
+   There is no light variant and no toggle; state.theme is pinned to 'dark'
+   and brandVariant() keeps the historical light/dark API shape. */
 const state = {
   token: store.get('ps_token') || null,
   user: JSON.parse(store.get('ps_user') || 'null'),
-  theme: initTheme(),
+  theme: 'dark',
   stage: 'start',        // the entry gate: name + email, then straight to the voice call
   answers: [],           // [{id, text}] captured on the call (or by typing)
   fields: null,          // Section 7 contract (from job record now)
@@ -2269,10 +2263,10 @@ function novaWaveHtml(id) {
       '<span class="nova-wave-bar" style="height:' + h + 'px;animation-delay:' + (-(i * 0.12).toFixed(2)) + 's"></span>').join('') +
     '</div>';
 }
-/* Loading mark uses the active surface palette without a white plate. */
+/* Loading mark: Nova's face (animated dark mark) on the glass loader card. */
 function novaSplashHtml() {
   return '<div class="nova-splash" role="img" aria-label="Nova PipelineSync AI">' +
-    '<span class="nova-splash-card" aria-hidden="true">' + markSvg(LogoMark({ variant: brandVariant(), animated: true, size: 96 }), 'brand-splash') + '</span>' +
+    '<span class="nova-splash-card" aria-hidden="true">' + LogoMark({ variant: brandVariant(), animated: true, size: 96 }) + '</span>' +
     '</div>';
 }
 /* The empty state: no data yet, so the screen offers the way in. */
@@ -2334,39 +2328,10 @@ function logoTile(h) {
   return '<span class="logo-plate" style="width:' + (h * 220 / 140) + 'px;height:' + h + 'px">' +
     LogoMark({ variant: brandVariant(), size: h }) + '</span>';
 }
-/* Brand marks are inline SVGs with baked colours. markSvg tags the root svg
-   with an id so setTheme can swap exactly that element in place, keeping the
-   layout wrappers (and their child-combinator CSS) untouched. */
-function markSvg(html, id) { return html.replace(/^<svg /, '<svg id="' + id + ' '); }
-/* Theme machinery. The CSS variables flip via body[data-theme]; the brand
-   marks are inline SVGs with baked colours, so setTheme re-renders just those
-   (and the rest of the screen when no live call is in flight). */
+/* Dark-only theme: the body dataset marks the single theme for CSS scoping
+   and the UI tests. There is no light variant to swap to. */
 function applyTheme() {
   document.body.dataset.theme = state.theme;
-  document.documentElement.style.colorScheme = state.theme;
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', state.theme === 'dark' ? '#14161B' : '#F6F3EC');
-}
-function themeGlyph() {
-  return state.theme === 'light'
-    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>'
-    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M4.6 4.6l1.7 1.7M17.7 17.7l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.6 19.4l1.7-1.7M17.7 6.3l1.7-1.7"/></svg>';
-}
-function themeToggleHtml() {
-  const to = state.theme === 'light' ? 'dark' : 'light';
-  return '<button class="icon-btn" id="theme-toggle" type="button" aria-label="Switch to ' + to + ' theme">' + themeGlyph() + '</button>';
-}
-function setTheme(t) {
-  state.theme = t === 'dark' ? 'dark' : 'light';
-  store.set('ps_theme', state.theme);
-  applyTheme();
-  const swap = function (id, html) { const el = document.getElementById(id); if (el) el.outerHTML = html; };
-  swap('brand-topbar', markSvg(Logo({ variant: brandVariant(), size: 40 }), 'brand-topbar'));
-  swap('brand-gate', markSvg(Logo({ variant: brandVariant(), size: 54 }), 'brand-gate'));
-  swap('brand-splash', markSvg(LogoMark({ variant: brandVariant(), animated: true, size: 96 }), 'brand-splash'));
-  const toggle = document.getElementById('theme-toggle');
-  if (toggle) { const to = state.theme === 'light' ? 'dark' : 'light'; toggle.setAttribute('aria-label', 'Switch to ' + to + ' theme'); toggle.innerHTML = themeGlyph(); }
-  if (state.stage !== 'intake') render(); // outside a live call a full re-render is safe
 }
 function topbar() {
   const u = state.user || {};
@@ -2375,10 +2340,9 @@ function topbar() {
   return '<header class="topbar">' +
     '<a class="skip-link" href="#main-content">Skip to content</a>' +
     '<div class="brand">' +
-      '<span class="brand-logo" id="brand-topbar">' + Logo({ variant: brandVariant(), size: 40 }) + '</span>' +
+      '<span class="brand-logo">' + Logo({ variant: brandVariant(), size: 40 }) + '</span>' +
     '</div>' +
     '<div class="topbar-right">' +
-      themeToggleHtml() +
       '<div class="userchip" title="Signed in as ' + esc(u.email || '') + '">' +
         '<span class="userchip-av" aria-hidden="true">' + initials + '</span>' +
         '<span class="userchip-name"><b>' + name + '</b><small>' + esc(u.email || '') + '</small></span>' +
@@ -2452,10 +2416,9 @@ function startView() {
   }
   const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Nova is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
   return '<div class="gate">' +
-    '<div class="gate-corner">' + themeToggleHtml() + '</div>' +
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
-        '<div class="brand brand-lg"><span class="brand-logo" id="brand-gate">' + Logo({ variant: brandVariant(), size: 54 }) + '</span></div>' +
+        '<div class="brand brand-lg"><span class="brand-logo">' + Logo({ variant: brandVariant(), size: 54 }) + '</span></div>' +
         '<h1>Build a <span class="accent">predictable pipeline.</span></h1>' +
         '<p class="lede">AI discovery call. Personalised HubSpot blueprint.</p>' +
         '<div class="gate-trust">' +
@@ -2658,7 +2621,7 @@ function voiceOrbHtml(status, listening) {
       '</div>' +
       '<div class="reticle" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
       '<div class="orb-center">' +
-        markSvg(LogoMark({ variant: 'dark', size: 24 }), 'brand-orb') +
+        LogoMark({ variant: 'dark', size: 24 }) +
         waveHtml +
       '</div>' +
     '</div>' +
@@ -3994,14 +3957,15 @@ function generateClientPDF() {
     return;
   }
 
-  // The brand palette (Nova Ink v4). The generated PDF uses the logo nowhere - the brand sheet
-  // keeps the mascot out of documents - so this is the brand's navy, steel and orange in type.
-  const navy = '#1C3D6E';
-  const steel = '#6E88AB';
-  const orange = '#E8590C';
-  const dark = '#1B1E24';
-  const lightBg = '#F6F3EC';
-  const borderCol = '#DDD6C8';
+  // The brand palette (Ember/Navy neon v5). The generated PDF uses the logo nowhere - the brand
+  // sheet keeps the mascot out of documents - so this is the brand's deep navy, S-curve steel and
+  // ember on a cool paper ground.
+  const navy = '#03265C';
+  const steel = '#3A5973';
+  const orange = '#F97A1A';
+  const dark = '#111A2E';
+  const lightBg = '#F3F6FB';
+  const borderCol = '#D5DEED';
 
   // Build the document definition
   const docDefinition = {
@@ -4560,12 +4524,6 @@ function routeBindings() {
 function boot() {
   armPageExitGuard();
   fetchSchedulerLink();
-  /* The theme toggle exists in two places (entry gate corner, topbar). One
-     delegated listener covers both across every render. */
-  document.addEventListener('click', function (e) {
-    const t = e.target && e.target.closest ? e.target.closest('#theme-toggle') : null;
-    if (t) setTheme(state.theme === 'light' ? 'dark' : 'light');
-  });
   if (state.token) {
     const restored = restoreJourneyState();
     if (!restored) {
