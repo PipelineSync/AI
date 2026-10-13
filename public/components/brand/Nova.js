@@ -18,13 +18,16 @@
  * paints behind him. He is transparent artwork on any surface, so the app decides what is behind
  * him and the same figure drops onto dark, light or an exported file unchanged.
  *
- * Rules from the brand sheet: never recolour him, never stretch him, and keep a fixed width/height
- * for the figure so a pose change cannot shift the layout.
+ * Rules from the brand sheet: recolour only as a deliberate brand change (Ember/Navy neon v5), never
+ * stretch him, and keep a fixed width/height for the figure so a pose change cannot shift the layout.
  */
 (function (root) {
   'use strict';
 
-  var NAVY = '#0C2B5E', STEEL = '#3E6892', DEEP = '#2E5580', ORANGE = '#FF7A1A', SKY = '#8FB0D0', MIST = '#E8EFF7';
+  /* Ember/Navy neon brand palette (the v5 rebrand recolours the mascot in place; his
+     geometry, poses and animation CSS are unchanged). Nova draws on the dark glass,
+     so her body rides the neon blue with ember and mist highlights. */
+  var NAVY = '#4C8DFF', STEEL = '#8FB6FF', DEEP = '#03265C', ORANGE = '#F97A1A', SKY = '#FFB25C', MIST = '#F4F7FF';
 
   var CSS = '\n' +
     '.nova-bob{animation:nova-bob 3s ease-in-out infinite}@keyframes nova-bob{50%{transform:translateY(-6px)}}\n' +

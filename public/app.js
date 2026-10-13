@@ -171,7 +171,9 @@ const FIELD_LABELS = {
 const REQUIRED = ['typical_deal_size', 'monthly_lead_volume', 'close_rate'];
 
 /* ---------------- state ---------------- */
-/* Dark-only premium glass theme: no colour-mode switch, theme is always dark. */
+/* Single dark theme — the PipelineSync "Ember/Navy elevated neon" canvas.
+   There is no light variant and no toggle; state.theme is pinned to 'dark'
+   and brandVariant() keeps the historical light/dark API shape. */
 const state = {
   token: store.get('ps_token') || null,
   user: JSON.parse(store.get('ps_user') || 'null'),
@@ -2225,7 +2227,7 @@ function armPageExitGuard() {
  * The UI no longer renders the mascot: only the logo appears on screen. The mascot's pose and size are
  * no longer derived from call state; the waveform follows the state the call is already in. */
 const Logo = opts => window.PSBrand.Logo(opts);
-const LogoMark = opts => window.PSBrand.LogoMark(opts);
+const SMark = opts => window.PSBrand.SMark(opts);
 
 /* True while the call is actually live: the AI is speaking, or the microphone is open. The
    waveform follows this, so one function answers for it. */
@@ -2253,18 +2255,12 @@ function armWaveLive() {
   waveLiveTimer = setInterval(refreshWaveLive, 300);
 }
 
-/* The animated waveform under the live question: nine bars in a #8FB0D0 -> #FF7A1A gradient. */
+/* The animated waveform under the live question: nine bars in a sky -> sync-orange gradient. */
 const NOVA_WAVE_BARS = [14, 20, 26, 18, 24, 30, 22, 27, 16];
 function novaWaveHtml(id) {
   return '<div class="nova-wave"' + (id ? ' id="' + esc(id) + '"' : '') + ' aria-hidden="true">' +
     NOVA_WAVE_BARS.map((h, i) =>
       '<span class="nova-wave-bar" style="height:' + h + 'px;animation-delay:' + (-(i * 0.12).toFixed(2)) + 's"></span>').join('') +
-    '</div>';
-}
-/* Loading mark uses the active surface palette without a white plate. */
-function novaSplashHtml() {
-  return '<div class="nova-splash" role="img" aria-label="Nova PipelineSync AI">' +
-    '<span class="nova-splash-card" aria-hidden="true">' + LogoMark({ variant: brandVariant(), animated: true, size: 96 }) + '</span>' +
     '</div>';
 }
 /* The empty state: no data yet, so the screen offers the way in. */
@@ -2280,8 +2276,7 @@ function render() {
   const app = $('#app');
   document.body.classList.toggle('entry-screen', !state.token);
   document.body.classList.toggle('app-screen', !!state.token);
-  document.body.dataset.theme = state.theme;
-  document.documentElement.style.colorScheme = state.theme;
+  applyTheme();
   // With a valid token, never show blank: unknown stage falls back to consent
   if (state.token) {
     if (!KNOWN_STAGES.has(state.stage)) {
@@ -2320,14 +2315,14 @@ function initialsFor(name) {
 function firstName() {
   return String((state.user && state.user.name) || '').trim().split(/\s+/)[0] || '';
 }
-/* Theme-following surfaces use matching mark colours. The voice orb stays dark
-   in both themes, so its mark explicitly keeps the dark variant. */
+/* brandVariant selects the palette for the signed-in topbar lockup. The app is
+   dark-only, so it always resolves to 'dark'. */
 function brandVariant() { return state.theme === 'light' ? 'light' : 'dark'; }
-function logoTile(h) {
-  return '<span class="logo-plate" style="width:' + (h * 222 / 162) + 'px;height:' + h + 'px">' +
-    LogoMark({ variant: brandVariant(), size: h }) + '</span>';
+/* Dark-only theme: the body dataset marks the single theme for CSS scoping
+   and the UI tests. There is no light variant to swap to. */
+function applyTheme() {
+  document.body.dataset.theme = state.theme;
 }
-/* The colour-mode switch was removed with the dark-only glass theme. */
 function topbar() {
   const u = state.user || {};
   const name = esc(u.name || '');
@@ -2411,9 +2406,10 @@ function startView() {
   }
   const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Nova is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
   return '<div class="gate">' +
+    '<div class="gate-logo">' + SMark({ size: 40 }) + '</div>' +
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
-        '<div class="brand brand-lg"><span class="brand-logo">' + Logo({ variant: brandVariant(), size: 54 }) + '</span></div>' +
+        '<p class="gate-name"><span class="accent">Nova AI</span></p>' +
         '<h1>Build a <span class="accent">predictable pipeline.</span></h1>' +
         '<p class="lede">AI discovery call. Personalised HubSpot blueprint.</p>' +
         '<div class="gate-trust">' +
@@ -2616,7 +2612,6 @@ function voiceOrbHtml(status, listening) {
       '</div>' +
       '<div class="reticle" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
       '<div class="orb-center">' +
-        LogoMark({ variant: 'dark', size: 24 }) +
         waveHtml +
       '</div>' +
     '</div>' +
@@ -3144,8 +3139,6 @@ function loaderView(kind) {
   const pct = typeof p.percent === 'number' ? Math.max(0, Math.min(100, p.percent)) : null;
   let h = '<div class="card loader hud-frame">' +
     '<div class="scanline-sweep" aria-hidden="true"></div>' +
-    // The loading splash: the animated light mark on its white card, as the brand sheet asks.
-    novaSplashHtml() +
     '<div class="telemetry-chip mb12"><span class="dot" aria-hidden="true"></span>AI ADVISOR SYNTHESIS &bull; ACTIVE</div>' +
     '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' +
     '<div class="lstep active" id="loader-step" role="status" aria-live="polite">' +
@@ -3952,14 +3945,15 @@ function generateClientPDF() {
     return;
   }
 
-  // The brand palette (brand sheet 1). The generated PDF uses the logo nowhere - the brand sheet
-  // keeps the mascot out of documents - so this is the brand's navy, steel and orange in type.
-  const navy = '#0C2B5E';
-  const steel = '#3E6892';
-  const orange = '#FF7A1A';
-  const dark = '#1A1A2E';
-  const lightBg = '#F8FAFC';
-  const borderCol = '#E2E8F0';
+  // The brand palette (Ember/Navy neon v5). The generated PDF uses the logo nowhere - the brand
+  // sheet keeps the mascot out of documents - so this is the brand's deep navy, S-curve steel and
+  // ember on a cool paper ground.
+  const navy = '#03265C';
+  const steel = '#3A5973';
+  const orange = '#F97A1A';
+  const dark = '#111A2E';
+  const lightBg = '#F3F6FB';
+  const borderCol = '#D5DEED';
 
   // Build the document definition
   const docDefinition = {
@@ -4114,25 +4108,25 @@ function generateClientPDF() {
       title: { fontSize: 22, bold: true, color: navy, font: 'Roboto', margin: [0, 0, 0, 5] },
       subtitle: { fontSize: 10, color: steel, font: 'Roboto', margin: [0, 0, 0, 5] },
       sectionHeader: { fontSize: 14, bold: true, color: navy, font: 'Roboto', margin: [0, 15, 0, 8] },
-      bodyText: { fontSize: 10, color: '#334155', font: 'Roboto', lineHeight: 1.5, margin: [0, 0, 0, 3] },
-      noteText: { fontSize: 9, color: '#64748B', font: 'Roboto', italics: true, margin: [0, 0, 0, 3] },
+      bodyText: { fontSize: 10, color: '#2B303A', font: 'Roboto', lineHeight: 1.5, margin: [0, 0, 0, 3] },
+      noteText: { fontSize: 9, color: '#5A6270', font: 'Roboto', italics: true, margin: [0, 0, 0, 3] },
       cardTitle: { fontSize: 10, bold: true, color: navy, font: 'Roboto', margin: [0, 0, 0, 4] },
-      cardBody: { fontSize: 9, color: '#475569', font: 'Roboto', margin: [0, 0, 0, 0] },
+      cardBody: { fontSize: 9, color: '#474E5B', font: 'Roboto', margin: [0, 0, 0, 0] },
       statValue: { fontSize: 24, bold: true, color: navy, font: 'Roboto', margin: [0, 0, 0, 3] },
       statValueAccent: { fontSize: 24, bold: true, color: orange, font: 'Roboto', margin: [0, 0, 0, 3] },
-      statLabel: { fontSize: 8, color: '#64748B', font: 'Roboto', margin: [0, 0, 0, 0] },
-      coaTitle: { fontSize: 10, bold: true, color: '#334155', font: 'Roboto', margin: [0, 5, 0, 2] },
+      statLabel: { fontSize: 8, color: '#5A6270', font: 'Roboto', margin: [0, 0, 0, 0] },
+      coaTitle: { fontSize: 10, bold: true, color: '#2B303A', font: 'Roboto', margin: [0, 5, 0, 2] },
       coaTotal: { fontSize: 11, bold: true, color: navy, font: 'Roboto' },
       tableHeader: { fontSize: 9, bold: true, color: '#FFFFFF', fillColor: navy, font: 'Roboto', margin: [4, 4, 4, 4] },
-      tableCell: { fontSize: 9, color: '#334155', font: 'Roboto', margin: [4, 4, 4, 4] },
+      tableCell: { fontSize: 9, color: '#2B303A', font: 'Roboto', margin: [4, 4, 4, 4] },
       kbChip: { fontSize: 7, color: steel, font: 'Roboto', margin: [0, 0, 2, 0] },
-      disclaimer: { fontSize: 8, color: '#94A3B8', font: 'Roboto', margin: [0, 0, 0, 2] },
-      footer: { fontSize: 8, color: '#94A3B8', font: 'Roboto' }
+      disclaimer: { fontSize: 8, color: '#8A8F99', font: 'Roboto', margin: [0, 0, 0, 2] },
+      footer: { fontSize: 8, color: '#8A8F99', font: 'Roboto' }
     },
     defaultStyle: {
       font: 'Roboto',
       fontSize: 10,
-      color: '#334155'
+      color: '#2B303A'
     }
   };
 
@@ -4426,7 +4420,6 @@ function doneView() {
     ? 'Your blueprint is on its way'
     : (hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready');
   let h = '<div class="card done-card">' +
-    '<div class="done-mark">' + logoTile(54) + '</div>' +
     '<h2>' + esc(heading) + '</h2>' +
     '<div class="done-list">' +
     '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ', ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +

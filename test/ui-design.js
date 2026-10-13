@@ -1,10 +1,14 @@
 /* Design-system checks for the responsive UI (run: node test/ui-design.js).
  *
- * The layout cannot be rendered headlessly here, so this checks the three things a redesign
+ * The layout cannot be rendered headlessly here, so this checks the things a redesign
  * silently breaks and that the browser would not report:
  *   1. the stylesheet still parses, and every class public/app.js renders has a rule,
- *   2. every text/background pair in the design tokens clears WCAG AA,
- *   3. the interactive controls keep a 44px touch target on phones.
+ *   2. every text/background pair in the design tokens clears WCAG AA on the dark
+ *      neon canvas,
+ *   3. the interactive controls keep a 44px touch target on phones,
+ *   4. the Ember/Navy neon brand (the PipelineSync website theme: single dark
+ *      canvas, glass panels, S-mark identity assets) is exactly what the
+ *      components and static files claim.
  *
  * The DOM itself (all screens, both microphone states) is covered by test/ui-smoke.js.
  */
@@ -18,6 +22,7 @@ const section = t => console.log('\n' + t);
 
 const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
 const dom = new JSDOM('<!doctype html><html><head><style>' + css + '</style></head><body></body></html>');
 const sheet = dom.window.document.styleSheets[0];
 
@@ -47,10 +52,11 @@ ok(/body\.entry-screen \.gate\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh
 ok(/classList\.toggle\(['"]entry-screen['"]/.test(appJs),
   'the one-screen lock is scoped to the entry instead of trapping long blueprint content');
 
-/* The brand components (the logo, and Nova - still shipped as a brand asset, though the UI no
-   longer renders him) are part of the check. Their animation classes ship inside the components'
-   own inline <style> (the brand sheet specifies the components as written), so a class is covered
-   if the stylesheet has a rule for it or the component's own CSS defines it. */
+/* The brand components (the PipelineSync S-mark lockup and Nova - still shipped as a brand
+   asset, though the UI no longer renders the figure) are part of the check. Their animation
+   classes ship inside the components' own inline <style> (the brand sheet specifies the
+   components as written), so a class is covered if the stylesheet has a rule for it or the
+   component's own CSS defines it. */
 const brandSrcs = ['Logo.js', 'Nova.js'].map(f =>
   fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', f), 'utf8'));
 const brandCss = brandSrcs.join('\n');
@@ -63,7 +69,7 @@ let m;
 for (const src of sources) {
   classRe.lastIndex = 0;
   while ((m = classRe.exec(src))) {
-    m[1].split(/\s+/).forEach(c => { if (c && !/[+'"']/.test(c)) used.add(c); });
+    m[1].split(/\s+/).forEach(c => { if (c && !/['"]/ .test(c)) used.add(c); });
   }
 }
 // Classes JS adds at runtime rather than writing into the markup.
@@ -75,168 +81,198 @@ const defined = c => new RegExp('\\.' + c.replace(/-/g, '\\-') + '(?![\\w-])').t
 const missing = [...used].filter(c => !defined(c));
 ok(missing.length === 0, 'all ' + used.size + ' classes rendered by the app and the brand components have a rule' + (missing.length ? ': missing ' + missing.join(', ') : ''));
 
-/* White text on a brand fill. The brand sheet sets the primary button to #FF7A1A with white text
-   (2.55:1, the same order as the #F57C1F this design system already shipped), so that one control
-   is deliberate and is pinned below. Everything else must still keep white off a brand fill. */
+/* No white text on a brand fill anywhere. The neon primary button is the ember gradient
+   with the deep warm #1A0C02 text, which clears 4.5:1, so nothing is exempted. */
 const whiteOnBrand = [];
 (function walk2(list) {
   for (const r of list) {
     if (r.cssRules) walk2(r.cssRules);
     if (!r.style) continue;
     const bg = (r.style.background || '') + (r.style.backgroundColor || '');
-    if (!/var\(--brand\)|var\(--sync-orange\)/.test(bg)) continue;
+    if (!/var\(--brand\)|var\(--sync-orange\)|var\(--grad-ember\)|var\(--grad-btn\)/.test(bg)) continue;
     if (!/(#fff\b|#ffffff|white)/i.test(r.style.color || '')) continue;
     (r.selectorText || '').split(',').forEach(sel => whiteOnBrand.push(sel.trim()));
   }
 })(sheet.cssRules);
-const brandWhite = whiteOnBrand.filter(sel => sel !== '.btn-primary' && sel !== '.btn-primary:hover');
-ok(brandWhite.length === 0, 'white text sits only on the primary button, which the brand sheet colours #FF7A1A' +
-  (brandWhite.length ? ': ' + brandWhite.join(', ') : ''));
-const primaryRule = [...selectors].find(t => t.trim() === '.btn-primary');
+ok(whiteOnBrand.length === 0, 'white text sits on no brand fill (the primary button is ember with deep warm text)' +
+  (whiteOnBrand.length ? ': ' + whiteOnBrand.join(', ') : ''));
 const primaryFill = (function find(list) {
   for (const r of list) {
     if (r.cssRules) { const f = find(r.cssRules); if (f) return f; continue; }
     if (r.selectorText && r.selectorText.trim() === '.btn-primary' && r.style.background) return r.style.background;
   }
-  return '';
+  return ''
 })(sheet.cssRules);
-ok(/var\(--sync-orange\)|#FF7A1A/i.test(primaryFill),
-  'the primary button is the brand orange #FF7A1A (' + (primaryFill || 'no fill found') + ')');
-ok(/--sync-orange:\s*#FF7A1A/i.test(css) && /--sky:\s*#8FB0D0/i.test(css) && /--mist:\s*#E8EFF7/i.test(css) && /--void:\s*#0A0E17/i.test(css),
-  'the brand sheet tokens are declared (sync-orange, sky, mist, void)');
-ok(/--bg:\s*#0A0E17/i.test(css), 'the app background is still #0A0E17');
+ok(/var\(--grad-ember\)/.test(primaryFill),
+  'the primary button is the ember gradient fill (' + (primaryFill || 'no fill found') + ')');
+ok(/var\(--brand-ink\)/.test((function btnColor(list) {
+  for (const r of list) {
+    if (r.cssRules) { const f = btnColor(r.cssRules); if (f != null) return f; continue; }
+    if (r.selectorText && r.selectorText.trim() === '.btn-primary' && r.style.color) return r.style.color;
+  }
+  return null
+})(sheet.cssRules)), 'the primary button label is the deep warm ink, not white');
+ok(/--sync-orange:\s*#F97A1A/.test(css) && /--sky:\s*#4C8DFF/.test(css) && /--mist:\s*#F4F7FF/.test(css) && /--void:\s*#040B16/.test(css),
+  'the brand sheet tokens are declared (sync-orange #F97A1A, sky #4C8DFF, mist #F4F7FF, void #040B16)');
+ok(/--bg:\s*#040B16/i.test(css), 'the app background is the deep navy #040B16');
 
 /* ------------------------------------------------------------------ */
-section('design tokens clear WCAG AA');
+section('design tokens clear WCAG AA on the dark neon canvas');
 
+function tokensOf(block) {
+  const tokens = {};
+  for (const t of block.matchAll(/(--[\w-]+):\s*(#[0-9A-Fa-f]{3,8}|rgba\(\s*\d+,\s*\d+,\s*\d+,\s*[\d.]+\s*\))/g)) tokens[t[1]] = t[2];
+  return tokens;
+}
 const rootBlock = css.slice(css.indexOf(':root'), css.indexOf('\n}', css.indexOf(':root')));
-const tokens = {};
-for (const t of rootBlock.matchAll(/(--[\w-]+):\s*(#[0-9A-Fa-f]{3,8})/g)) tokens[t[1]] = t[2];
+const tokens = tokensOf(rootBlock);
 const hex2rgb = h => { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); };
 const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
 const lum = h => { const [r, g, b] = hex2rgb(h); return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b); };
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+/* Compose a translucent tint over the canvas so rgba() tints can be checked like hexes. */
+const bgRgb = hex2rgb(tokens['--bg'] || '#040B16');
+const composite = (tint, base) => {
+  const m = String(tint).match(/rgba\(\s*(\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\s*\)/);
+  if (!m) return tint;
+  const a = parseFloat(m[4]);
+  const rgb = base.map((bv, i) => Math.round(parseInt(m[i + 1]) * a + bv * (1 - a)));
+  return '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('');
+};
+const resolve = t => /^#/.test(t) ? t : composite(t, bgRgb);
 
 const PAIRS = [
-  ['body text on a card', '--ink', '--card', 4.5],
+  /* [label, foreground, background, minimum] */
   ['body text on the page', '--ink', '--bg', 4.5],
-  ['muted text on a card', '--muted', '--card', 4.5],
+  ['body text on a panel', '--ink', '--bg-sunk', 4.5],
   ['muted text on the page', '--muted', '--bg', 4.5],
-  ['helper text on a card', '--faint', '--card', 4.5],
+  ['muted text on a panel', '--muted', '--bg-sunk', 4.5],
   ['helper text on the page', '--faint', '--bg', 4.5],
-  ['primary button label', '#FFFFFF', '--navy', 4.5],
-  ['primary button hover stop', '#FFFFFF', '--navy-700', 4.5],
-  ['toast and user bubble label', '#FFFFFF', '--navy-900', 4.5],
-  ['brand text on a card', '--brand-ink', '--card', 4.5],
-  ['brand text on brand-soft', '--brand-ink', '--brand-soft', 4.5],
+  ['helper text on a panel', '--faint', '--bg-sunk', 4.5],
+  ['primary button label', '--brand-ink', '--sync-orange', 4.5],
+  ['required figure on its tint', '--req', '--ember-soft', 4.5],
   ['success text', '--green', '--green-soft', 4.5],
   ['warning text', '--amber', '--amber-soft', 4.5],
   ['error text', '--red', '--red-soft', 4.5],
   ['AI bubble and your-answer line', '--navy', '--steel-soft', 4.5],
-  ['links on a card', '--navy-600', '--card', 4.5],
-  ['knowledge-base chips', '--navy', '--steel-soft', 4.5],
+  ['links on a panel', '--info', '--bg-sunk', 4.5],
   ['info note text', '--info', '--info-soft', 4.5],
-  ['entry-gate lede on navy', '#CBDCE9', '--navy', 4.5],
-  ['entry-gate mini-step text', '#B9CEDF', '--navy-900', 4.5],
-  ['entry-gate accent headline', '#FFC08A', '--navy', 3],
-  ['numerals on the brand fill', '--navy-900', '--brand', 3],
-  ['light mark lines on white', '#0C2B5E', '#FFFFFF', 3],
-  ['light mark dots on white', '#3E6892', '#FFFFFF', 3],
-  ['dark mark lines on dark', '#E8EFF7', '#0A0E17', 3],
-  ['dark mark dots/spark on dark', '#8FB0D0', '#0A0E17', 3],
-  ['dark mark star on dark', '#FF7A1A', '#0A0E17', 3],
-  ['navy star on orange tile', '#0C2B5E', '#FF7A1A', 3],
-  ['orange star on navy tile', '#FF7A1A', '#0C2B5E', 3]
+  /* Fixed pairs: the Nova mark on the dark canvas (the light LOGO_COLORS variant is
+     API symmetry for the component and is never rendered on a light surface) and the S-mark
+     on the product tile. */
+  ['mark lines on the dark canvas', '#4C8DFF', '#040B16', 3],
+  ['mark dots on the dark canvas', '#8FB6FF', '#040B16', 3],
+  ['mark star on the dark canvas', '#F97A1A', '#040B16', 3],
+  ['S-mark silhouette on the navy tile', '#FFFFFF', '#040B16', 3],
+  ['S-mark ember dot on the navy tile', '#F97A1A', '#040B16', 3]
 ];
 for (const [label, fg, bg, min] of PAIRS) {
-  const f = tokens[fg] || fg, b = tokens[bg] || bg;
+  const f = resolve(tokens[fg] || fg), b = resolve(tokens[bg] || bg);
   if (!f || !b) { ok(false, label + ': token missing (' + fg + '/' + bg + ')'); continue; }
   const r = ratio(f, b);
-  ok(r >= min, label.padEnd(30) + r.toFixed(2) + ':1 (need ' + min + ':1)');
+  ok(r >= min, label.padEnd(42) + r.toFixed(2) + ':1 (need ' + min + ':1)');
 }
 
 /* ------------------------------------------------------------------ */
-section('Nova geometry, variants, surfaces and generated assets');
+section('Ember/Navy neon brand: geometry, variants, surfaces and assets');
 
 const logoJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Logo.js'), 'utf8');
 const novaJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'components', 'brand', 'Nova.js'), 'utf8');
 const brand = require('../public/components/brand/Logo.js').PSBrand;
 const svgParser = new JSDOM('').window.DOMParser;
 const parseSvg = svg => new svgParser().parseFromString(svg, 'image/svg+xml');
-const expectedLines = ['M16 50 C50 50 56 100 84 100', 'M6 100 L84 100', 'M16 150 C50 150 56 100 84 100'];
-const expectedStar = 'M138 28 Q146 92 206 100 Q146 108 138 172 Q130 108 70 100 Q130 92 138 28 Z';
-const expectedSpark = 'M186 22 Q188 38 204 40 Q188 42 186 58 Q184 42 168 40 Q184 38 186 22 Z';
-const expectedDots = [[16, 50], [6, 100], [16, 150]];
+/* Nova's mark: 220x140, three straight 10px lines into the centre, three 9px dots at their
+   origins, one 4-quadrant star. The v3 spark is gone. */
+const expectedLines = ['M14 30 L146 70', 'M6 70 L146 70', 'M14 110 L146 70'];
+const expectedStar = 'M172 34 Q184 58 208 70 Q184 82 172 106 Q160 82 136 70 Q160 58 172 34 Z';
+const expectedDots = [[14, 30], [6, 70], [14, 110]];
 for (const variant of ['light', 'dark']) {
   const svg = parseSvg(brand.LogoMark({ variant, size: 54 }));
   const root = svg.documentElement;
   const paths = [...svg.querySelectorAll('path')];
   const circles = [...svg.querySelectorAll('circle')];
-  const palette = variant === 'light' ? ['#0C2B5E', '#3E6892'] : ['#E8EFF7', '#8FB0D0'];
-  ok(root.getAttribute('viewBox') === '-10 16 222 162' && +root.getAttribute('width') === 74 && +root.getAttribute('height') === 54,
-    variant + ' mark uses the exact viewBox and undistorted 222:162 dimensions');
-  ok(paths.length === 5 && paths.slice(0, 3).every((p, i) => p.getAttribute('d') === expectedLines[i] && p.getAttribute('fill') === 'none' && p.getAttribute('stroke-width') === '14' && p.getAttribute('stroke-linecap') === 'round'),
-    variant + ' mark has the three exact 14px round-capped lines');
-  ok(circles.length === 3 && circles.every((c, i) => +c.getAttribute('cx') === expectedDots[i][0] && +c.getAttribute('cy') === expectedDots[i][1] && c.getAttribute('r') === '12'),
-    variant + ' mark has three 12px dots at the specified centres');
-  ok(paths[3].getAttribute('d') === expectedStar && paths[4].getAttribute('d') === expectedSpark,
-    variant + ' star and spark use the exact paths');
-  ok([...root.children].map(el => el.localName).join(',') === 'path,path,path,circle,circle,circle,path,path',
-    variant + ' paint order is lines, dots, star, spark');
-  ok(paths.slice(0, 3).every(p => p.getAttribute('stroke') === palette[0]) && circles.every(c => c.getAttribute('fill') === palette[1]) && paths[3].getAttribute('fill') === '#FF7A1A' && paths[4].getAttribute('fill') === palette[1],
-    variant + ' mark has the exact palette');
+  const palette = variant === 'light'
+    ? { line: '#0E1C36', dot: '#4C8DFF', star: '#F97A1A' }
+    : { line: '#4C8DFF', dot: '#8FB6FF', star: '#F97A1A' };
+  ok(root.getAttribute('viewBox') === '0 0 220 140' && +root.getAttribute('height') === 54 && Math.abs(+root.getAttribute('width') * 140 / 54 - 220) < 0.01,
+    variant + ' mark uses the exact viewBox and undistorted 220:140 dimensions');
+  ok(paths.length === 4 && paths.slice(0, 3).every((p, i) => p.getAttribute('d') === expectedLines[i] && p.getAttribute('fill') === 'none' && p.getAttribute('stroke-width') === '10' && p.getAttribute('stroke-linecap') === 'round'),
+    variant + ' mark has the three exact 10px round-capped lines and no spark');
+  ok(circles.length === 3 && circles.every((c, i) => +c.getAttribute('cx') === expectedDots[i][0] && +c.getAttribute('cy') === expectedDots[i][1] && c.getAttribute('r') === '9'),
+    variant + ' mark has three 9px dots at the line origins');
+  ok(paths[3].getAttribute('d') === expectedStar, variant + ' star uses the exact 4-quadrant path');
+  ok([...root.children].map(el => el.localName).join(',') === 'path,path,path,circle,circle,circle,path',
+    variant + ' paint order is lines, dots, star');
+  ok(paths.slice(0, 3).every(p => p.getAttribute('stroke') === palette.line) && circles.every(c => c.getAttribute('fill') === palette.dot) && paths[3].getAttribute('fill') === palette.star,
+    variant + ' mark has the exact neon palette');
   ok(root.getAttribute('role') === 'img' && root.getAttribute('aria-label') === 'Nova PipelineSync AI', variant + ' mark has its accessible product name');
   const lockup = new JSDOM(brand.Logo({ variant, size: 40 })).window.document;
-  ok(lockup.querySelector('.ps-lockup').getAttribute('aria-label') === 'Nova PipelineSync AI' && lockup.querySelector('.ps-wordmark-name').textContent === 'NOVA' && lockup.querySelector('.ps-wordmark-sub').textContent === 'PipelineSync AI',
+  ok(lockup.querySelector('.ps-lockup').getAttribute('aria-label') === 'Nova PipelineSync AI' && lockup.querySelector('.ps-wordmark-name').textContent === 'Nova' && lockup.querySelector('.ps-wordmark-sub').textContent === 'PipelineSync AI',
     variant + ' lockup uses real HTML text with the full accessible name');
-  ok(lockup.querySelector('.ps-wordmark-name').getAttribute('style').includes(variant === 'light' ? '#0C2B5E' : '#FFFFFF') && lockup.querySelector('.ps-wordmark-sub').getAttribute('style').includes(palette[1]),
+  const markImg = lockup.querySelector('.ps-lockup-mark img.ps-mark-img');
+  ok(markImg && markImg.getAttribute('src') === '/components/brand/pipelinesync-mark.png' && markImg.getAttribute('alt') === '',
+    variant + ' lockup leads with the PipelineSync S-mark raster');
+  ok(lockup.querySelector('.ps-wordmark-name').getAttribute('style').includes(variant === 'light' ? '#0E1C36' : '#F4F7FF') && lockup.querySelector('.ps-wordmark-sub').getAttribute('style').includes(variant === 'light' ? '#47546E' : '#B7C3DE'),
     variant + ' wordmark uses its surface palette');
 }
-ok(/\.ps-wordmark-name\s*\{[^}]*font-weight: 800;[^}]*letter-spacing: 0.09em;/.test(css) && /\.ps-wordmark-sub\s*\{[^}]*font-weight: 600;/.test(css) && /color:#FF7A1A;font-weight:800/.test(logoJs),
-  'wordmark typography is 800 NOVA, 600 subline and orange 800 AI');
+ok(/\.ps-mark-img\s*\{[^}]*brightness\(0\)[^}]*invert\(1\)[^}]*drop-shadow\(0 0 10px rgba\(249, 122, 26, 0\.55\)\)/s.test(css),
+  'the S-mark is rendered white with the site navbar ember glow');
+ok(/\.ps-wordmark-name\s*\{[^}]*font-weight: 700;/s.test(css) && /\.ps-wordmark-sub\s*\{[^}]*font-weight: 500;[^}]*letter-spacing: 0\.12em;[^}]*text-transform: uppercase;/s.test(css) && /font-weight:700">AI<\/span>/.test(logoJs) && brand.LOGO_COLORS.light.star === '#F97A1A' && brand.LOGO_COLORS.dark.star === '#F97A1A',
+  'wordmark typography is 700 Nova, mono 500 uppercase subline and ember 700 AI');
+ok(/--display:\s*"Space Grotesk"/.test(css) && /Space\+Grotesk/.test(indexHtml) && /IBM\+Plex\+Mono/.test(indexHtml),
+  'the display and mono typefaces are Space Grotesk and IBM Plex Mono, wired into the stylesheet and the page');
 const moving = parseSvg(brand.LogoMark({ variant: 'dark', animated: true }));
 ok(moving.querySelectorAll('.ps-flow-dot').length === 3 && [...moving.querySelectorAll('.ps-flow-dot')].every((c, i) => c.getAttribute('style').includes(expectedLines[i])), 'all three animated dots follow the actual incoming paths');
 ok(moving.querySelector('.ps-pulse-star') && /@keyframes ps-pulse/.test(logoJs), 'the star pulses after the dots arrive');
 ok(/@media \(prefers-reduced-motion:reduce\)\{\.ps-flow-dot\{animation:none;offset-path:none!important;opacity:1\}\.ps-pulse-star\{animation:none;transform:none\}\}/.test(logoJs),
   'reduced motion disables both the dot paths and the star pulse');
 ok(!/function logoMark\(/.test(appJs), 'the app uses the shared component rather than an inline duplicate');
-ok(/function brandVariant\(\) \{ return state.theme === 'light' \? 'light' : 'dark'; \}/.test(appJs), 'theme-following surfaces select light only in light mode');
+ok(/function brandVariant\(\) \{ return state\.theme === 'light' \? 'light' : 'dark'; \}/.test(appJs), 'theme-following surfaces select light only in light mode');
 ok(!/Logo(?:Mark)?\(\{[^}]*variant: 'light'/.test(appJs), 'no app call site places a fixed light mark on a potentially dark surface');
-ok(/LogoMark\(\{ variant: 'dark', size: 24 \}\)/.test(appJs) && /\.orb\s*\{[^}]*rgba\(10, 14, 23, 0.9\)/s.test(css), 'the permanently dark call orb uses the dark mark even in light mode');
-ok(/Logo\(\{ variant: brandVariant\(\), size: 40 \}\)/.test(appJs) && /Logo\(\{ variant: brandVariant\(\), size: 54 \}\)/.test(appJs), 'topbar and entry gate both select the active theme palette');
-ok(/LogoMark\(\{ variant: brandVariant\(\), animated: true, size: 96 \}\)/.test(appJs), 'the splash uses the active surface palette');
-ok(/h \* 222 \/ 162/.test(appJs) && /LogoMark\(\{ variant: brandVariant\(\), size: h \}\)/.test(appJs) && /logoTile\(54\)/.test(appJs), 'done-screen logoTile preserves 222:162 and follows the theme');
-ok(/\.logo-plate\s*\{[^}]*background: transparent;[^}]*box-shadow: none;/s.test(css), 'logoTile has no white plate or shadow');
-ok(/\.nova-splash-card\s*\{[^}]*background: transparent;[^}]*box-shadow: none;/s.test(css), 'the loading mark has no white plate or shadow');
+ok(!/LogoMark\(/.test(appJs) && /rgba\(4, 11, 22, 0\.94\)/.test(css), 'the call orb is a plain deep navy disc (the Nova mark is removed)');
+ok(/Logo\(\{ variant: brandVariant\(\), size: 40 \}\)/.test(appJs) && /SMark\(\{ size: 40 \}\)/.test(appJs), 'the topbar uses the S-mark lockup and the login screen the S-mark alone');
+ok(!/nova-splash|novaSplashHtml/.test(appJs), 'the loader no longer renders the Nova mark');
+ok(!/logoTile|done-mark/.test(appJs), 'the done screen no longer renders the Nova mark');
+ok(/\.gate-logo\s*\{[^}]*position: absolute;[^}]*left:/.test(css), 'the login screen pins the S-mark to the upper-left corner');
+ok(/<p class="gate-name"><span class="accent">Nova AI<\/span><\/p>/.test(appJs) && /\.gate-name\s*\{[^}]*font-family: var\(--display\)/s.test(css), 'the login hero shows "Nova AI" (the star-mark logo is removed, the name stays)');
+ok(!/nova-splash|logo-plate|done-mark|brand-lg/.test(css), 'no orphaned Nova-mark CSS rules remain (splash, plate, done-mark, brand-lg)');
 
 const vectors = {};
 for (const f of ['logo.svg', 'logo-on-dark.svg', 'logo-lockup.svg', 'logo-lockup-dark.svg', 'favicon.svg', 'app-icons.svg']) {
   vectors[f] = parseSvg(fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8'));
   ok(!vectors[f].querySelector('parsererror'), 'public/' + f + ' is well-formed XML');
-  ok([...vectors[f].querySelectorAll('path')].some(p => p.getAttribute('d') === expectedStar), 'public/' + f + ' contains the exact Nova star');
+  if (!f.endsWith('favicon.svg') && !f.endsWith('app-icons.svg')) {
+    ok([...vectors[f].querySelectorAll('path')].some(p => p.getAttribute('d') === expectedStar), 'public/' + f + ' contains the exact Nova star');
+  }
 }
 for (const [f, variant] of [['logo.svg', 'light'], ['logo-on-dark.svg', 'dark']]) {
   const generated = [...vectors[f].querySelectorAll('path,circle')].map(n => n.outerHTML).join('');
   const component = [...parseSvg(brand.LogoMark({ variant })).querySelectorAll('path,circle')].map(n => n.outerHTML).join('');
   ok(generated === component, f + ' matches the runtime mark geometry and palette exactly');
 }
-ok(vectors['logo-on-dark.svg'].querySelector('rect').getAttribute('fill') === '#0A0E17', 'dark standalone mark sits directly on #0A0E17, not a plate');
+ok(vectors['logo-on-dark.svg'].querySelector('rect').getAttribute('fill') === '#040B16', 'dark standalone mark sits directly on the deep navy, not a plate');
 for (const f of ['logo-lockup.svg', 'logo-lockup-dark.svg']) {
   const text = [...vectors[f].querySelectorAll('text')];
   ok(text.length === 2 && text[0].textContent === 'NOVA' && text[1].textContent === 'PipelineSync AI', f + ' includes the two-line wordmark');
 }
-for (const [f, tileColor, dotColor, starColor] of [['favicon.svg', '#FF7A1A', '#FFFFFF', '#0C2B5E'], ['app-icons.svg', '#0C2B5E', '#8FB0D0', '#FF7A1A']]) {
+/* The product tiles: deep navy ground, white S silhouette via feColorMatrix, ember dot at the
+   mark's own orange centre. */
+const MARK_ASPECT = 641 / 478, DOT = { cx: 0.638, cy: 0.559, r: 0.062 };
+for (const [f, fraction] of [['favicon.svg', 0.72], ['app-icons.svg', 0.50]]) {
   const svg = vectors[f];
-  const tile = svg.querySelector('rect');
-  const paths = [...svg.querySelectorAll('path')];
-  const dots = [...svg.querySelectorAll('circle')];
-  ok(svg.documentElement.getAttribute('viewBox') === '0 0 512 512' && tile.getAttribute('fill') === tileColor && +tile.getAttribute('rx') === 512 * 0.22, f + ' uses its specified rounded-square tile');
-  ok(paths.length === 4 && paths[3].getAttribute('d') === expectedStar && paths[3].getAttribute('fill') === starColor && paths.slice(0, 3).every((p, i) => p.getAttribute('d') === expectedLines[i] && p.getAttribute('stroke') === '#FFFFFF' && p.getAttribute('stroke-width') === '16' && p.getAttribute('stroke-linecap') === 'round' && p.getAttribute('fill') === 'none'), f + ' uses exact 16px icon geometry with no spark');
-  ok(dots.length === 3 && dots.every((c, i) => c.getAttribute('r') === '13' && c.getAttribute('fill') === dotColor && +c.getAttribute('cx') === expectedDots[i][0] && +c.getAttribute('cy') === expectedDots[i][1]), f + ' uses exact 13px icon dots');
-  const transform = svg.querySelector('g').getAttribute('transform');
-  const scale = +transform.match(/scale\(([^)]+)\)/)[1];
-  const translate = transform.match(/translate\(([^ ]+) ([^)]+)\)/);
-  ok(Math.abs(scale * 222 / 512 - 0.72) < 1e-10 && Math.abs(+translate[1] + 222 * scale / 2 - 256) < 1e-8 && Math.abs(+translate[2] + 162 * scale / 2 - 256) < 1e-8 && transform.endsWith('translate(10 -16)'), f + ' centres an undistorted 72%-width mark');
+  const tile = svg.querySelector('rect[fill]');
+  const image = svg.querySelector('image');
+  const dot = svg.querySelector('circle');
+  ok(svg.documentElement.getAttribute('viewBox') === '0 0 512 512' && tile.getAttribute('fill') === '#040B16' && Math.abs(+tile.getAttribute('rx') - 512 * 0.22) < 0.01,
+    f + ' uses the deep-navy rounded-square tile');
+  ok(!!svg.querySelector('feColorMatrix') && image && image.getAttribute('href') === '/components/brand/pipelinesync-mark.png',
+    f + ' renders the PipelineSync S-mark raster white via feColorMatrix');
+  const W = 512 * fraction, H = W * MARK_ASPECT;
+  const x = (512 - W) / 2, y = (512 - H) / 2;
+  ok(Math.abs(+image.getAttribute('width') - W) < 0.01 && Math.abs(+image.getAttribute('height') - H) < 0.01 && Math.abs(+image.getAttribute('x') - x) < 0.01 && Math.abs(+image.getAttribute('y') - y) < 0.01,
+    f + ' centres an undistorted ' + Math.round(fraction * 100) + '%-width S-mark');
+  ok(dot && dot.getAttribute('fill') === '#F97A1A' && Math.abs(+dot.getAttribute('r') - W * DOT.r) < 0.01 && Math.abs(+dot.getAttribute('cx') - (x + DOT.cx * W)) < 0.01 && Math.abs(+dot.getAttribute('cy') - (y + DOT.cy * H)) < 0.01,
+    f + ' places the ember dot at the mark\'s own orange centre');
 }
 for (const [f, size] of [['icon-512.png', 512], ['icon-maskable-512.png', 512], ['apple-touch-icon.png', 180]]) {
   const png = fs.readFileSync(path.join(__dirname, '..', 'public', f));
@@ -268,59 +304,90 @@ function rgbaPng(file) {
   }
   return { pixels, width, height };
 }
-const maskable = rgbaPng('icon-maskable-512.png');
-let outsideSafeCircle = 0, markPixels = 0, starPixels = 0;
-for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
-  const at = (y * 512 + x) * 4, p = maskable.pixels;
-  // Rounded tile edges can unpremultiply navy by a few RGB units at low alpha.
-  // Compare premultiplied channels within two quantisation steps (premultiply/unpremultiply), not raw RGB.
-  if ([12, 43, 94].some((bg, c) => Math.abs((p[at + c] - bg) * p[at + 3] / 255) > 2)) {
-    markPixels++;
-    if (Math.hypot(x + 0.5 - 256, y + 0.5 - 256) > 512 * 0.4) outsideSafeCircle++;
-    if (p[at] === 255 && p[at + 1] === 122 && p[at + 2] === 26) starPixels++;
+/* The "any" icon: navy ground, white silhouette, ember dot at the measured centre. */
+const icon512 = rgbaPng('icon-512.png');
+{
+  const p = icon512.pixels;
+  const at = (x, y) => (y * 512 + x) * 4;
+  let white = 0, ember = 0;
+  for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
+    const o = at(x, y), r = p[o], g = p[o + 1], b = p[o + 2], a = p[o + 3];
+    if (a < 128) continue;
+    if (r > 200 && g > 200 && b > 200) white++;
+    if (r > 190 && g > 70 && g < 180 && b < 100) ember++;
   }
+  const cornerTransparent = p[at(4, 4) + 3] < 32 && p[at(507, 4) + 3] < 32 && p[at(4, 507) + 3] < 32 && p[at(507, 507) + 3] < 32;
+  const centre = at(256, 256);
+  const navyCentre = p[centre] === 4 && p[centre + 1] === 11 && p[centre + 2] === 22 && p[centre + 3] === 255;
+  const W = 512 * 0.72, H = W * MARK_ASPECT, x0 = (512 - W) / 2, y0 = (512 - H) / 2;
+  const dx = Math.round(x0 + DOT.cx * W), dy = Math.round(y0 + DOT.cy * H);
+  const o = at(dx, dy);
+  const dotEmber = p[o] === 249 && p[o + 1] === 122 && p[o + 2] === 26 && p[o + 3] === 255;
+  ok(cornerTransparent, 'icon-512 keeps transparent corners outside the rounded tile');
+  ok(navyCentre, 'icon-512 ground is the deep navy #040B16');
+  ok(white > 25000, 'icon-512 carries the white S-mark silhouette (' + white + ' px)');
+  ok(ember > 500 && dotEmber, 'icon-512 carries the ember dot at the mark\'s measured centre (' + ember + ' px)');
 }
-ok(markPixels > 1000 && starPixels > 100 && outsideSafeCircle === 0,
-  'all maskable mark pixels, including the orange star, are inside the central 80%-diameter safe circle');
+/* The maskable icon: every ink pixel, including the dot, inside the 80% safe circle. */
+{
+  const img = rgbaPng('icon-maskable-512.png');
+  const p = img.pixels;
+  let outsideSafeCircle = 0, inkPixels = 0, dotPixels = 0;
+  for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
+    const o = (y * 512 + x) * 4, r = p[o], g = p[o + 1], b = p[o + 2], a = p[o + 3];
+    if (a < 128) continue;
+    const isNavy = Math.abs(r - 4) <= 3 && Math.abs(g - 11) <= 3 && Math.abs(b - 22) <= 5;
+    if (isNavy) continue;
+    inkPixels++;
+    if (r > 190 && g > 70 && g < 180 && b < 100) dotPixels++;
+    if (Math.hypot(x + 0.5 - 256, y + 0.5 - 256) > 512 * 0.4) outsideSafeCircle++;
+  }
+  ok(inkPixels > 10000 && dotPixels > 200 && outsideSafeCircle === 0,
+    'all maskable ink, including the ember dot, is inside the central 80%-diameter safe circle (' + inkPixels + ' ink px, ' + dotPixels + ' dot px)');
+}
 const ico = fs.readFileSync(path.join(__dirname, '..', 'public', 'favicon.ico'));
 ok(ico.readUInt16LE(2) === 1 && ico.readUInt16LE(4) === 3 && [16,32,48].every((size, i) => ico[6 + i * 16] === size && ico[7 + i * 16] === size && ico.subarray(ico.readUInt32LE(18 + i * 16), ico.readUInt32LE(18 + i * 16) + 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))), 'favicon.ico embeds valid 16/32/48 PNG entries');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'manifest.webmanifest'), 'utf8'));
-ok(manifest.theme_color === '#0A0E17' && manifest.background_color === '#0A0E17', 'the manifest theme colour stays #0A0E17');
+ok(manifest.theme_color === '#040B16' && manifest.background_color === '#040B16', 'the manifest carries the deep navy #040B16 theme colour');
 ok(manifest.icons.some(i => /512/.test(i.sizes)), 'the manifest carries the 512px app icon');
 ok(manifest.name === 'Nova PipelineSync AI' && manifest.short_name === 'Nova', 'manifest uses the full product name and Nova short name');
 const pkg = require('../package.json');
-ok(!Object.keys(pkg.dependencies || {}).some(k => /resvg|playwright|chromium/.test(k)) && !Object.keys(pkg.devDependencies || {}).some(k => /resvg/.test(k)), 'asset renderer stays a build-time-only tool outside app dependencies');
+ok(!Object.keys(pkg.dependencies || {}).some(k => /resvg|playwright|chromium/.test(k)) && !Object.keys(pkg.devDependencies || {}).some(k => /resvg/.test(k)), 'brand assets need no app dependencies (pure-Node codec)');
 
-ok(/<title>Nova PipelineSync AI \|/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8')), 'the page title uses the full product name');
+ok(/<title>Nova PipelineSync AI \|/.test(indexHtml), 'the page title uses the full product name');
 ok(/text: 'Nova PipelineSync AI', style: 'headerBrand'/.test(appJs) && /Tm \(Nova PipelineSync AI\) Tj/.test(fs.readFileSync(path.join(__dirname, '..', 'lib', 'core.js'), 'utf8')), 'browser and server PDF headers use the full product name');
 ok(/>Nova PipelineSync AI<\/div>/.test(fs.readFileSync(path.join(__dirname, '..', 'lib', 'pdf-email.js'), 'utf8')), 'the email header uses the full product name');
 
-section('the mascot component remains unchanged');
+/* ------------------------------------------------------------------ */
+section('the mascot is recoloured with the brand, unchanged in geometry');
 for (const pose of ['sync', 'hello', 'listen', 'speak', 'think', 'party']) {
   ok(new RegExp(pose + ':\\s*\\{').test(novaJs), 'Nova.js defines the "' + pose + '" pose');
 }
 ok(/'\+ \(avatar \? '66 36 168 168' : '0 0 300 300'\) \+'|avatar \? '66 36 168 168' : '0 0 300 300'/.test(novaJs),
   'Nova keeps both view boxes (the full figure and the head-only avatar crop)');
-/* Nova is transparent artwork: nothing may paint behind him, or the app's own surface (dark, light
-   or an export) stops showing through. */
+/* Nova is transparent artwork: nothing may paint behind him, or the app's own surface (glass,
+   ink or an export) stops showing through. */
 ok(!/<circle cx="150" cy="120" r="84"/.test(novaJs) && !/background:' \+ MIST/.test(novaJs),
   'the avatar draws no circle or plate behind the head');
 ok(!/ellipse cx="150" cy="286"/.test(novaJs), 'the full figure draws no ground shadow');
 ok(/role="img" aria-label="/.test(novaJs), 'Nova keeps role=img and his aria-label');
-ok(/@media \(prefers-reduced-motion:reduce\)\{\[class\^="nova-"\]/.test(novaJs), "Nova's animation CSS honours reduced motion");
-ok(/#0C2B5E/.test(novaJs) && /#3E6892/.test(novaJs) && /#FF7A1A/.test(novaJs) && /#8FB0D0/.test(novaJs) && /#E8EFF7/.test(novaJs),
-  "Nova's palette is the brand palette and nothing else");
+ok(/@media \(prefers-reduced-motion:reduce\)\{\[class\^=\"nova-\"\]/.test(novaJs), "Nova's animation CSS honours reduced motion");
+ok(/#4C8DFF/.test(novaJs) && /#8FB6FF/.test(novaJs) && /#03265C/.test(novaJs) && /#F97A1A/.test(novaJs) && /#FFB25C/.test(novaJs) && /#F4F7FF/.test(novaJs),
+  "Nova's palette is the Ember/Navy neon brand palette");
+ok(!/#1C3D6E/.test(novaJs) && !/#6E88AB/.test(novaJs) && !/#142C50/.test(novaJs) && !/#E8590C/.test(novaJs) && !/#8FA6C4/.test(novaJs) && !/#F6F3EC/.test(novaJs) &&
+   !/#0C2B5E/.test(novaJs) && !/#3E6892/.test(novaJs) && !/#2E5580/.test(novaJs) && !/#FF7A1A/.test(novaJs) && !/#8FB0D0/.test(novaJs) && !/#E8EFF7/.test(novaJs),
+  'the retired v3 and v4 palettes are fully gone from the mascot');
 
 /* Rules from the brand sheet, asserted on the real rendering code. The UI no longer renders the
    mascot: no figure, no avatar, no copy line - the only trace of the brand sheet left on screen
-   is the logo and the audio waveform. */
+   is the lockup, Nova's face in the orb, and the audio waveform. */
 ok(!/NovaAvatar\(|PSBrand\.Nova\b/.test(appJs), 'the app no longer renders Nova\'s figure anywhere');
 ok(!/NOVA_COPY\./.test(appJs), 'the app no longer renders Nova\'s copy lines');
 ok(!/\.nova-live-fig|\.nova-party-fig|\.nova-ringing|\.nova-fig-card|\.bubble-av|\.toast-av|\.who-nova/.test(css),
   'no mascot rules remain in the stylesheet');
 ok(/\.nova-wave-bar \{[^}]*linear-gradient\(180deg, var\(--sky\) 0%, var\(--sync-orange\) 100%\)/.test(css),
-  'the waveform is the #8FB0D0 -> #FF7A1A gradient');
-ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,200}\.nova-wave-bar \{ animation: none/.test(css),
+  'the waveform is the blue -> ember gradient');
+ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,300}\.nova-wave-bar \{ animation: none/.test(css),
   'the waveform stops under reduced motion');
 ok(/novaWaveHtml\('nova-wave'\)/.test(appJs) && /<div class="nova-wave"/.test(appJs),
   'the waveform is rendered under the live question');
@@ -338,6 +405,50 @@ for (const line of [
 }
 ok(!/\bAlex\b/.test(appJs), 'the UI no longer calls the interviewer Alex');
 ok(/<b>Nova<\/b>/.test(appJs) && !/id="call-progress"/.test(appJs) && !/id="call-bar"/.test(appJs), 'the call screen names the AI, and the question counter is gone');
+
+/* ------------------------------------------------------------------ */
+section('the Ember/Navy neon canvas, glass surfaces and dark-only theme');
+
+ok(!/data-theme/.test(css), 'the stylesheet has no theme selector left: one dark theme, no light variant');
+ok(/content="dark"/.test(indexHtml), 'the page declares the dark colour scheme');
+ok(/<meta name="theme-color" content="#040B16">/.test(indexHtml), 'the browser theme colour is the deep navy');
+ok(!/theme-toggle/.test(appJs) && !/ps_theme/.test(appJs) && !/initTheme/.test(appJs) && !/gate-corner/.test(appJs + css),
+  'the theme toggle, its persistence and the gate corner slot are fully removed');
+ok(/theme: 'dark',/.test(appJs) && /function applyTheme\(\) \{\s*document\.body\.dataset\.theme = state\.theme;\s*\}/s.test(appJs),
+  'state.theme is pinned to dark and applyTheme only marks the body dataset');
+ok(/body data-theme="dark"/.test(indexHtml) || /<body data-theme="dark">/.test(indexHtml), 'the page ships on the dark theme from first paint');
+/* Canvas: the blue top-glow, the 56px hairline grid and the two drifting aurora orbs. */
+ok(/radial-gradient\(1100px 720px at 50% -8%, rgba\(76, 141, 255, 0\.16\)/.test(css), 'the canvas carries the site\'s blue top-glow');
+ok(/background-size: 56px 56px/.test(css), 'the grid underlay is the site\'s 56px hairline grid');
+const orbBgRules = (function gather(list) {
+  let found = '';
+  (function go(rules) {
+    for (const r of rules) {
+      if (r.cssRules) { go(r.cssRules); continue; }
+      if (r.selectorText && /\.orb-bg/.test(r.selectorText)) found += ' ' + (r.style.cssText || '');
+    }
+  })(list);
+  return found;
+})(sheet.cssRules);
+ok(/72vmax/.test(orbBgRules) && /blur\(110px\)/.test(orbBgRules), 'the aurora orbs are 72vmax at blur(110px), like the site');
+ok(/nAuroraA 34s/.test(orbBgRules) && /nAuroraB 42s/.test(orbBgRules), 'the ember and blue orbs drift on the site\'s 34s/42s cycles');
+ok(/radial-gradient\(circle, rgba\(249, 122, 26, 0\.38\)/.test(orbBgRules) && /radial-gradient\(circle, rgba\(76, 141, 255, 0\.32\)/.test(orbBgRules),
+  'the orb colours match the site (ember 0.38, blue 0.32)');
+/* Glass: white-gradient panels over blur+saturate, hairline border, inset highlight, deep shadow. */
+ok(/linear-gradient\(160deg, rgba\(255, 255, 255, 0\.065\), rgba\(255, 255, 255, 0\.018\)\)/.test(css), 'glass panels use the site\'s white gradient');
+ok(/blur\(20px\) saturate\(150%\)/.test(css) && /backdrop-filter: var\(--glass-blur\)/.test(css), 'glass panels blur+saturate their backdrop');
+ok(/inset 0 1px 0 rgba\(255, 255, 255, 0\.06\), var\(--sh-3\)/.test(css) && /--sh-3: 0 26px 64px -26px rgba\(2, 8, 20, 0\.85\)/.test(css),
+  'glass panels keep the inset top highlight and the site\'s deep soft shadow');
+ok(/rgba\(4, 11, 22, 0\.55\)/.test(css) && /saturate\(160%\)/.test(css), 'the topbar is the site\'s translucent navy with saturate(160%)');
+ok(/\.accent\s*\{[^}]*-webkit-background-clip: text;[^}]*background-clip: text;[^}]*animation: accent-shift 8s/s.test(css),
+  'accent keywords ride the blue->ember->gold gradient on the 8s shift');
+ok(/@keyframes accent-shift/.test(css) && /@keyframes nAuroraA/.test(css) && /@keyframes nAuroraB/.test(css), 'the neon motion keyframes are defined');
+ok(/h1 \{[^}]*text-shadow: 0 0 40px rgba\(76, 141, 255, 0\.25\)/s.test(css), 'h1 keeps the site\'s blue halo');
+ok(/\.orb\s*\{[^}]*radial-gradient\(circle at 50% 42%, rgba\(76, 141, 255, 0\.28\), rgba\(4, 11, 22, 0\.94\) 68%\)/s.test(css),
+  'the voice orb is the deep navy disc with a blue core');
+ok(/\.orb\.speaking[^{]*\{[^}]*rgba\(249, 122, 26, 0\.65\)/s.test(css), 'the orb glows ember while speaking');
+ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,400}\.aurora \{ display: none/.test(css),
+  'reduced motion removes the aurora drift');
 
 /* ------------------------------------------------------------------ */
 section('touch targets on phones');
