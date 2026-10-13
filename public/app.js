@@ -2409,7 +2409,7 @@ function startView() {
     '<div class="gate-logo">' + SMark({ size: 40 }) + '</div>' +
     '<div class="gate-brand">' +
       '<div class="gate-brand-inner">' +
-        '<p class="gate-name"><span class="accent">Nova</span></p>' +
+        '<p class="gate-name"><span class="accent">Nova AI</span><span class="tag"> — your pipeline, decoded.</span></p>' +
         '<h1>Build a <span class="accent">predictable pipeline.</span></h1>' +
         '<p class="lede">AI discovery call. Personalised HubSpot blueprint.</p>' +
         '<div class="gate-trust">' +

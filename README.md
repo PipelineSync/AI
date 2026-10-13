@@ -236,9 +236,9 @@ dataset only, and there is no light variant, no toggle and no `ps_theme`
 persistence to read. Glass surfaces are always translucent, so a light mark
 never sits on a light surface. The Nova star-mark logo no longer appears
 anywhere in the app — the voice orb is a plain deep-navy disc, and the loading
-and done screens show no mark — but the **Nova name stays**: it leads the
-login screen's centered hero (display type in the accent gradient), above the
-value-proposition heading. The only on-screen logos are the PipelineSync
+and done screens show no mark — but the **Nova name stays**: the login
+screen's centered hero leads with **Nova AI** in the accent gradient plus the
+tagline *“your pipeline, decoded.”*, above the value-proposition heading. The only on-screen logos are the PipelineSync
 S-mark — the full lockup in the signed-in topbar and the S-mark alone in the
 upper-left corner of the login screen. At narrow header widths the product
 name is shortened to **Nova**, rather than cropping the text.
