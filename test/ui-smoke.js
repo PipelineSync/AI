@@ -151,6 +151,7 @@ async function passGate(page, details) {
   // Brand: the PipelineSync S-mark alone in the upper-left corner (no wordmark).
   // The mascot stays off the start screen: no figure, no greeting line.
   ok(!!document.querySelector('.gate-logo .ps-mark img.ps-mark-img'), 'the entry gate carries the S-mark in the upper-left corner');
+  ok(/Nova/.test((document.querySelector('.gate-brand .gate-name') || {}).textContent || ''), 'the login hero shows the Nova name (the logo is removed, the name is kept)');
   ok(!document.querySelector('.gate-card svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not greet the visitor on the start screen');
   ok(!/Hi, I'm Nova\. Let's map how your deals actually move\./.test(document.querySelector('.gate-card').textContent),
     'and his greeting line is gone from the start screen');

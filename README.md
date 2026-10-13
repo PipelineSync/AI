@@ -234,13 +234,16 @@ hairline grid, the blue top-glow and the two drifting aurora orbs (34s/42s
 cycles). `state.theme` is pinned to `dark`, `applyTheme()` marks the body
 dataset only, and there is no light variant, no toggle and no `ps_theme`
 persistence to read. Glass surfaces are always translucent, so a light mark
-never sits on a light surface. The Nova mark no longer appears anywhere in the
-app: the voice orb is a plain deep-navy disc, and the loading and done screens
-show no mark. The only on-screen logos are the PipelineSync S-mark — the full
-lockup in the signed-in topbar and the S-mark alone in the upper-left corner of
-the login screen. At narrow header widths the product name is shortened to
-**Nova**, rather than cropping the text. `prefers-reduced-motion` removes the
-aurora drift and stops the 8s accent gradient.
+never sits on a light surface. The Nova star-mark logo no longer appears
+anywhere in the app — the voice orb is a plain deep-navy disc, and the loading
+and done screens show no mark — but the **Nova name stays**: it leads the
+login screen's centered hero (display type in the accent gradient), above the
+value-proposition heading. The only on-screen logos are the PipelineSync
+S-mark — the full lockup in the signed-in topbar and the S-mark alone in the
+upper-left corner of the login screen. At narrow header widths the product
+name is shortened to **Nova**, rather than cropping the text.
+`prefers-reduced-motion` removes the aurora drift and stops the 8s accent
+gradient.
 
 ### Generated brand assets
 
@@ -334,8 +337,9 @@ Design rules that `node test/ui-design.js` enforces:
   geometry, pose API, reduced-motion CSS and copy lines, but the current app renders none of
   the Nova artwork - no figure, no avatar, no greeting line, and no mark in the orb, the
   loader or the done screen. The only on-screen logos are the PipelineSync S-mark (the topbar
-  lockup and the login screen's upper-left corner) and Nova's name (the AI line, the call
-  screen, the PDF and email headers).
+  lockup and the login screen's upper-left corner); the Nova name itself stays on screen —
+  leading the login hero, and on the AI line, the call screen and in the PDF and email
+  headers.
 - **Accessibility is in the markup, not bolted on**: skip link, `aria-current="step"` on the rail,
   `aria-live` on the AI line and the call status, `aria-expanded` on both drawers, and visible
   `:focus-visible` rings throughout.

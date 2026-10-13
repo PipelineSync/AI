@@ -151,11 +151,13 @@ no longer rendered anywhere in the UI (the voice orb is now a plain deep-navy
 disc, and the loading and done screens show no mark). The PipelineSync S-mark is
 the only on-screen logo — the full lockup in the signed-in topbar, and the
 S-mark alone (new `SMark` component, no wordmark) pinned to the upper-left corner
-of the login screen. The `LogoMark` component and the `logo*.svg` exports are
-retained in the brand library (the generator depends on them) but are no longer
-rendered in the app. All design assertions were migrated (none deleted): the orb,
-loader and done-screen now assert the mark's absence, and a new assertion pins the
-S-mark to the login screen's upper-left corner.
+of the login screen. Only the logo was removed, not the name: **Nova** leads the
+login hero (`.gate-name`, display type in the accent gradient) above the heading.
+The `LogoMark` component and the `logo*.svg` exports are retained in the brand
+library (the generator depends on them) but are no longer rendered in the app.
+All design assertions were migrated (none deleted): the orb, loader and
+done-screen now assert the mark's absence, and new assertions pin the S-mark to
+the login screen's upper-left corner and the Nova name to the login hero.
 
 ## Related documentation
 
