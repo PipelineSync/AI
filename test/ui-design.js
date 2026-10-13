@@ -234,7 +234,7 @@ ok(/Logo\(\{ variant: brandVariant\(\), size: 40 \}\)/.test(appJs) && /SMark\(\{
 ok(!/nova-splash|novaSplashHtml/.test(appJs), 'the loader no longer renders the Nova mark');
 ok(!/logoTile|done-mark/.test(appJs), 'the done screen no longer renders the Nova mark');
 ok(/\.gate-logo\s*\{[^}]*position: absolute;[^}]*left:/.test(css), 'the login screen pins the S-mark to the upper-left corner');
-ok(/<p class="gate-name"><span class="accent">Nova AI<\/span><span class="tag"> — your pipeline, decoded\.<\/span><\/p>/.test(appJs) && /\.gate-name\s*\{[^}]*font-family: var\(--display\)/s.test(css) && /\.gate-name \.tag\s*\{[^}]*color: var\(--muted\)/s.test(css), 'the login hero shows "Nova AI — your pipeline, decoded." (the star-mark logo is removed, the name stays)');
+ok(/<p class="gate-name"><span class="accent">Nova AI<\/span><\/p>/.test(appJs) && /\.gate-name\s*\{[^}]*font-family: var\(--display\)/s.test(css), 'the login hero shows "Nova AI" (the star-mark logo is removed, the name stays)');
 ok(!/nova-splash|logo-plate|done-mark|brand-lg/.test(css), 'no orphaned Nova-mark CSS rules remain (splash, plate, done-mark, brand-lg)');
 
 const vectors = {};
