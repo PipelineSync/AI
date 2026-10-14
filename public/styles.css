@@ -1356,3 +1356,54 @@ body.entry-screen .gate-card { max-height: 100%; overflow-y: auto; overscroll-be
 .pending {}
 .complete {}
 .ready {}
+
+/* =============================================================================
+   Terms checkbox on the entry gate, and the Terms and Conditions page
+   ========================================================================== */
+.terms-check { margin: 4px 0 6px; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-2); }
+.terms-check a { font-weight: 500; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 171, 94, 0.45); }
+.terms-check input[aria-invalid="true"] { outline: 2px solid var(--red); outline-offset: 2px; }
+
+.legal-page { min-height: 100dvh; display: flex; flex-direction: column; }
+.legal-top {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 72px; padding: 10px clamp(16px, 3vw, 28px);
+  background: rgba(5, 7, 12, 0.72);
+  backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border-bottom: 1px solid var(--line);
+}
+.legal-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; letter-spacing: -0.025em; }
+.legal-brand:hover { text-decoration: none; color: var(--text); }
+.legal-brand img { width: 32px; height: 32px; filter: brightness(0) invert(1) drop-shadow(0 0 10px rgba(255, 122, 26, 0.55)); }
+.legal-wrap {
+  width: 100%; max-width: 1080px; margin: 0 auto; flex: 1;
+  padding: clamp(32px, 6vw, 72px) clamp(16px, 3vw, 24px) 48px;
+  display: grid; gap: 32px; grid-template-columns: minmax(0, 1fr);
+}
+.legal-head h1 { font-size: clamp(2rem, 1.4rem + 2.6vw, 3.25rem); margin: 14px 0 10px; }
+.legal-head .lede { max-width: 62ch; }
+.legal-head .meta { font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.legal-toc { align-self: start; padding: 20px; }
+.legal-toc ol { margin: 10px 0 0; padding-left: 1.3em; display: grid; gap: 6px; font-size: var(--fs-sm); }
+.legal-toc li::marker { color: var(--text-3); font-family: var(--mono); font-size: 0.75rem; }
+.legal-toc a { color: var(--text-2); }
+.legal-toc a:hover { color: var(--brand-2); }
+.legal-body { padding: clamp(22px, 4vw, 44px); min-width: 0; }
+.legal-body section + section { margin-top: 28px; padding-top: 26px; border-top: 1px solid var(--line); }
+.legal-body h2 { display: flex; align-items: center; gap: 12px; font-size: var(--fs-xl); scroll-margin-top: 96px; }
+.legal-body h2 .sn { width: 34px; height: 34px; font-size: 0.75rem; }
+.legal-body p, .legal-body li { max-width: 68ch; }
+.legal-body ul { margin: 0 0 0.75em; padding-left: 1.3em; display: grid; gap: 6px; }
+.legal-body li::marker { color: var(--brand); }
+.legal-body strong { color: var(--text); font-weight: 600; }
+.legal-foot { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 32px; }
+@media (min-width: 900px) {
+  .legal-wrap { grid-template-columns: 260px minmax(0, 1fr); }
+  .legal-head { grid-column: 1 / -1; }
+  .legal-toc { position: sticky; top: 96px; }
+}
+@media print {
+  .legal-top, .legal-toc, .legal-foot { display: none !important; }
+  .legal-body { background: #fff; color: #111; border: 0; box-shadow: none; }
+}

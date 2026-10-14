@@ -2388,9 +2388,13 @@ function initialsFor(name) {
 const NAME_RE = /[A-Za-z\u00C0-\u024F\u0400-\u04FF]/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+/* What the visitor typed before opening the Terms page, so the gate comes back filled in. */
+const GATE_DRAFT_KEY = 'ps_gate_draft';
 function startView() {
-  const lastName = store.get('ps_last_name') || '';
-  const lastEmail = store.get('ps_last_email') || '';
+  let draft = {};
+  try { draft = JSON.parse(sessionStore.get(GATE_DRAFT_KEY) || '{}') || {}; } catch (e) {}
+  const lastName = draft.name || store.get('ps_last_name') || '';
+  const lastEmail = draft.email || store.get('ps_last_email') || '';
   let turnstileHtml = '';
   if (state.turnstileSiteKey) {
     turnstileHtml = '<div class="field"><div id="turnstile-widget"><div class="cf-turnstile" data-sitekey="' + esc(state.turnstileSiteKey) + '" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileError"></div></div><p class="small txt-err" id="turnstile-error" role="alert" hidden></p></div>';
@@ -2400,11 +2404,13 @@ function startView() {
     demoHtml = '<div class="gate-alt"><span aria-hidden="true"></span>or<span aria-hidden="true"></span></div>' +
       '<button class="btn btn-ghost btn-block" id="demo-btn" type="button">Use the demo account</button>';
   }
-  let privacyLink = '';
-  if (state.privacyPolicyUrl) {
-    privacyLink = ' <a href="' + esc(state.privacyPolicyUrl) + '" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.';
-  }
-  const entryNotice = '<div class="notice info" id="entry-consent-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Nova is an AI assistant. Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude. Audio is never stored.' + privacyLink + '</div></div>';
+  const privacyLink = state.privacyPolicyUrl
+    ? ' and the <a href="' + esc(state.privacyPolicyUrl) + '" target="_blank" rel="noopener noreferrer">Privacy Policy</a>'
+    : '';
+  const termsCheck = '<label class="checkline terms-check" id="terms-check" for="st-terms">' +
+    '<input type="checkbox" id="st-terms" name="terms" required aria-required="true">' +
+    '<span>I agree to the <a href="/terms.html" id="terms-link">Terms and Conditions</a>' + privacyLink + '.</span>' +
+  '</label>';
   return '<div class="gate">' +
     '<div class="gate-logo">' + SMark({ size: 40 }) + '</div>' +
     '<div class="gate-brand">' +
@@ -2429,7 +2435,7 @@ function startView() {
         '<div class="field"><label for="st-email">Work email <span class="req">Required</span></label>' +
           '<input type="email" id="st-email" name="email" value="' + esc(lastEmail) + '" placeholder="you@yourbusiness.ph" maxlength="254" autocomplete="email" inputmode="email" spellcheck="false">' +
         '</div>' +
-        entryNotice +
+        termsCheck +
         turnstileHtml +
         '<p class="form-error" id="start-error" role="alert" hidden></p>' +
         '<button class="btn btn-primary btn-lg btn-block mt16" id="st-btn" type="submit">Start strategy session</button>' +
@@ -2471,6 +2477,7 @@ function bindStart() {
   const emailEl = $('#st-email');
   const errEl = $('#start-error');
   const btn = $('#st-btn');
+  const termsEl = $('#st-terms');
   const fail = (msg, focusEl) => {
     if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
     if (focusEl) { focusEl.setAttribute('aria-invalid', 'true'); focusEl.focus(); }
@@ -2481,15 +2488,17 @@ function bindStart() {
   };
   const clearErrors = () => {
     if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
-    [nameEl, emailEl].forEach(el => { if (el) el.removeAttribute('aria-invalid'); });
+    [nameEl, emailEl, termsEl].forEach(el => { if (el) el.removeAttribute('aria-invalid'); });
   };
-  const go = (name, email) => {
+  // The demo account (DEMO_MODE only) skips the Terms box; real visitors must tick it.
+  const go = (name, email, isDemo) => {
     const cleanName = String(name || '').replace(/\s+/g, ' ').trim();
     const cleanEmail = String(email || '').trim().toLowerCase();
     clearErrors();
     if (!cleanName || cleanName.length < 2) return fail('Enter your name so the AI knows what to call you on the call.', nameEl);
     if (!NAME_RE.test(cleanName)) return fail('Please enter your name using letters.', nameEl);
     if (!EMAIL_RE.test(cleanEmail)) return fail('Enter a valid email address, like you@yourbusiness.ph.', emailEl);
+    if (!isDemo && termsEl && !termsEl.checked) return fail('Please agree to the Terms and Conditions to continue.', termsEl);
     if (state.turnstileSiteKey && !state.turnstileToken) {
       const tErr = document.getElementById('turnstile-error');
       if (tErr) { tErr.textContent = 'Please complete the Turnstile verification.'; tErr.hidden = false; }
@@ -2511,6 +2520,7 @@ function bindStart() {
         saveAuth();
         store.set('ps_last_name', cleanName);
         store.set('ps_last_email', cleanEmail);
+        sessionStore.remove(GATE_DRAFT_KEY);
         state.stage = 'consent';
         render();
         toast('Ready when you are, ' + (j.user.first_name || cleanName.split(' ')[0]) + '.');
@@ -2522,9 +2532,15 @@ function bindStart() {
     clearErrors();
     demo.disabled = true;
     demo.textContent = 'Loading demo account...';
-    go('Demo Owner', 'demo@pipelinesync.ai');
+    go('Demo Owner', 'demo@pipelinesync.ai', true);
   };
   [nameEl, emailEl].forEach(el => { if (el) el.addEventListener('input', clearErrors); });
+  if (termsEl) termsEl.addEventListener('change', clearErrors);
+  // Opening the Terms page leaves the app, so keep what was typed for the way back.
+  const termsLink = $('#terms-link');
+  if (termsLink) termsLink.addEventListener('click', () => {
+    sessionStore.set(GATE_DRAFT_KEY, JSON.stringify({ name: nameEl ? nameEl.value : '', email: emailEl ? emailEl.value : '' }));
+  });
   if (nameEl && !nameEl.value) nameEl.focus();
   else if (emailEl && !emailEl.value) emailEl.focus();
   if (state.turnstileSiteKey) ensureTurnstileScript();

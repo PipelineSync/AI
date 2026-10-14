@@ -372,6 +372,7 @@ function boot(base) {
   // Entry gate
   document.getElementById('st-name').value = SESSION.name;
   document.getElementById('st-email').value = SESSION.email;
+  document.getElementById('st-terms').click();
   document.getElementById('start-form').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
   await sleep(700);
   ok(!!document.querySelector('#consent-go'), 'the entry gate leads to the consent screen');
