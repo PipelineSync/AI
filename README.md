@@ -2,17 +2,17 @@
 
 Runnable prototype of the app described in `PipelineSync_AI_Developer_Brief.pdf`. Built to be
 tested end to end in the browser. External services are live when their keys are set (HubSpot when
-`HUBSPOT_ACCESS_TOKEN` is set, otherwise a `[hubspot-mock]` log line; Resend when `PDF_EMAIL_API_KEY`
-is set, otherwise email is skipped; Claude when `ANTHROPIC_API_KEY` is set, otherwise built-in
-deterministic logic) and clearly marked, so nothing blocks on credentials - with one exception that
+`HUBSPOT_ACCESS_TOKEN` is set, otherwise a `[hubspot-mock]` log line; Claude when `ANTHROPIC_API_KEY`
+is set, otherwise built-in deterministic logic) and clearly marked, so nothing blocks on credentials - with one exception that
 matters: **the discovery call voice layer is live when `OPENAI_API_KEY` is set, otherwise the
 built-in interviewer runs.** ChatGPT words each turn when live, OpenAI speaks it, and the answers
 are captured against the Section 7 data contract. See `docs/VOICE_SETUP.md` for the one environment
 variable that switches it on.
 
 The journey itself is **zero-touch by default** (`AUTO_DELIVER=true`): the visitor gives a name and
-an email, the AI calls them, and the blueprint arrives as a PDF built by Claude - no review screen
-and no unlock button in between. One switch turns that off (`docs/ZERO_TOUCH.md`).
+an email, the AI calls them, and the blueprint built by Claude downloads as a PDF right in the web
+app - no review screen and no unlock button in between. The PDF is never emailed. One switch turns
+that off (`docs/ZERO_TOUCH.md`).
 
 Two ways to run it:
 
@@ -71,25 +71,20 @@ Site configuration → **Environment variables** → **Add a variable**:
 | `SUPABASE_SECRET_KEY` | secret | Supabase secret key (or legacy `SUPABASE_SERVICE_ROLE_KEY`). Server-only, never exposed. Required together with `SUPABASE_URL` and `PIPELINESYNC_WORKSPACE_OWNER_ID`. |
 | `PIPELINESYNC_WORKSPACE_OWNER_ID` | UUID | `auth.users.id` of the workspace admin who owns incoming leads. Must be a valid UUID. Required together with Supabase URL and key. |
 | `PRIVACY_POLICY_URL` | `https://...` | Privacy Policy URL, must be https. Returned by `/api/config` as `privacyPolicyUrl` and `consentVersion`. If unset, server logs warning and notice shown without link. **A real policy is required before public launch.** |
-| `PDF_EMAIL_API_KEY` | Resend API key (`re_...`) | **Emails the finished PDF** to the lead as an attachment, with a branded HTML body. Server-side only. Without it the feature is off and `deliver` returns `email:{sent:false,error}`, so the finish screen says to download instead of claiming a send. |
-| `PDF_EMAIL_FROM` | `Nova PipelineSync AI <blueprints@yourdomain.com>` | The From header. **The domain must be verified in Resend (DNS records) before Resend delivers to anyone but the address that owns the account.** Use `onboarding@resend.dev` for testing only - see below. |
-| `PDF_EMAIL_SUBJECT` | optional | Subject template. `{first_name}`, `{name}`, `{vertical}`, `{tier}`, `{date}` are filled in; the default is `Your PipelineSync blueprint is attached`. |
-| `PDF_EMAIL_REPLY_TO` | optional | Reply-To address, so replies reach a real inbox. |
-| `DELIVER_RATE_PER_MIN` | `5` (default) | Unlocks per minute per IP on `/api/deliver`. Each attempt builds a PDF and may send an email, so it is the tightest limit in the app. |
+| `DELIVER_RATE_PER_MIN` | `5` (default) | Unlocks per minute per IP on `/api/deliver`. Each attempt builds a PDF server-side, so it is the tightest limit in the app. |
 | `DELIVER_PER_EMAIL_DAY` | `3` (default) | Max 3 successful deliveries per email per 24h sliding window. Backed by Netlify Blobs with in-memory fallback. Past the cap, deliver returns 429. Tests set this high via `test/harness.js`. |
-| `AUTO_DELIVER` | `true` (default) | **Zero-touch: name + email → AI voice call → the PDF, with nothing to click in between.** When on, the browser runs the call straight into the blueprint and delivers the PDF to the address from the entry gate - no review screen, no unlock button - and `/api/deliver` accepts `auto:true`, which skips the emailed 6-digit code for the **first** automatic delivery only. Consent, the recipient (always the session token's email), the per-email/global/per-IP caps, idempotency and every required-figure check are unchanged; if the call ended without a required figure the browser asks for that one number instead of inventing it. The AI's closing line changes with it. Set `AUTO_DELIVER=false` to restore the review → confirm → unlock journey (and the code step) exactly as it was. See `docs/ZERO_TOUCH.md`. |
-| `PDF_EMAIL_ENDPOINT` | Resend | Optional http(s) endpoint for a Resend-compatible proxy or a local test stub. Unset means `https://api.resend.com/emails`. |
-| `PDF_EMAIL_DAILY_MAX` | `80` (default) | Global daily cap on emails sent (to stay under Resend's free 100/day). Backed by Netlify Blobs. Past the cap, deliver still returns the PDF with `email:{sent:false,error:"daily email limit reached"}`. |
+| `AUTO_DELIVER` | `true` (default) | **Zero-touch: name + email → AI voice call → the PDF, with nothing to click in between.** When on, after the call the browser structures the answers, builds the blueprint and downloads the PDF in the app automatically - no unlock click - and `/api/deliver` accepts `auto:true`, which records the consent given on the consent screen (with its timestamp) on the CRM note. Consent, the per-email/per-IP caps, idempotency and every required-figure check are unchanged; if the call ended without a required figure the browser asks for that one number instead of inventing it. The AI's closing line changes with it. Set `AUTO_DELIVER=false` and the blueprint still appears straight after the call, but the visitor ticks consent and clicks *Unlock official PDF* to download it. There is no review screen in either mode, and the PDF is never emailed. See `docs/ZERO_TOUCH.md`. |
 | `TURNSTILE_SITE_KEY` | public site key | **Cloudflare Turnstile at the entry gate, env-gated**. When both site and secret are set, the start view renders the Turnstile widget (loads `https://challenges.cloudflare.com/turnstile/v0/api.js` only in that case) and `start.js` verifies the token via `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` (secret, response, remoteip) BEFORE any Supabase or HubSpot write. Failure → 403. Returned by `/api/config` as `turnstileSiteKey`. When unset, behaviour is unchanged. |
 | `TURNSTILE_SECRET_KEY` | secret key | Server-only secret for Turnstile verification. Never exposed to browser. |
 | `DEMO_MODE` | `true` / `false` (default off) | When `true`, `/api/config` returns `demoMode:true` and the UI shows "Use the demo account" and the persona loader (its handlers exist at `app.js:2211,2236-2240` but no view rendered it before). When off, `start.js` rejects `demo@pipelinesync.ai`. |
 | `SCHEDULER_LINK` | `https://meetings.hubspot.com/...` | Public Meetings URL. When set, the booking screen embeds the real scheduler; otherwise it falls back to "Request a time — we'll confirm by email". |
-| `EMAIL_VERIFY` | `true` / `false` (default `true`) | **Verify email before emailing PDF**. PDF download always immediate. When true, emailing requires 6-digit code via `POST /api/deliver/code` → `POST /api/deliver {jobId, code}`. Code stored hashed in Blobs 10-min expiry, max 3 sends/hour/email and 5 wrong attempts. UI: Email me a copy → code input → status. Tests set `EMAIL_VERIFY=false` via `test/harness.js`. |
-| `EMAIL_VERIFY_CODE_TTL_MIN` | `10` (default) | TTL minutes for verification code. |
-| `EMAIL_VERIFY_MAX_SENDS_HOUR` | `3` (default) | Max code sends per hour per email. |
-| `EMAIL_VERIFY_MAX_ATTEMPTS` | `5` (default) | Max wrong code attempts per code. |
 | `AI_EXTRACT_DEADLINE_MS` | `8000` (default) | Total deadline ms for `runExtract` (extract). Retries must fit inside remaining. Deadline hit → deterministic fallback `reason:"timeout"`. |
 | `AI_GENERATE_DEADLINE_MS` | `60000` (default) | Total deadline ms for `runGenerate` (blueprint generation). |
+
+The old email settings (`PDF_EMAIL_API_KEY`, `PDF_EMAIL_FROM`, `PDF_EMAIL_SUBJECT`,
+`PDF_EMAIL_REPLY_TO`, `PDF_EMAIL_ENDPOINT`, `PDF_EMAIL_DAILY_MAX`, `EMAIL_VERIFY`,
+`EMAIL_VERIFY_CODE_TTL_MIN`, `EMAIL_VERIFY_MAX_SENDS_HOUR`, `EMAIL_VERIFY_MAX_ATTEMPTS`) are ignored
+now that the PDF is download-only, and can be deleted from the host.
 
 Optional voice settings (`VOICE_REALTIME`, `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`,
 `OPENAI_REALTIME_EAGERNESS`, `OPENAI_REALTIME_MAX_MIN`, `OPENAI_REALTIME_MAX_TOOLS`, `OPENAI_REALTIME_TIMEOUT_MS`,
@@ -109,46 +104,26 @@ Open your `https://<site>.netlify.app` URL:
 1. **Use the demo account** → tick consent → pick a persona in the intake sidebar
    (solar, medical, home services, e-commerce) → *Load demo answers*.
 2. **Zero-touch (default):** *Build my blueprint* → the loader reports real server progress → the
-   blueprint appears and the PDF downloads. No review screen, no unlock step: the email goes to the
-   address from the entry gate and the delivered card reports exactly what the API said about it.
-   **Manual mode (`AUTO_DELIVER=false`):** *Review what we heard* → review and correct every field →
-   *Confirm and generate blueprint* → *Unlock the PDF* (with the emailed code when `EMAIL_VERIFY` is
-   on).
+   blueprint appears and the PDF downloads in the app. No review screen, no unlock step; the
+   delivered card shows the PDF's file name.
+   **Manual mode (`AUTO_DELIVER=false`):** the blueprint appears straight after the call as well →
+   tick consent → *Unlock official PDF* → the PDF downloads. Nothing is emailed in either mode.
 3. **Find the lead:** When `HUBSPOT_ACCESS_TOKEN` is set, the lead is live in HubSpot (contact + deal + note); when `SUPABASE_URL`, `SUPABASE_SECRET_KEY` and `PIPELINESYNC_WORKSPACE_OWNER_ID` are set, it is also persisted in Supabase. Otherwise, Netlify dashboard → site → **Functions** → `deliver` → **Logs** shows each push as a line starting `[hubspot-mock] lead push:` with the full payload (email, all answers, blueprint reference). The `/dev/outbox` page on the site explains this too and lists leads when Supabase is not configured.
 4. Book a call, finish, run a second business. Every `git push` to `main` auto-redeploys.
 
-### 5. Email the PDF (Resend)
+### 5. Getting the PDF
 
-`deliver` emails the finished blueprint to the lead as a PDF attachment, with a short branded HTML
-body: a greeting using the first name from the session, three sentences taken only from the
-blueprint (vertical, recommended tier, and the cost of inaction it already computed), "your
-blueprint is attached as ...", and the booking button when `SCHEDULER_LINK` is set. It calls
-Resend's REST API with plain `fetch`, so no npm package is added, and the recipient is **always the
-address in the signed session token, never the address typed in the unlock form**, so the
-attachment cannot be redirected by editing the page.
+The finished blueprint is **only downloaded in the web app** - it is never emailed, so there is no
+mail provider to configure. `deliver` (`lib/deliver-core.js`, shared by the Netlify function and the
+local server) requires the session token, a `jobId` and `consent:true`, builds the PDF server-side
+from the stored job (or the server-signed `jobSeal`), and returns it to the browser as base64, which
+the browser saves as a file. In the same call it pushes the lead to HubSpot (or logs
+`[hubspot-mock]`) and saves it to Supabase when configured; a Supabase failure never blocks the PDF.
 
-Set the four variables from the table above (`PDF_EMAIL_API_KEY`, `PDF_EMAIL_FROM`,
-`PDF_EMAIL_SUBJECT`, `PDF_EMAIL_REPLY_TO` are optional apart from the first two).
-
-**A verified sending domain is required before Resend will deliver to anyone.** Add the domain in
-Resend → Domains and publish the SPF/DKIM DNS records it shows; until that verification is done,
-Resend refuses every recipient except the address that owns the Resend account and answers with
-`... The domain is not verified ...`. For a test deploy:
-
-1. Set `PDF_EMAIL_FROM` to Resend's test sender, e.g.
-   `Nova PipelineSync AI <onboarding@resend.dev>` (testing only - mail sent from `resend.dev` is meant
-   for your own address and is more likely to be marked as spam).
-2. Unlock the PDF with the email address that owns the Resend account.
-3. Once the domain verifies, change `PDF_EMAIL_FROM` to an address on that domain and redeploy.
-
-Nothing about a failure is hidden: if the send fails, `deliver` still returns the PDF, the response
-carries `email:{sent:false,error:"<the reason Resend gave>"}`, and the browser shows that as
-"Couldn't email it - download below". A confirmed send is reported as `email:{sent:true,to:...}`
-with the Resend id, and only then does the UI say the PDF was emailed. The HubSpot note written by
-Function D records the same result (`Email: sent to ...` / `Email: NOT sent - ...`).
-
-Free Resend accounts send 100 emails a day at 2 requests a second, and an email may be up to 40MB
-including the base64 attachment (the blueprint PDF is well under 1MB).
+It allows 5 requests a minute per IP (`DELIVER_RATE_PER_MIN`) and 3 deliveries a day per email
+(`DELIVER_PER_EMAIL_DAY`), and it is idempotent: a repeat returns the same PDF with `duplicate:true`
+and creates no new deal. The HubSpot note written by Function D records
+`PDF: downloaded by the lead in the web app (not emailed)`.
 
 ### Important notes for the test deploy
 
@@ -165,7 +140,7 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
 ## The journey (matches Section 4 of the brief)
 
 1. **Enter your name and email** - the entry gate, no password. The name is what the AI calls the
-   client on the call and what lands on the HubSpot lead; the email is where the PDF is delivered.
+   client on the call and what lands on the HubSpot lead; the email identifies the lead.
    In production the same two fields go through Supabase Auth (magic link or OTP).
 2. **Disclaimer + privacy notice** - shown and accepted before any data is collected (Section 9).
 3. **Discovery call (voice, not chat)** - agreeing to the disclaimer is what starts the call: the AI
@@ -194,10 +169,10 @@ including the base64 attachment (the blueprint PDF is well under 1MB).
    these are the four verticals in the brain-quality checklist - which fills the same 12 answers
    without needing a microphone.
 4. **Structure the answers** (Function A, live when `ANTHROPIC_API_KEY` is set, otherwise built-in deterministic logic + Prompt B) - transcript answers are mapped to the Section 7 data contract. Unstated values come back as `null`; prices and tool names are preserved exactly, not corrected.
-5. **The hand-off** - in zero-touch (default) there is no review screen: the answers are structured and the blueprint is built immediately. The one exception is a required figure the call did not capture - then a short card asks for exactly that number (never a guess), and the journey continues. With `AUTO_DELIVER=false`, every field is editable on screen as before, `Not stated` items are flagged amber, and typical deal size, monthly lead volume and close rate are required so the blueprint can be grounded in the client's own numbers.
+5. **The hand-off** - in zero-touch (default) there is no review screen: the answers are structured and the blueprint is built immediately. The one exception is a required figure the call did not capture - then a short card asks for exactly that number (never a guess), and the journey continues. With `AUTO_DELIVER=false` the hand-off is the same - there is no review screen in either mode - and the blueprint appears straight after the call; only the PDF waits for the visitor's consent tick and *Unlock official PDF* click.
 6. **Generate the blueprint** (Function B, live when `ANTHROPIC_API_KEY` is set, otherwise built-in deterministic logic + Prompt A) - built strictly from the knowledge base v1 (server-side). Every KB item used is tagged with an id (see the chips at the bottom of the blueprint) so the "no invented items" QA check is auditable.
-7. **Deliver the PDF** (Function C, real server-side PDF) - emailed to the address in the session when `PDF_EMAIL_API_KEY` is set (Phase 3, Resend), otherwise the email is skipped and the screen says so. In zero-touch the browser asks for it automatically (`auto:true`, first delivery only, no code step) and downloads it; in manual mode it sits behind the unlock form and, when `EMAIL_VERIFY` is on, the emailed 6-digit code. Either way the download never waits on the email: the screen shows the status the API reported ("Sent to you@x.com" or "Couldn't email it - download below") and the download button is always there.
-8. **Lead captured** (Function D, live when `HUBSPOT_ACCESS_TOKEN` is set, otherwise `[hubspot-mock]` log line) - a lead with all answers and a blueprint reference is pushed to HubSpot when live, otherwise logged as `[hubspot-mock] lead push: ...`; when HubSpot is live, the contact note also records whether the email went out.
+7. **Deliver the PDF** (Function C, real server-side PDF) - downloaded in the web app, never emailed. In zero-touch the browser asks for it automatically (`auto:true`) and downloads it with no unlock click; with `AUTO_DELIVER=false` the visitor ticks consent and clicks *Unlock official PDF*. The success card shows the file name and the done screen reads "Your blueprint is ready to download".
+8. **Lead captured** (Function D, live when `HUBSPOT_ACCESS_TOKEN` is set, otherwise `[hubspot-mock]` log line) - a lead with all answers and a blueprint reference is pushed to HubSpot when live, otherwise logged as `[hubspot-mock] lead push: ...`; when HubSpot is live, the note records that the PDF was downloaded in the web app (not emailed).
 9. **Book a call** - live when `SCHEDULER_LINK` is set, otherwise fallback request picker (the real embed uses the configured HubSpot Meetings scheduler link).
 
 ## The brand: Nova PipelineSync AI
@@ -270,8 +245,8 @@ npm run brand:icons
 Tiles use a corner radius of 22% of tile size. The mark sits centred and
 undistorted at 72% tile width; the maskable icon uses 50% because the tall
 S-mark's ink reaches near its canvas corners (the test pixel-decodes the
-maskable icon and fails if any ink leaves the safe circle). The PDF and email
-headers are text-only and use **Nova PipelineSync AI**; no mascot or old
+maskable icon and fails if any ink leaves the safe circle). The PDF header is
+text-only and uses **Nova PipelineSync AI**; no mascot or old
 artwork is embedded. App metadata uses the full name and the short name
 **Nova**, on the deep-navy `#040B16` theme colour. Branding changes must not
 rename routes, environment variables, HubSpot properties, `pipelinesync_ai`,
@@ -338,8 +313,7 @@ Design rules that `node test/ui-design.js` enforces:
   the Nova artwork - no figure, no avatar, no greeting line, and no mark in the orb, the
   loader or the done screen. The only on-screen logos are the PipelineSync S-mark (the topbar
   lockup and the login screen's upper-left corner); the Nova name itself stays on screen —
-  leading the login hero, and on the AI line, the call screen and in the PDF and email
-  headers.
+  leading the login hero, and on the AI line, the call screen and in the PDF header.
 - **Accessibility is in the markup, not bolted on**: skip link, `aria-current="step"` on the rail,
   `aria-live` on the AI line and the call status, `aria-expanded` on both drawers, and visible
   `:focus-visible` rings throughout.
@@ -349,7 +323,7 @@ Design rules that `node test/ui-design.js` enforces:
 | Concern | Local (`node server.js`) | Netlify (GitHub deploy) |
 |---|---|---|
 | Auth | signed token (stateless) | signed token (stateless, same code) |
-| Functions A-D + the email | routes in `server.js` (deliver via `lib/deliver-core.js`) | `netlify/functions/{extract,generate,deliver,...}.js` (deliver via the same `lib/deliver-core.js`) |
+| Functions A-D | routes in `server.js` (deliver via `lib/deliver-core.js`) | `netlify/functions/{extract,generate,deliver,...}.js` (deliver via the same `lib/deliver-core.js`) |
 | Voice routes (`/api/voice/*`) | `lib/voice-api.js` mounted by `server.js` | `netlify/functions/voice.js` (same handler) |
 | Lead outbox | in-memory, view at `/dev/outbox` | function logs (see `/dev/outbox` page) |
 | Shared core | `lib/core.js` | `lib/core.js` (bundled into each function) |
@@ -423,10 +397,9 @@ Run each demo persona from the intake sidebar, then check the blueprint:
       `median_ms`, `p90_ms`, `turns_measured`, missing required figures at the end) and
       `audio_retained: false`
 - [ ] No keys in the browser; PDF generated server-side; disclaimer + privacy notice before data
-- [ ] The emailed PDF goes to the session address only: typing a different address in the unlock form
-      does not redirect the attachment
-- [ ] When Resend is not configured, or refuses the message, the UI says the email did not go out and
-      still offers the download (it never claims a send the API did not confirm)
+- [ ] The PDF downloads in the web app in both modes (automatically in zero-touch, after
+      *Unlock official PDF* with `AUTO_DELIVER=false`), and nothing is emailed: there is no
+      "Email me a copy", code or resend control
 
 Automated checks (nothing needs to be running first: `test/harness.js` starts a dedicated server
 for each test file):
@@ -441,11 +414,12 @@ node test/ui-smoke.js    # drives the real frontend through the voice-first jour
                          # proves the AI speaks before any text input appears, and that a blocked
                          # microphone falls back to typing without losing the journey
 node test/e2e.js         # API end-to-end across all four verticals (QA assertions)
-node test/pdf-email.js   # Phase 3: the emailed PDF against a stubbed Resend - success, refusal,
-                         # network error, timeout, recipient taken from the token (never the body),
-                         # the HubSpot note line, and the 5 unlocks/minute/IP limit on both mounts
-node test/netlify-sim.js # invokes the Netlify functions with Lambda-style events (incl. the
-                         # Resend send with a stubbed fetch)
+node test/deliver.js     # /api/deliver (npm run test:deliver): blueprint built server-side only via
+                         # jobId, nothing emailed even with a leftover email key, the HubSpot note
+                         # wording, the 5/minute limit, idempotent repeats, a Supabase failure that
+                         # does not block the PDF, and the local server mounting the same path
+                         # (/api/deliver/code returns 404)
+node test/netlify-sim.js # invokes the Netlify functions with Lambda-style events
 node test/pdfcheck.js    # validates PDF xref structure of generated samples
 node test/ui-design.js   # design-system checks: the stylesheet parses, every class the app and the
                          # brand components render has a rule, the tokens clear WCAG AA, touch targets
@@ -458,8 +432,8 @@ npm run test:all         # everything above
 The harness starts each test's server with the per-IP voice rate limit relaxed
 (`VOICE_RATE_PER_MIN=1000`) and the per-IP deliver limit relaxed the same way
 (`DELIVER_RATE_PER_MIN=1000`) because one suite run drives about 40 turns and several unlocks a
-minute from a single IP. It also strips every OpenAI, HubSpot and Resend credential, so a key in
-your shell can never make a test spend money or send mail.
+minute from a single IP. It also strips every OpenAI and HubSpot credential, so a key in your shell
+can never make a test spend money.
 The production default in `server.js` is unchanged, so the limiter still protects the deploy.
 
 `test/mock-openai.js` is a stand-in OpenAI endpoint (turns, speech, transcription, and
@@ -477,11 +451,9 @@ OPENAI_API_KEY=sk-mock OPENAI_BASE_URL=http://127.0.0.1:8099/v1 PORT=8081 node s
 pipelinesync/
   server.js              local dev server (zero deps): static + routes + local outbox
   lib/anthropic.js       Anthropic Claude API client (server-side only, key never reaches browser)
-  lib/deliver-core.js    shared /api/deliver logic (PDF + Resend email + HubSpot) for the Netlify
-                         function and the local server, so the two mounts cannot drift
-  lib/pdf-email.js       Phase 3: branded HTML + plain-text email and the Resend REST call, with the
-                         recipient taken from the signed token; never throws, never claims a send
-                         Resend did not confirm
+  lib/deliver-core.js    shared /api/deliver logic (server-side PDF for download + HubSpot +
+                         Supabase) for the Netlify function and the local server, so the two mounts
+                         cannot drift; it never emails anything
   lib/core.js            shared stateless core: KB v1, extract, generate, PDF writer, tokens
   lib/voice.js           the voice discovery call: intake plan, interviewer policy, capture state,
                          the grounded-capture gate, the FAQ, OpenAI adapters (turns, speech,
@@ -508,7 +480,7 @@ pipelinesync/
   public/styles.css      design system + responsive layout (mobile-first, see below)
   public/app.js          SPA: entry gate, consent, both voice engines (continuous WebRTC call and
                          step-by-step call), review, blueprint, unlock, booking, done
-  test/                  voice, voice-openai, voice-realtime, mock-openai, e2e, pdf-email,
+  test/                  voice, voice-openai, voice-realtime, mock-openai, e2e, deliver,
                          netlify-sim, pdfcheck, ui-smoke, ui-design, personas, sample PDFs
   docs/VOICE_SETUP.md    how to switch the voice layer on, verify it, cost it, fix it
   docs/neon-migration.md the v5 Ember/Navy neon theme audit (old -> new, every retired token)

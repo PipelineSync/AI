@@ -186,7 +186,7 @@ const state = {
   blueprint: null,
   jobId: null,           // server-side job id for blueprint
   jobSeal: null,         // server-signed copy of the finished job, used if the job store misses it
-  delivered: null,       // {contact_id, filename, pdf_base64, email, email_result, hubspot, duplicate, persistence}
+  delivered: null,       // {contact_id, filename, pdf_base64, hubspot, duplicate, persistence}
   booking: null,         // {day, slot}
   schedulerLink: null, // from /api/config (SCHEDULER_LINK env)
   turnstileSiteKey: null, // from /api/config when TURNSTILE_SITE_KEY is set
@@ -203,7 +203,6 @@ const state = {
   fieldErrors: null,     // per-field errors returned by the server-side re-validation
   progress: null,        // real generation progress from /api/generate/status: {label, percent}
   blueprintSource: null,  // 'claude' | 'fallback', as reported by the API
-  emailVerify: { code: '', sending: false, sent: false, error: null }, // for EMAIL_VERIFY flow
   /* Zero-touch (AUTO_DELIVER, see lib/autopilot.js): the server decides it and /api/config
      reports it. When it is on, the call runs straight into the blueprint and the PDF is delivered
      without a review or unlock screen; the review screen survives only for the figures the call
@@ -223,7 +222,6 @@ function resetJourney() {
   state.hubspot = null;
   state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
   state.fieldErrors = null; state.progress = null; state.blueprintSource = null;
-  state.emailVerify = { code: '', sending: false, sent: false, error: null };
   state.deliverError = null; state.jobSeal = null;
   sessionStore.remove('ps_journey');
 }
@@ -2380,7 +2378,7 @@ function footer() {
 /* ---------------- the entry gate: name + email, then the AI voice call ----------------
  * There is no password and no account to create. The name is what the AI interviewer
  * calls the client on the call (sent as client_name on /api/voice/turn) and what lands
- * on the HubSpot lead. The email is where the finished blueprint PDF is delivered.
+ * on the HubSpot lead. The finished blueprint PDF is downloaded in the app, never emailed.
  * Production swaps this form for Supabase Auth (magic link or OTP) with the same shape. */
 function initialsFor(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -2562,9 +2560,8 @@ function consentView() {
     '<div class="notice info" id="consent-notice">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
       '<div>Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude.' +
-      /* Zero-touch sends the finished PDF to this address as soon as the call ends, so say so
-         before the call starts rather than surprising them with an email afterwards. */
-      (state.auto ? ' When we finish, your blueprint PDF is emailed to ' + esc(state.user.email || 'your email') + '.' : '') +
+      /* Zero-touch downloads the finished PDF as soon as it is built, so say so before the call. */
+      (state.auto ? ' When we finish, your blueprint PDF downloads right here in the app.' : '') +
       ' Audio is never stored.' + privacyLink + '</div>' +
     '</div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I agree to continue.</label>' +
@@ -3056,7 +3053,7 @@ function autoMissing(f) {
 /* What Nova says happens next, matching the journey the browser is actually running. */
 function closeNextSpoken() {
   return state.auto
-    ? 'the blueprint is being written from everything they gave and will reach their inbox as a PDF in the next few minutes, with a human review before anything is used'
+    ? 'the blueprint is being written from everything they gave and will download as a PDF on screen in a moment, with a human review before anything is used'
     : 'the blueprint is being built from everything they gave and they can download it as a PDF on screen in a moment, with a human review before anything is used';
 }
 /* The zero-touch decision needs the server's answer, and the visitor can reach the end of a call
@@ -3076,12 +3073,12 @@ async function afterExtraction() {
 }
 /* Zero-touch: deliver the PDF without making the visitor find the unlock button. The recipient is
    the address the session was created with - never one typed again on the page. Delivery is
-   idempotent server-side, so a reload or a retry returns the same PDF instead of a second email.
+   idempotent server-side, so a reload or a retry returns the same PDF instead of a second CRM record.
    A failure is survivable: the blueprint stays on screen and the manual unlock stays available. */
 async function autoDeliverNow() {
   if (!state.auto || !state.jobId) { render(); return; }
   state.stage = 'generating';
-  state.progress = { label: 'Delivering your PDF', percent: null };
+  state.progress = { label: 'Preparing your PDF', percent: null };
   state.deliverError = null;
   render();
   try {
@@ -3090,21 +3087,12 @@ async function autoDeliverNow() {
       jobId: state.jobId,
           jobSeal: state.jobSeal,
       consent: true,          // given on the consent screen, carried through with its timestamp
-      auto: true,             // first delivery to the session address; no code step, no click
+      auto: true,             // consent was given on the consent screen; no unlock click
       consent_at: consent.at || null,
       consent_version: consent.version || state.consentVersion || null,
       voice_meta: voiceMeta()
     });
-    const emailResult = j.email || null;
-    state.delivered = {
-      contact_id: j.contact_id, filename: j.filename,
-      pdf_base64: j.pdf_base64,
-      email: (emailResult && emailResult.to) || state.user.email,
-      email_result: emailResult,
-      hubspot: j.hubspot || { mocked: true, ok: false },
-      duplicate: !!j.duplicate,
-      persistence: j.persistence || { ok: true }
-    };
+    state.delivered = deliveredFrom(j);
     state.stage = 'blueprint';
     state.progress = null;
     render();
@@ -3114,7 +3102,7 @@ async function autoDeliverNow() {
     state.deliverError = e.message;
     state.stage = 'blueprint';
     render();
-    toast('The blueprint is ready, but it could not be sent automatically. ' + e.message, true);
+    toast('The blueprint is ready, but the PDF could not be prepared automatically. ' + e.message, true);
   }
 }
 
@@ -3133,7 +3121,7 @@ async function resumeGeneration(jobId, thenStage) {
     state.stage = (thenStage === 'booking' || thenStage === 'done') ? thenStage : 'blueprint';
     state.progress = null;
     /* Zero-touch after a reload: the job record still has the document, and the deliver endpoint is
-       idempotent, so this returns the same PDF without sending a second email. */
+       idempotent, so this returns the same PDF without a second CRM record. */
     await awaitConfig();
     if (state.auto && !state.delivered) { autoDeliverNow(); return; }
     render();
@@ -3523,7 +3511,7 @@ function blueprintView() {
     (delivered
       ? '<button class=\"btn btn-ghost\" id=\"redownload-btn\" aria-label=\"Download server PDF\">&#11015; Server PDF</button>' +
         '<button class=\"btn btn-amber\" id=\"book-btn\">Talk to a consultant</button>'
-      : '<button class=\"btn btn-ghost\" id=\"unlock-btn\">Unlock & email PDF</button>' +
+      : '<button class=\"btn btn-ghost\" id=\"unlock-btn\">Unlock official PDF</button>' +
         '<button class=\"btn btn-amber\" id=\"book-btn\">Talk to a consultant</button>') +
     '</div>';
 
@@ -3538,20 +3526,13 @@ function blueprintView() {
     } else if (!hs.mocked) {
       h += '<div class=\"kv\"><span class=\"k\">CRM</span><span class=\"v\">saved - CRM sync pending</span></div>';
     }
-    // Phase 3: the email line reports exactly what the deliver API said, and the reason comes
-    // from the API too, so a failed send is never dressed up as a success.
-    const mail = emailStatusOf(delivered);
-    h += '<div class=\"kv\"><span class=\"k\">Delivered to</span><span class=\"v\">' + esc(delivered.email) + '</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">Emailed</span><span class=\"v\">' + esc(mail.text) + '</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">File</span><span class=\"v\">' + esc(delivered.filename) + '</span></div></div>';
-    if (mail.known && !mail.sent && mail.error) {
-      h += '<p class=\"small muted mt8\">Email: ' + esc(mail.error) + '</p>';
-    }
+    // The PDF is only ever downloaded in the app; nothing is emailed.
+    h += '<div class=\"kv\"><span class=\"k\">File</span><span class=\"v\">' + esc(delivered.filename) + '</span></div></div>';
   } else {
-    /* Zero-touch tried and failed (no email key, a cap, the network): say so plainly and leave the
-       manual unlock in place rather than pretending the PDF went out. */
+    /* Zero-touch tried and failed (a cap, the network): say so plainly and leave the manual unlock
+       in place rather than pretending the PDF is ready. */
     if (state.auto && state.deliverError) {
-      h += '<p class=\"small muted mt8\" role=\"status\">The blueprint is ready, but Nova could not send it automatically (' +
+      h += '<p class=\"small muted mt8\" role=\"status\">The blueprint is ready, but Nova could not prepare the PDF automatically (' +
         esc(state.deliverError) + '). You can still download it here.</p>';
     }
     h += '<div id=\"unlock-holder\"></div>';
@@ -3571,9 +3552,8 @@ function bindBlueprint() {
   if (ub) ub.onclick = () => {
     const holder = $('#unlock-holder');
     holder.innerHTML = '<div class="unlock-panel"><h3 class="unlock-title">Download your blueprint</h3>' +
-      '<div class="grid-2"><div class="field"><label>Email for delivery</label><div class="ro-field" id="un-email-ro">' + esc(state.user.email) + '</div></div>' +
-      '<div class="field field-check"><label class="checkline"><input type="checkbox" id="un-consent"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
-      '<p class="small muted mt8">The PDF is emailed to the address you signed in with: ' + esc(state.user.email) + '. You can download it here as well.</p>' +
+      '<div class="field field-check"><label class="checkline"><input type="checkbox" id="un-consent"> I agree to be contacted about the build.</label></div>' +
+      '<p class="small muted mt8">The PDF downloads here in the app. Nothing is emailed.</p>' +
       '<button class="btn btn-primary" id="un-go" disabled>Download PDF</button>' +
       '<div id="un-tryagain" style="margin-top:8px;display:none"><button class="btn btn-ghost btn-sm" id="un-retry">Try again</button></div>' +
       '</div>';
@@ -3591,16 +3571,7 @@ function bindBlueprint() {
           consent: cb.checked,
           voice_meta: voiceMeta()
         });
-        const emailResult = j.email || null;
-        state.delivered = {
-          contact_id: j.contact_id, filename: j.filename,
-          pdf_base64: j.pdf_base64,
-          email: (emailResult && emailResult.to) || state.user.email,
-          email_result: emailResult,
-          hubspot: j.hubspot || { mocked: true, ok: false },
-          duplicate: !!j.duplicate,
-          persistence: j.persistence || { ok: true }
-        };
+        state.delivered = deliveredFrom(j);
         render();
         downloadPdf(state.delivered);
       } catch (e) {
@@ -3615,90 +3586,6 @@ function bindBlueprint() {
     };
   };
 
-  // Email verification UI: "Email me a copy" flow
-  const emailMeBtn = $('#email-me-btn');
-  if (emailMeBtn) emailMeBtn.onclick = async () => {
-    const btn = emailMeBtn;
-    btn.disabled = true; btn.textContent = 'Sending code...';
-    try {
-      const j = await api.post('/api/deliver/code', { jobId: state.jobId, jobSeal: state.jobSeal });
-      state.emailVerify.sent = true;
-      state.emailVerify.error = null;
-      if (j.devCode) {
-        state.emailVerify.code = j.devCode;
-        console.log('[dev] verification code', j.devCode);
-      }
-      toast('Verification code sent to ' + state.user.email, false);
-      render();
-    } catch (e) {
-      btn.disabled = false; btn.textContent = 'Email me a copy';
-      toast(e.message, true);
-    }
-  };
-  const verifyGo = $('#verify-go');
-  if (verifyGo) verifyGo.onclick = async () => {
-    const codeInput = $('#verify-code');
-    const code = codeInput ? codeInput.value.trim() : '';
-    if (!code) { toast('Enter the 6-digit code.', true); return; }
-    verifyGo.disabled = true; verifyGo.textContent = 'Verifying...';
-    try {
-      const j = await api.post('/api/deliver', {
-        jobId: state.jobId,
-          jobSeal: state.jobSeal,
-        consent: true,
-        code: code,
-        voice_meta: voiceMeta()
-      });
-      const emailResult = j.email || null;
-      state.delivered = {
-        contact_id: j.contact_id, filename: j.filename,
-        pdf_base64: j.pdf_base64,
-        email: (emailResult && emailResult.to) || state.user.email,
-        email_result: emailResult,
-        hubspot: j.hubspot || { mocked: true, ok: false },
-        duplicate: !!j.duplicate,
-        persistence: j.persistence || { ok: true }
-      };
-      state.emailVerify.code = '';
-      state.emailVerify.error = null;
-      if (emailResult && !emailResult.sent && emailResult.error) {
-        state.emailVerify.error = emailResult.error;
-      }
-      render();
-      toast(emailResult && emailResult.sent ? 'Emailed to ' + (emailResult.to || state.user.email) : (emailResult && emailResult.error ? emailResult.error : 'Verification done'), !!(emailResult && !emailResult.sent));
-    } catch (e) {
-      verifyGo.disabled = false; verifyGo.textContent = 'Verify and email';
-      toast(e.message, true);
-    }
-  };
-  const resendBtn = $('#resend-email-btn');
-  if (resendBtn) resendBtn.onclick = async () => {
-    resendBtn.disabled = true; resendBtn.textContent = 'Sending...';
-    try {
-      const j = await api.post('/api/deliver', {
-        jobId: state.jobId,
-          jobSeal: state.jobSeal,
-        consent: true,
-        resendEmail: true,
-        voice_meta: voiceMeta()
-      });
-      const emailResult = j.email || null;
-      state.delivered = {
-        contact_id: j.contact_id, filename: j.filename,
-        pdf_base64: j.pdf_base64,
-        email: (emailResult && emailResult.to) || state.user.email,
-        email_result: emailResult,
-        hubspot: j.hubspot || { mocked: true, ok: false },
-        duplicate: !!j.duplicate,
-        persistence: j.persistence || { ok: true }
-      };
-      render();
-      toast(emailResult && emailResult.sent ? 'Resent to ' + (emailResult.to || state.user.email) : 'Resend done', !!(emailResult && !emailResult.sent));
-    } catch (e) {
-      resendBtn.disabled = false; resendBtn.textContent = 'Resend email';
-      toast(e.message, true);
-    }
-  };
   // Focus management
   const main = $('#main-content');
   if (main) main.focus();
@@ -3710,25 +3597,21 @@ function hubspotLeadLabel(d) {
   if (!hs.mocked) return 'CRM sync pending';
   return 'not synced';
 }
-/* Phase 3: what the deliver API reported about the email, and nothing more. The UI only says the
-   PDF was emailed when the response carried email.sent === true. */
-function emailStatusOf(d) {
-  const er = (d && d.email_result) || null;
-  if (!er) return { known: false, sent: false, text: 'Not attempted', error: '' };
-  if (er.sent) {
-    return { known: true, sent: true, text: 'Sent to ' + (er.to || (d && d.email) || 'your email'), error: '' };
-  }
-  return { known: true, sent: false, text: "Couldn't email it \u2014 download below", error: er.error || '' };
+/* What the deliver API returned, as the app keeps it. The PDF is only ever downloaded here. */
+function deliveredFrom(j) {
+  return {
+    contact_id: j.contact_id, filename: j.filename,
+    pdf_base64: j.pdf_base64,
+    hubspot: j.hubspot || { mocked: true, ok: false },
+    duplicate: !!j.duplicate,
+    persistence: j.persistence || { ok: true }
+  };
 }
 function deliveryToast(d) {
   const hs = (d && d.hubspot) || {};
-  const mail = emailStatusOf(d);
-  let base = 'PDF downloaded.';
-  if (hs.ok && hs.contactId && !hs.mocked) base = 'PDF downloaded. HubSpot synced.';
-  else if (!hs.mocked && hs.mocked !== undefined) base = 'PDF downloaded. Saved - CRM sync pending.';
-  if (mail.sent) return base + ' Emailed to ' + mail.text.replace(/^Sent to /, '') + '.';
-  if (mail.known) return base + ' Email not sent.';
-  return base;
+  if (hs.ok && hs.contactId && !hs.mocked) return 'PDF downloaded. HubSpot synced.';
+  if (!hs.mocked && hs.mocked !== undefined) return 'PDF downloaded. Saved - CRM sync pending.';
+  return 'PDF downloaded.';
 }
 function downloadPdf(d) {
   if (!d || !d.pdf_base64) return;
@@ -4230,23 +4113,16 @@ window.__PS_BOOKING__ = {
 function doneView() {
   const bp = state.blueprint;
   const d = state.delivered;
-  const mail = emailStatusOf(d);
   const hasPdf = !!(d && d.pdf_base64);
-  // Phase 3: the heading only promises an email when the API confirmed one. Otherwise it says
-  // what is true - the blueprint is ready to download - and the button is right there.
-  const heading = mail.sent
-    ? 'Your blueprint is on its way'
-    : (hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready');
+  const heading = hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready';
   let h = '<div class="card done-card">' +
     '<h2>' + esc(heading) + '</h2>' +
     '<div class="done-list">' +
     '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ', ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) : 'not unlocked') + '</span></div>' +
-    '<div class=\"kv\"><span class=\"k\">Emailed</span><span class=\"v\">' + esc(mail.text) + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">HubSpot lead</span><span class=\"v mono\">' + hubspotLeadLabel(d) + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">Consultation</span><span class=\"v\">' + esc(bookingSummary()) + '</span></div>' +
     '</div>' +
-    (mail.known && !mail.sent && mail.error ? '<p class=\"small muted mt8\">Email: ' + esc(mail.error) + '</p>' : '') +
     '<div class="btn-row btn-row-center">' +
     '<button class=\"btn btn-primary\" id=\"done-download-btn\">' + (hasPdf ? 'Download the PDF again' : 'Download the PDF') + '</button>' +
     '<button class=\"btn btn-ghost\" id=\"new-biz2\">Run another business</button>' +
@@ -4255,7 +4131,7 @@ function doneView() {
   return h;
 }
 function bindDone() {
-  // The download is always available, whatever the email did: the server PDF when there is one,
+  // The download is always available: the server PDF when there is one,
   // otherwise the in-browser export.
   const dl = $('#done-download-btn');
   if (dl) {

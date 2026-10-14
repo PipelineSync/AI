@@ -81,11 +81,6 @@
   to = "/.netlify/functions/deliver"
   status = 200
 
-[[redirects]]
-  from = "/api/deliver/code"
-  to = "/.netlify/functions/deliver-code"
-  status = 200
-
 # Voice layer: one function serves /api/voice/session, /turn, /transcribe and /speak.
 # OPENAI_API_KEY is read inside the function and never sent to the browser.
 [[redirects]]

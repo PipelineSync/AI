@@ -8,13 +8,12 @@
  *   A. the switch itself: default on, explicit off, junk values
  *   B. the AI's closing lines match the journey (no promise of a review screen that does not exist)
  *   C. /api/config reports the mode, so the browser cannot guess it
- *   D. the automatic first delivery goes out with EMAIL_VERIFY on and no code - and only the FIRST:
- *      a repeat call returns the same PDF without a second email
+ *   D. the automatic delivery returns the PDF to download, and a repeat returns the same PDF
  *   E. consent is still required, and the CRM note records the moment the visitor actually agreed
- *   F. with AUTO_DELIVER=false nothing changes: the code step is back in front of the send
- *   G. end to end over HTTP: gate -> extract -> generate -> deliver, email actually sent (to a
- *      local Resend stub via PDF_EMAIL_ENDPOINT), plus the guardrail that a missing required
- *      figure is never invented
+ *   F. with AUTO_DELIVER=false the PDF still comes back to download
+ *   G. end to end over HTTP: gate -> extract -> generate -> deliver, with a local email stub as a
+ *      trap that must never be reached (the PDF is only ever downloaded in the app), plus the
+ *      guardrail that a missing required figure is never invented
  *   H. the browser: the journey lands on the delivered blueprint with zero clicks
  */
 
@@ -205,8 +204,8 @@ function boot(base) {
   ok(autopilot.isEnabled({ AUTO_DELIVER: 'off' }) === false, 'AUTO_DELIVER=off is off');
   ok(autopilot.isEnabled({ AUTO_DELIVER: 'banana' }) === true, 'an unrecognised value falls back to the default');
   ok(/Zero-touch delivery: ON/.test(autopilot.startupNote({})), 'startup note says the mode out loud');
-  ok(/AUTO_DELIVER=false/.test(autopilot.startupNote({})) && /EMAIL_VERIFY/.test(autopilot.startupNote({})),
-    'startup note names the trade-off and the way back');
+  ok(/downloads in the app/.test(autopilot.startupNote({})) && /Nothing is emailed/.test(autopilot.startupNote({})),
+    'startup note says the PDF downloads in the app and nothing is emailed');
   ok(/Zero-touch delivery: off/.test(autopilot.startupNote({ AUTO_DELIVER: 'false' })), 'the off mode reports itself too');
 
   /* ---------------------------------------------------------------- */
@@ -218,12 +217,12 @@ function boot(base) {
   const sysManual = voice.buildMessages(manualCtx).find(m => m.role === 'system').content;
   const sysAuto = voice.buildMessages(autoCtx).find(m => m.role === 'system').content;
   ok(/download it as a PDF on screen/.test(sysManual) && !/review and correct/.test(sysManual), 'step-by-step prompt: with zero-touch off Nova closes on the on-screen PDF, never a review screen');
-  ok(/will reach their inbox as a PDF/.test(sysAuto), 'step-by-step prompt: zero-touch closes on the emailed PDF');
+  ok(/will download as a PDF on screen/.test(sysAuto) && !/inbox|email/i.test(sysAuto.split('If this_turn.kind is "done"')[1] || ''), 'step-by-step prompt: zero-touch closes on the on-screen PDF, never an email');
   ok(!/review and correct what was captured/.test(sysAuto), 'zero-touch never promises a review screen');
   const manualFaq = voice.faqAnswerFor('what happens after the call?', {}).say;
   const autoFaq = voice.faqAnswerFor('what happens after the call?', { autoDeliver: true }).say;
   ok(/download it as a PDF/.test(manualFaq) && !/review/.test(manualFaq), 'FAQ "what happens after the call" describes the on-screen PDF when the switch is off, with no review step');
-  ok(/email it to you as a PDF/.test(autoFaq), 'FAQ answers with the automatic email in zero-touch');
+  ok(/downloads as a PDF right here on screen/.test(autoFaq) && !/email/i.test(autoFaq), 'FAQ answers with the on-screen PDF in zero-touch, never an email');
   /* The guardrail is untouched: a missing required figure is still asked for, in both modes. */
   const cb = voice.nextStep(stateAll);
   ok(cb.kind === 'callback' && cb.field === 'typical_deal_size',
@@ -241,13 +240,13 @@ function boot(base) {
   ok(onCfg.autoDeliver === true, 'AUTO_DELIVER=true is reported as autoDeliver:true');
 
   /* ---------------------------------------------------------------- */
-  section('D. the automatic first delivery, with EMAIL_VERIFY on and no code');
+  section('D. the automatic delivery returns the PDF to download');
   const saved = {};
   ['PDF_EMAIL_API_KEY', 'PDF_EMAIL_FROM', 'EMAIL_VERIFY', 'DELIVER_PER_EMAIL_DAY', 'PDF_EMAIL_DAILY_MAX', 'DELIVER_RATE_PER_MIN', 'AUTO_DELIVER']
     .forEach(k => { saved[k] = process.env[k]; });
   process.env.PDF_EMAIL_API_KEY = 're_zero_touch_test';
   process.env.PDF_EMAIL_FROM = 'PipelineSync <blueprints@pipelinesync.ai>';
-  process.env.EMAIL_VERIFY = 'true';          // the code step IS on - zero-touch must still deliver
+  process.env.EMAIL_VERIFY = 'true';          // a leftover setting from the email days: it must change nothing
   process.env.DELIVER_PER_EMAIL_DAY = '1000';
   process.env.PDF_EMAIL_DAILY_MAX = '1000';
   process.env.DELIVER_RATE_PER_MIN = '1000';
@@ -257,14 +256,12 @@ function boot(base) {
   const auto1 = await callDeliver({ token, jobId: jobId1, consent: true, auto: true, consent_at: new Date(Date.now() - 60000).toISOString() });
   ok(auto1.statusCode === 200, 'auto delivery returns 200');
   ok(!!auto1.json.pdf_base64, 'the PDF comes back in the response');
-  ok(!!auto1.json.email && auto1.json.email.sent === true, 'the email is sent even though EMAIL_VERIFY is on (no code step)');
-  ok(auto1.json.email.to === SESSION.email, 'it goes to the address from the signed session');
+  ok(!('email' in auto1.json), 'nothing is emailed, even with an email key still set');
   ok(auto1.json.duplicate !== true, 'the first delivery is not a duplicate');
 
   const auto2 = await callDeliver({ token, jobId: jobId1, consent: true, auto: true });
   ok(auto2.statusCode === 200 && auto2.json.duplicate === true, 'a repeat auto call returns the same PDF as a duplicate');
-  ok(!!auto2.json.email && auto2.json.email.sent === true && auto2.json.email.id === auto1.json.email.id,
-    'and does not send a second email (idempotency is untouched by zero-touch)');
+  ok(!('email' in auto2.json), 'and still nothing is emailed');
 
   /* ---------------------------------------------------------------- */
   section('E. consent is still required, and recorded at the right moment');
@@ -281,18 +278,17 @@ function boot(base) {
   ok(/captured on PDF unlock screen/.test(manualNote), 'and the manual path names the unlock screen');
 
   /* ---------------------------------------------------------------- */
-  section('F. AUTO_DELIVER=false keeps the manual, code-verified path');
+  section('F. AUTO_DELIVER=false: the PDF still comes back to download');
   process.env.AUTO_DELIVER = 'false';
   const jobId3 = await createJob();
   const offAuto = await callDeliver({ token, jobId: jobId3, consent: true, auto: true });
   ok(offAuto.statusCode === 200 && !!offAuto.json.pdf_base64, 'the PDF still comes back (download is never gated)');
-  ok(offAuto.json.email && offAuto.json.email.sent === false, 'but the email is NOT sent without a code');
-  ok(/verification required/i.test((offAuto.json.email && offAuto.json.email.error) || ''), 'the reason is the email verification step');
+  ok(!('email' in offAuto.json), 'and nothing is emailed');
   const manualNoAuto = await callDeliver({ token, jobId: jobId3, consent: true });
-  ok(manualNoAuto.json.email && manualNoAuto.json.email.sent === false, 'and a manual call without a code is unchanged');
+  ok(manualNoAuto.statusCode === 200 && !!manualNoAuto.json.pdf_base64 && !('email' in manualNoAuto.json), 'a manual call returns the same PDF, no email');
 
   /* ---------------------------------------------------------------- */
-  section('G. end to end over HTTP, with a real send to a local Resend');
+  section('G. end to end over HTTP: the PDF comes back, and the local email stub is never reached');
   const endpoint = await startResendStub();
   resendCalls = [];
   const procSeed = Object.assign({}, saved);
@@ -337,15 +333,13 @@ function boot(base) {
     body: JSON.stringify({ token: e2eToken, jobId: gen.jobId, consent: true, auto: true, consent_at: new Date().toISOString() })
   })).json();
   ok(autoDeliver.ok === true && !!autoDeliver.pdf_base64, 'the automatic delivery returns the PDF');
-  ok(autoDeliver.email && autoDeliver.email.sent === true, 'the email is sent end to end');
-  ok(resendCalls.length === 1, 'exactly one email reached Resend');
-  ok(resendCalls[0] && resendCalls[0].to && resendCalls[0].to[0] === SESSION.email, 'it went to the address from the entry gate');
-  ok(resendCalls[0] && resendCalls[0].attachments === 1, 'with the PDF attached');
+  ok(!('email' in autoDeliver), 'the response carries no email result');
+  ok(resendCalls.length === 0, 'no email reached the stub, even with an email endpoint and key configured');
   const autoAgain = await (await fetch(e2eSrv.base + '/api/deliver', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: e2eToken, jobId: gen.jobId, consent: true, auto: true })
   })).json();
-  ok(autoAgain.duplicate === true && resendCalls.length === 1, 'replaying the delivery sends no second email');
+  ok(autoAgain.duplicate === true && resendCalls.length === 0, 'replaying the delivery returns the same PDF and still sends nothing');
 
   /* The guardrail: a required figure the call never captured is refused, not invented. */
   const thin = Object.assign({}, extracted.fields, { close_rate: null });
@@ -376,8 +370,8 @@ function boot(base) {
   document.getElementById('start-form').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }));
   await sleep(700);
   ok(!!document.querySelector('#consent-go'), 'the entry gate leads to the consent screen');
-  ok(/emailed to/i.test(document.getElementById('consent-notice').textContent),
-    'the consent notice says the PDF will be emailed when zero-touch is on');
+  ok(/downloads right here in the app/i.test(document.getElementById('consent-notice').textContent) && !/emailed/i.test(document.getElementById('consent-notice').textContent),
+    'the consent notice says the PDF downloads in the app when zero-touch is on');
   // Agree: the call starts and runs itself
   document.getElementById('consent-cb').click();
   document.getElementById('consent-go').click();
@@ -403,9 +397,9 @@ function boot(base) {
   ok(delivered, 'the journey reached the delivered blueprint with no review screen and no unlock click');
   ok(!reviewSeen, 'the full review form never appeared');
   ok(!!document.querySelector('#redownload-btn'), 'the server PDF is on the screen');
-  ok(/Delivered to/.test(document.body.textContent), 'and the screen says where it went');
+  ok(!/Delivered to|Emailed/.test(document.body.textContent), 'and the screen promises no email');
   ok(page.errors.length === 0, 'no runtime errors' + (page.errors.length ? ': ' + page.errors[0] : ''));
-  ok(resendCalls.length >= 2, 'the browser journey emailed the PDF through the real send path');
+  ok(resendCalls.length === 0, 'the browser journey never emailed anything');
   uiSrv.stop();
   stopResendStub();
 

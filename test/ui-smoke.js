@@ -367,12 +367,11 @@ async function reachCall(page, details) {
   ok(!d1.querySelector('#toast .toast-av'), 'the delivery toast carries no mascot avatar');
   ok(/PDF ready/.test(d1.body.textContent), 'success card reports the PDF is ready');
   ok(!/pushed to HubSpot/.test(d1.body.textContent), 'mocked deliver does not claim a HubSpot push');
-  // Phase 3: this test server has no PDF_EMAIL_API_KEY, so deliver reports email.sent=false and
-  // the screen has to repeat that instead of claiming an email went out.
+  // The PDF is only ever downloaded in the app: the delivery card shows the file, never an email.
   const deliveredCard = d1.querySelector('.success-card').textContent;
-  ok(/Emailed/.test(deliveredCard), 'the delivery card has an email line of its own');
-  ok(/Couldn.t email it/.test(deliveredCard), 'no Resend key: the card says the email did not go out');
-  ok(!/Sent to /.test(deliveredCard), 'the card never claims the PDF was emailed when the API said it was not');
+  ok(/File/.test(deliveredCard) && /\.pdf/.test(deliveredCard), 'the delivery card names the downloaded file');
+  ok(!/Email|Sent to |Delivered to/i.test(deliveredCard), 'the delivery card says nothing about email');
+  ok(!d1.querySelector('#email-me-btn, #verify-go, #resend-email-btn'), 'there is no email, code or resend control');
 
   const outboxRaw = await (await fetch(BASE + '/dev/outbox')).text();
   // The outbox JSON is HTML-escaped (hardening), so decode it before asserting on the payload.
@@ -405,8 +404,7 @@ async function reachCall(page, details) {
   const doneText = d1.body.textContent;
   ok(/Your blueprint is ready/.test(doneText), 'the done screen says the truth when no email was sent: ready to download');
   ok(/requested/.test(doneText), 'the done screen names the fallback pick as a request');
-  ok(/Couldn.t email it/.test(doneText), 'the done screen repeats the email result the API reported');
-  ok(!/on its way/i.test(doneText), 'a failed email is never described as on its way');
+  ok(!/Emailed|on its way/i.test(doneText), 'the done screen says nothing about email');
   ok(!!d1.querySelector('#done-download-btn'), 'the download button is on the done screen, email or no email');
   d1.getElementById('done-download-btn').click();
   await sleep(150);
@@ -455,9 +453,8 @@ async function reachCall(page, details) {
   ok(!!d2.querySelector('#structure-btn'), 'the typed journey still reaches the end of the call');
   ok(p2.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user').length >= 12, 'typed answers land in the same transcript');
 
-  // Phase 3: the success wording must be driven by the API, never by hope. This test server has
-  // no Resend key, so the deliver response is stubbed to report email.sent:true and the same
-  // screens are checked again: sent wording only where the API said sent.
+  // Even if a server answered with an email result (an old deploy), the app never shows email
+  // wording: the PDF is only ever downloaded here.
   const realFetch = p2.window.fetch;
   p2.window.fetch = async (url, init) => {
     const res = await realFetch(url, init);
@@ -479,8 +476,7 @@ async function reachCall(page, details) {
   d2.getElementById('un-go').click();
   await sleep(1400);
   const card2 = (d2.querySelector('.success-card') || {}).textContent || '';
-  ok(/Sent to demo@pipelinesync\.ai/.test(card2), 'email.sent:true from the API is what makes the card say the PDF was emailed');
-  ok(!/Couldn.t email it/.test(card2), 'the failure wording is not shown when the API reported a send');
+  ok(!!card2 && !/Email|Sent to /i.test(card2), 'an email result from the server is never shown');
   d2.getElementById('book-btn').click();
   await sleep(200);
   ok(/Request a time/.test(d2.body.textContent), 'typed journey: the fallback label shows too');
@@ -493,8 +489,7 @@ async function reachCall(page, details) {
   ok(!/Meeting requested|Meeting booked/.test(d2.body.textContent), 'typed journey: the fallback claims no booking');
   d2.getElementById('finish-btn').click();
   await sleep(120);
-  ok(/Your blueprint is on its way/.test(d2.body.textContent), 'the done screen only promises an email because the API confirmed one');
-  ok(/Sent to demo@pipelinesync\.ai/.test(d2.body.textContent), 'and it names the address the API reported');
+  ok(/ready to download/.test(d2.body.textContent) && !/on its way|Sent to /.test(d2.body.textContent), 'the done screen offers the download and promises no email');
   ok(!!d2.querySelector('#done-download-btn'), 'the download button is available on the success path too');
   ok(p2.errors.length === 0, 'no runtime errors across the typed journey' + (p2.errors.length ? ': ' + p2.errors[0] : ''));
 

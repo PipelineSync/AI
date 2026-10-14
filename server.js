@@ -178,19 +178,12 @@ function outboxPage(res) {
     const v = e.voice_call || {};
     const voice = v.provider ? escHtml(v.provider) + ' / ' + escHtml(v.mode || '') + (v.turns ? ' (' + v.turns + ' turns)' : '') : 'typed (no voice call)';
     const hub = e.hubspot ? (e.hubspot.dealId ? 'deal ' + escHtml(e.hubspot.dealId) : e.hubspot.mocked ? 'mock' : escHtml(e.hubspot.contactId || '')) : escHtml(e.contact_id);
-    // Phase 3: the truth about the emailed PDF, exactly as Resend answered it.
-    const pdfEmail = e.pdf_email;
-    const mail = !pdfEmail
-      ? 'not attempted'
-      : pdfEmail.sent
-        ? '✅ sent to ' + escHtml(pdfEmail.to || '')
-        : '⚠️ not sent' + (pdfEmail.error ? ': ' + escHtml(String(pdfEmail.error).slice(0, 140)) : '');
-    return '<tr><td>' + (i + 1) + '</td><td>' + escHtml(e.email) + '</td><td>' + hub + '</td><td>' + escHtml(e.industry || '') + '</td><td>' + voice + '</td><td>' + mail + '</td><td>' + escHtml(e.created_at) + '</td></tr>';
+    return '<tr><td>' + (i + 1) + '</td><td>' + escHtml(e.email) + '</td><td>' + hub + '</td><td>' + escHtml(e.industry || '') + '</td><td>' + voice + '</td><td>' + escHtml(e.created_at) + '</td></tr>';
   }).join('');
   const banner = hubEnabled
     ? '<p style="background:#ecfdf5;border:1px solid #6ee7b7;padding:10px;border-radius:8px">✅ HubSpot live push is <b>enabled</b> (HUBSPOT_ACCESS_TOKEN is set). New delivers create a real Contact + Deal. Mock entries below are from before the token was set or from failed pushes.</p>'
     : '<p style="background:#fffbeb;border:1px solid #fcd34d;padding:10px;border-radius:8px">⚠️ HubSpot live push is <b>disabled</b> (no HUBSPOT_ACCESS_TOKEN). Deliveries are logged as <code>[hubspot-mock]</code> and shown here only. Set HUBSPOT_ACCESS_TOKEN and restart to go live.</p>';
-  const html = '<!doctype html><meta charset="utf-8"><title>HubSpot outbox (dev)</title><style>body{font:14px/1.5 system-ui;background:#f6f7f9;margin:0;padding:24px}h1{font-size:18px}table{border-collapse:collapse;background:#fff;width:100%;max-width:1100px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}pre{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;max-width:1100px}</style><h1>HubSpot lead outbox (local dev)</h1>' + banner + '<p>Every deliver step pushes a lead here and to the console. On Netlify the same payload is logged to the function logs. The <b>voice_call</b> block records how the discovery call was run (provider, models, turns, caller-finish-to-Nova latency aggregates, and whether the three required fields were still missing when the call ended). When live, the HubSpot contact ID replaces the mock ID.</p><table><tr><th>#</th><th>Email</th><th>HubSpot ID</th><th>Industry</th><th>Discovery call</th><th>PDF emailed</th><th>Pushed at</th></tr>' + rows + '</table><h2>Raw payloads</h2><pre>' + escHtml(JSON.stringify(hubSpotOutbox, null, 2)) + '</pre>';
+  const html = '<!doctype html><meta charset="utf-8"><title>HubSpot outbox (dev)</title><style>body{font:14px/1.5 system-ui;background:#f6f7f9;margin:0;padding:24px}h1{font-size:18px}table{border-collapse:collapse;background:#fff;width:100%;max-width:1100px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}pre{background:#111827;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;max-width:1100px}</style><h1>HubSpot lead outbox (local dev)</h1>' + banner + '<p>Every deliver step pushes a lead here and to the console. On Netlify the same payload is logged to the function logs. The <b>voice_call</b> block records how the discovery call was run (provider, models, turns, caller-finish-to-Nova latency aggregates, and whether the three required fields were still missing when the call ended). When live, the HubSpot contact ID replaces the mock ID.</p><table><tr><th>#</th><th>Email</th><th>HubSpot ID</th><th>Industry</th><th>Discovery call</th><th>Pushed at</th></tr>' + rows + '</table><h2>Raw payloads</h2><pre>' + escHtml(JSON.stringify(hubSpotOutbox, null, 2)) + '</pre>';
   res.writeHead(200, Object.assign({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders()));
   res.end(html);
 }
@@ -424,20 +417,6 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, out);
   }
 
-  if (method === 'POST' && route === '/api/deliver/code') {
-    // Email verification code request
-    const deliverCode = require('./netlify/functions/deliver-code.js').handler;
-    const event = {
-      httpMethod: 'POST',
-      path: '/api/deliver/code',
-      headers: { 'x-nf-client-connection-ip': ip, 'x-forwarded-for': ip },
-      body: JSON.stringify(authBody)
-    };
-    const result = await deliverCode(event);
-    res.writeHead(result.statusCode, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, securityHeaders(), result.headers || {}));
-    return res.end(result.body);
-  }
-
   if (method === 'POST' && route === '/api/deliver') {
     // Phase 3: 5 unlocks per minute per IP, the same limit the Netlify function applies.
     const rl = deliverCore.checkDeliverRateLimit(ip, process.env);
@@ -445,7 +424,7 @@ async function handleApi(req, res, url) {
       res.writeHead(429, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(rl.retryAfter) }, securityHeaders()));
       return res.end(JSON.stringify({ error: 'Too many unlock attempts. Please wait ' + rl.retryAfter + 's and try again.' }));
     }
-    // Shared with netlify/functions/deliver.js: PDF (C), the Resend email (Phase 3), HubSpot (D).
+    // Shared with netlify/functions/deliver.js: PDF (C) and HubSpot (D). Nothing is emailed.
     const out = await deliverCore.deliver({ body: authBody, env: process.env, fetchImpl: fetch });
     // Local-only extra: the /dev/outbox view of what was pushed (Netlify uses the function logs).
     const meta = out.meta || {};
@@ -454,7 +433,6 @@ async function handleApi(req, res, url) {
       hubSpotOutbox.push(Object.assign({}, meta.mockLead, {
         contact_id: meta.contactId,
         hubspot: live ? { contactId: meta.contactId, dealId: meta.hubspotResult.dealId, mocked: false } : { mocked: true },
-        pdf_email: meta.emailResult ? { sent: !!meta.emailResult.sent, to: meta.emailResult.to || null, error: meta.emailResult.error || null } : null,
         created_at: new Date().toISOString()
       }));
     }
