@@ -230,7 +230,8 @@ ok(/@media \(prefers-reduced-motion:reduce\)\{\.ps-flow-dot\{animation:none;offs
 ok(!/function logoMark\(/.test(appJs), 'the app uses the shared component rather than an inline duplicate');
 ok(/function brandVariant\(\) \{ return state\.theme === 'light' \? 'light' : 'dark'; \}/.test(appJs), 'theme-following surfaces select light only in light mode');
 ok(!/Logo(?:Mark)?\(\{[^}]*variant: 'light'/.test(appJs), 'no app call site places a fixed light mark on a potentially dark surface');
-ok(!/LogoMark\(/.test(appJs) && /rgba\(5, 7, 12, 0\.94\)/.test(css), 'the call orb is a plain deep navy disc (the Nova mark is removed)');
+ok(!/LogoMark\(/.test(appJs) && /<canvas class="orb-globe" aria-hidden="true"><\/canvas>/.test(appJs) && !/gyro-ring|reticle/.test(appJs + css),
+  'the call orb is the particle globe canvas (the Nova mark and the old rings are removed)');
 ok(/Logo\(\{ variant: brandVariant\(\), size: 40 \}\)/.test(appJs) && /SMark\(\{ size: 40 \}\)/.test(appJs), 'the topbar uses the S-mark lockup and the login screen the S-mark alone');
 ok(!/nova-splash|novaSplashHtml/.test(appJs), 'the loader no longer renders the Nova mark');
 ok(!/logoTile|done-mark/.test(appJs), 'the done screen no longer renders the Nova mark');
@@ -449,9 +450,14 @@ ok(/\.accent\s*\{[^}]*-webkit-background-clip: text;[^}]*background-clip: text;[
   'the gradient phrase rides the brand gradient on the 8s shift');
 ok(/@keyframes accent-shift/.test(css) && /@keyframes nAuroraA/.test(css) && /@keyframes nAuroraB/.test(css), 'the neon motion keyframes are defined');
 ok(/h1 \{[^}]*letter-spacing: -0\.045em/s.test(css), 'h1 uses the display tracking (-0.045em)');
-ok(/\.orb\s*\{[^}]*radial-gradient\(circle at 50% 42%, rgba\(91, 140, 255, 0\.26\), rgba\(5, 7, 12, 0\.94\) 68%\)/s.test(css),
-  'the voice orb is the near-black disc with a blue core');
-ok(/\.orb\.speaking[^{]*\{[^}]*rgba\(255, 122, 26, 0\.65\)/s.test(css), 'the orb glows orange while speaking');
+const orbJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'orb.js'), 'utf8');
+ok(/<script src="orb\.js"><\/script>/.test(indexHtml) && /\.orb-globe \{[^}]*inset: -14%/.test(css), 'orb.js is loaded and the globe canvas overhangs the orb so waves are not clipped');
+ok(/const N = 520;/.test(orbJs) && /speaking:\s*\{ front: \[255, 140, 50\]/.test(orbJs) && /complete:\s*\{ front: \[52, 211, 153\]/.test(orbJs),
+  'the globe is 520 particles, orange in front while speaking and green when complete');
+ok(/getAttribute\('data-level'\)/.test(orbJs) && /orb\.setAttribute\('data-level'/.test(appJs) && /orb\.removeAttribute\('data-level'\)/.test(appJs),
+  'the globe ripples with the measured microphone level, which is cleared when the meter stops');
+ok(/prefers-reduced-motion: reduce/.test(orbJs) && /if \(!reduced\) raf = window\.requestAnimationFrame\(frame\)/.test(orbJs),
+  'reduced motion draws the globe as a still frame instead of animating');
 ok(/<script src="motion\.js"><\/script>/.test(indexHtml) && /rv-armed/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'motion.js'), 'utf8')),
   'motion.js (spotlight, reveal, headline) is loaded and only arms the reveal itself');
 ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,800}\.rv-armed \.rv, \.hw \{ opacity: 1 !important/.test(css),
