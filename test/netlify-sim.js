@@ -212,6 +212,51 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
   ok(badJob.statusCode === 404, 'hand-made blueprint without valid jobId gets 404');
   ok(!JSON.parse(badJob.body).pdf_base64, 'no PDF for invalid jobId');
 
+  /* The job store can miss a finished job (Netlify Blobs reads are eventually consistent; a
+     memory fallback is per process). The status endpoint hands out a server-signed copy, and
+     delivery accepts it only when the signature, the job id and the session email all match. */
+  // Each call carries its own client IP so the per-IP delivery limit never answers for the seal.
+  const seal = gen2.status && gen2.status.seal;
+  ok(typeof seal === 'string' && seal.split('.').length === 2, 'a finished job comes back from status with a signed seal');
+  const deliverCodeFn = require('../netlify/functions/deliver-code').handler;
+  try { jobs._resetMemory(); idempotency._resetMemory(); } catch (e) {}
+  const lost = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.1' }, path: '/api/deliver', body: JSON.stringify({ token: T, jobId: jobId2, consent: true }) });
+  ok(lost.statusCode === 404, 'without the seal, a job the store lost still cannot be delivered');
+  const sealed = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.2' }, path: '/api/deliver', body: JSON.stringify({ token: T, jobId: jobId2, consent: true, jobSeal: seal }) });
+  ok(sealed.statusCode === 200 && !!JSON.parse(sealed.body).pdf_base64, 'with the seal, the lost job is delivered as a PDF');
+  ok(!!(await jobs.get(jobId2)), 'delivering from the seal puts the job back in the store');
+  try { jobs._resetMemory(); idempotency._resetMemory(); } catch (e) {}
+  const codeLost = await deliverCodeFn({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.3' }, path: '/api/deliver/code', body: JSON.stringify({ token: T, jobId: jobId2 }) });
+  ok(codeLost.statusCode === 404 && /unknown or has expired/.test(JSON.parse(codeLost.body).error), 'the code step without a seal reports the lost job');
+  const codeSealed = await deliverCodeFn({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.4' }, path: '/api/deliver/code', body: JSON.stringify({ token: T, jobId: jobId2, jobSeal: seal }) });
+  ok(codeSealed.statusCode === 200, 'the code step accepts the seal for a lost job');
+  const [sb, ss] = seal.split('.');
+  const forged = JSON.parse(Buffer.from(sb, 'base64url').toString('utf8'));
+  forged.blueprint.meta.verticalLabel = 'Forged';
+  const forgedSeal = Buffer.from(JSON.stringify(forged)).toString('base64url') + '.' + ss;
+  const tampered = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.5' }, path: '/api/deliver', body: JSON.stringify({ token: T, jobId: jobId2, consent: true, jobSeal: forgedSeal }) });
+  ok(tampered.statusCode === 404, 'an edited seal is refused');
+  const otherT = core.signToken({ email: 'someone.else@example.ph', name: 'Other', exp: Date.now() + 60000 });
+  const otherUser = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.6' }, path: '/api/deliver', body: JSON.stringify({ token: otherT, jobId: jobId2, consent: true, jobSeal: seal }) });
+  ok(otherUser.statusCode === 404, "another session cannot use someone else's seal");
+  const tokenAsSeal = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.7' }, path: '/api/deliver', body: JSON.stringify({ token: T, jobId: jobId2, consent: true, jobSeal: T }) });
+  ok(tokenAsSeal.statusCode === 404, 'a session token is not accepted as a seal');
+  ok(core.verifyToken(seal) === null, 'and a seal is not accepted as a session token');
+
+  // Every Lambda-style function connects the request's Netlify Blobs context before any store call.
+  const helpers = require('../lib/netlify-helpers');
+  helpers.connectBlobs({ headers: {} });
+  ok(!process.env.NETLIFY_BLOBS_CONTEXT, 'connectBlobs is a no-op when the request carries no blob context');
+  helpers.connectBlobs({ blobs: Buffer.from(JSON.stringify({ url: 'https://blobs.example', token: 't' })).toString('base64'), headers: { 'x-nf-deploy-id': 'd1', 'x-nf-site-id': 's1' } });
+  ok(!!process.env.NETLIFY_BLOBS_CONTEXT, 'connectBlobs hands a request blob context to @netlify/blobs');
+  delete process.env.NETLIFY_BLOBS_CONTEXT;
+  const fnDir = require('path').join(__dirname, '..', 'netlify', 'functions');
+  const unconnected = require('fs').readdirSync(fnDir).filter(f => {
+    const src = require('fs').readFileSync(require('path').join(fnDir, f), 'utf8');
+    return /exports\.handler = async \(event\)/.test(src) && !/connectBlobs\(event\)/.test(src);
+  });
+  ok(unconnected.length === 0, 'every function that receives the request connects Netlify Blobs' + (unconnected.length ? ': ' + unconnected.join(', ') : ''));
+
   const exB64 = await extract({ httpMethod: 'POST', path: '/api/extract', isBase64Encoded: true, body: Buffer.from(JSON.stringify({ token: T, answers })).toString('base64') });
   ok(exB64.statusCode === 200, 'extract handles base64-encoded body');
 

@@ -31,6 +31,7 @@ function parseBudget(env) {
 }
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const ip = getClientIp(event);
   const rl = checkRateLimit('start:' + ip, 20, 60 * 1000);

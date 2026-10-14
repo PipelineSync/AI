@@ -17,6 +17,7 @@ function rateLimitKey(ip, email) {
 }
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
 
   const ip = getClientIp(event);
@@ -42,7 +43,9 @@ exports.handler = async (event) => {
 
   // Optional jobId validation: if provided, ensure job exists and belongs to this email
   if (body.jobId) {
-    const rec = await jobs.get(String(body.jobId), { env: process.env });
+    let rec = await jobs.get(String(body.jobId), { env: process.env });
+    // Not in the store (Blobs still propagating, or expired): accept the server-signed copy.
+    if ((!rec || rec.status !== 'done') && body.jobSeal) rec = core.openJobSeal(body.jobSeal, String(body.jobId), email) || rec;
     if (!rec) return json(404, { error: 'That blueprint job is unknown or has expired. Generate again.' });
     if (rec.email && String(rec.email).toLowerCase() !== email) {
       return json(403, { error: 'This blueprint belongs to a different email.' });

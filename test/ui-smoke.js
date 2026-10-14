@@ -55,8 +55,10 @@ function boot(withMic, baseOverride, opts) {
   const spoken = [];
   const errors = [];
   const fallbackPosts = [];
+  const posts = [];   // every API POST the page makes: {url, body}
   let recognitionStarts = 0;
   window.fetch = (p, o) => {
+    if (o && o.method === 'POST') { try { posts.push({ url: String(p), body: JSON.parse(o.body || '{}') }); } catch (e) {} }
     if (String(p).indexOf('/api/voice/fallback') >= 0) {
       try { fallbackPosts.push(JSON.parse(o && o.body || '{}')); } catch (e) {}
     }
@@ -114,7 +116,7 @@ function boot(withMic, baseOverride, opts) {
   }
   brandJs.forEach(src => window.eval(src));   // index.html loads these before app.js
   window.eval(appJs);
-  return { window, document, spoken, errors, speechTimes, fallbackPosts, recognitionStarts: () => recognitionStarts };
+  return { window, document, spoken, errors, speechTimes, fallbackPosts, posts, recognitionStarts: () => recognitionStarts };
 }
 
 /* Dispatch a postMessage the way the HubSpot Meetings iframe would. jsdom's MessageEvent
@@ -318,29 +320,27 @@ async function reachCall(page, details) {
 
   // hand-off to Function A and the rest of the journey
   d1.getElementById('structure-btn').click();
-  await sleep(3200);
-  ok(!!d1.querySelector('#confirm-fields'), 'review screen rendered from the call transcript');
-  ok((d1.querySelector('.call-summary .badge-mode') || {}).textContent === 'Browser voice (no API key)', 'the review screen records the exact browser-voice mode');
-  const nullBadges = d1.querySelectorAll('.nullbadge').length;
-  console.log('  (review shows ' + nullBadges + ' "Not stated" badges)');
-  const reviewInputs = Array.from(d1.querySelectorAll('[data-key], [data-prod], [data-src]'))
-    .filter(el => el.tagName === 'INPUT');
-  ok(reviewInputs.length > 0 && reviewInputs.every(el => el.type === 'text' || el.type === 'number'),
-    'review inputs declare a native type so the design-system controls are styled');
-  ok(Array.from(d1.querySelectorAll('input[data-type="number"]')).every(el => el.type === 'number'),
-    'review numeric fields use numeric inputs and the numeric keypad');
-
-  d1.getElementById('confirm-fields').click();
-  // Phase 2: generation is a real background job. The loader must show a state the
-  // server actually reported, and the blueprint must not appear before it is done.
-  await sleep(500);
-  const loaderStep = d1.querySelector('#loader-step');
-  ok(!!loaderStep, 'the generation loader shows a progress state');
+  // Phase 2: generation is a real background job, and it now starts by itself after structuring.
+  // The loader must show a state the server actually reported, and the blueprint must not appear
+  // before it is done.
+  for (let i = 0; i < 200 && d1.body.dataset.stage !== 'generating' && !d1.querySelector('.doc'); i++) await sleep(25);
+  ok(d1.body.dataset.stage === 'generating' && !!d1.querySelector('#loader-step'), 'the generation loader shows a progress state');
   ok(!d1.querySelector('.nova-splash'), 'the loading screen no longer shows the Nova mark');
   ok(!d1.querySelector('.loader svg[aria-label^="Nova the PipelineSync octopus"]'), 'Nova does not appear on the loading screen');
   ok(!d1.querySelector('.doc'), 'the blueprint is not rendered while the job is still running');
-  for (let i = 0; i < 60 && !d1.querySelector('.doc'); i++) await sleep(250);
-  
+  for (let i = 0; i < 120 && !d1.querySelector('#unlock-btn'); i++) await sleep(100);
+  // No review screen: the call goes straight through structuring into the blueprint.
+  ok(!d1.querySelector('#confirm-fields') && !!d1.querySelector('#unlock-btn'), 'the call goes straight to the blueprint, with no review screen');
+  ok(!/Review/.test((d1.querySelector('.steps') || {}).textContent || ''), 'the progress rail has no Review step');
+  const finalExtract = p1.posts.filter(x => /\/api\/extract$/.test(x.url)).pop();
+  const tAns = finalExtract && finalExtract.body.answers.filter(a => /^call_transcript/.test(a.id));
+  ok(tAns && tAns.length >= 1 && /^(Nova|Client): /m.test(tAns[0].text) && /Client: /.test(tAns.map(a => a.text).join('\n')),
+    'the final structuring pass gets the whole conversation, both sides, as call_transcript');
+  ok(finalExtract && finalExtract.body.answers.length <= 20 && finalExtract.body.answers.every(a => a.text.length <= 5000),
+    'the transcript fits the server limits (20 answers, 5000 characters each)');
+  const genPost = p1.posts.filter(x => /\/api\/generate$/.test(x.url)).pop();
+  ok(genPost && genPost.body.fields && genPost.body.fields.products && genPost.body.fields.products.length > 0,
+    'the captured products reach the blueprint request intact');
   ok(!!d1.querySelector('.doc'), 'blueprint document rendered only after the API reported done');
   ok(!!d1.querySelector('.coa-item'), 'cost of inaction items rendered');
   ok(d1.querySelectorAll('.chip.kb').length > 5, 'KB reference chips rendered');
@@ -454,9 +454,6 @@ async function reachCall(page, details) {
   }
   ok(!!d2.querySelector('#structure-btn'), 'the typed journey still reaches the end of the call');
   ok(p2.window.__PS_VOICE_STATE__().transcript.filter(t => t.role === 'user').length >= 12, 'typed answers land in the same transcript');
-  d2.getElementById('structure-btn').click();
-  await sleep(3200);
-  ok(!!d2.querySelector('#confirm-fields'), 'typed answers structure into the review screen');
 
   // Phase 3: the success wording must be driven by the API, never by hope. This test server has
   // no Resend key, so the deliver response is stubbed to report email.sent:true and the same
@@ -471,8 +468,10 @@ async function reachCall(page, details) {
     }
     return res;
   };
-  d2.getElementById('confirm-fields').click();
-  for (let i = 0; i < 60 && !d2.querySelector('.doc'); i++) await sleep(250);
+  // Typed answers structure straight into the blueprint, with no review screen in between.
+  d2.getElementById('structure-btn').click();
+  for (let i = 0; i < 80 && !d2.querySelector('.doc'); i++) await sleep(250);
+  ok(!d2.querySelector('#confirm-fields'), 'typed answers skip the review screen');
   ok(!!d2.querySelector('.doc'), 'the typed journey reaches the blueprint');
   d2.getElementById('unlock-btn').click();
   await sleep(120);
@@ -719,7 +718,8 @@ async function reachCall(page, details) {
   const journey = JSON.stringify({ stage: 'review', answers: [{ id: 'business', text: 'test' }], fields: fakeFields, jobId: 'abc123def456' });
   const p7 = bootWithStorage(false, BASE, { ps_token: testToken, ps_user: JSON.stringify({ name: 'Reload Test', email: 'reload@test.com' }) }, { ps_journey: journey });
   await new Promise(r => setTimeout(r, 500));
-  ok(!!p7.document.querySelector('#confirm-fields') || /Review/.test(p7.document.body.textContent), 'with saved stage review, reload renders review screen with its fields');
+  ok(!p7.document.querySelector('#confirm-fields') && /^(generating|blueprint)$/.test(p7.document.body.dataset.stage),
+    'a reload on the old review stage with every required figure carries on into the blueprint');
   ok(p7.errors.length === 0, 'no runtime errors on review restore');
 
   // Unknown stage falls back to consent
@@ -764,12 +764,13 @@ async function reachCall(page, details) {
     fields: null, jobId: null
   });
   const p10 = bootWithStorage(false, BASE, { ps_token: testToken, ps_user: JSON.stringify({ name: 'Reload Test', email: 'reload@test.com' }) }, { ps_journey: journeyExtracting });
-  for (let i = 0; i < 50 && !p10.document.querySelector('#confirm-fields'); i++) await new Promise(r => setTimeout(r, 100));
-  ok(!!p10.document.querySelector('#confirm-fields'),
-    'a reload during the structuring pass finishes it and renders the review screen');
+  for (let i = 0; i < 50 && !p10.document.querySelector('#auto-needs-go'); i++) await new Promise(r => setTimeout(r, 100));
+  // These answers never say how deals close, so the one thing asked for is the close type.
+  ok(!!p10.document.querySelector('#auto-needs-go') && !!p10.document.querySelector('[data-key="close_type"]') && !p10.document.querySelector('#confirm-fields'),
+    'a reload during the structuring pass finishes it and asks only for the missing required figure');
   ok(!p10.document.querySelector('.loader'), 'the structuring loader does not hang after a reload');
-  const volInput = p10.document.querySelector('[data-key="monthly_lead_volume"]');
-  ok(!!volInput && String(volInput.value) === '55', 'the review screen is populated from the saved answers');
+  ok(!p10.document.querySelector('[data-key="monthly_lead_volume"]') && /Monthly lead volume\s*55/.test(p10.document.body.textContent),
+    'figures already captured from the saved answers are kept, not asked again');
   ok(p10.errors.length === 0, 'no runtime errors on extraction reload' + (p10.errors.length ? ': ' + p10.errors[0] : ''));
 
   console.log('\n' + (failures === 0 ? 'UI SMOKE TEST PASSED' : failures + ' UI FAILURES'));

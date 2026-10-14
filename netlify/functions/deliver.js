@@ -17,6 +17,7 @@ const deliverCore = require('../../lib/deliver-core');
 const { bodyOf, json, getClientIp } = require('../../lib/netlify-helpers');
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
 
   // Phase 3: 5 unlocks per minute per IP. Each attempt builds a PDF and may send an email.

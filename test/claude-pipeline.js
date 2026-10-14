@@ -138,6 +138,16 @@ async function runGenerate(token, fields) {
   ok(/Prompt B/.test(stubA.calls[0].system) || /extraction/i.test(stubA.calls[0].system), 'PROMPT_B is the system prompt for extract');
   ok(stubA.calls[0].headers['x-api-key'] === KEY_ENV.ANTHROPIC_API_KEY, 'the key travels in the server-side header only');
 
+  section('extract: the whole call transcript reaches Claude');
+  const stubT = anthropicStub([{ text: JSON.stringify(claudeFields) }]);
+  const withTranscript = ANSWERS.concat([{ id: 'call_transcript', text: 'Nova: How many leads a month?\nClient: Around 55, mostly from Facebook.' }]);
+  const exT = await withEnv(KEY_ENV, stubT.fetchImpl, () => post(extractFn, { token: TOKEN, answers: withTranscript }));
+  ok(exT.statusCode === 200, 'extract accepts the transcript alongside the keyed answers');
+  ok(/\[call_transcript\]: Nova: How many leads a month\?\nClient: Around 55/.test(JSON.stringify(stubT.calls[0]).replace(/\\n/g, '\n')),
+    'the transcript is sent to Claude with both sides of the conversation');
+  ok(/call_transcript/.test(stubT.calls[0].system) && /Only the client's own lines are facts/.test(stubT.calls[0].system),
+    'Prompt B tells Claude to read the transcript and take values only from the client');
+
   section('extract: invalid JSON -> one retry -> fallback');
   const stubB = anthropicStub([{ text: 'Sure! Here is your data.' }, { text: '{"industry":"solar"}' }]);
   const exBad = await withEnv(KEY_ENV, stubB.fetchImpl, () => post(extractFn, { token: TOKEN, answers: ANSWERS }));

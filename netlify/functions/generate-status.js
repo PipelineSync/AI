@@ -11,6 +11,7 @@ const jobs = require('../../lib/job-store');
 const { bodyOf, json, checkRateLimit, getClientIp } = require('../../lib/netlify-helpers');
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'GET' && event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
 
   const qs = event.queryStringParameters || {};
@@ -42,7 +43,7 @@ exports.handler = async (event) => {
   };
   if (rec.fields) out.fields = rec.fields;
   if (rec.email) out.email = rec.email;
-  if (rec.status === 'done') out.blueprint = rec.blueprint;
+  if (rec.status === 'done') { out.blueprint = rec.blueprint; out.seal = core.sealJob(rec); }
   if (rec.status === 'error') { out.error = rec.error || 'Generation failed.'; if (rec.fieldErrors) out.fieldErrors = rec.fieldErrors; }
   return json(200, out);
 };

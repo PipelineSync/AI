@@ -396,7 +396,7 @@ async function handleApi(req, res, url) {
     const v = blueprintSchema.validateGenerateFields(fields);
     if (!v.ok) {
       return sendJson(res, 400, {
-        error: 'Some required answers are missing or invalid. Correct them on the review screen and try again.',
+        error: 'Some required answers are missing or invalid. Add them and try again.',
         fieldErrors: v.fieldErrors
       });
     }
@@ -419,7 +419,7 @@ async function handleApi(req, res, url) {
     };
     if (rec.fields) out.fields = rec.fields;
     if (rec.email) out.email = rec.email;
-    if (rec.status === 'done') out.blueprint = rec.blueprint;
+    if (rec.status === 'done') { out.blueprint = rec.blueprint; out.seal = core.sealJob(rec); }
     if (rec.status === 'error') { out.error = rec.error || 'Generation failed.'; if (rec.fieldErrors) out.fieldErrors = rec.fieldErrors; }
     return sendJson(res, 200, out);
   }

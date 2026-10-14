@@ -217,12 +217,12 @@ function boot(base) {
   const autoCtx = Object.assign({}, manualCtx, { autoDeliver: true });
   const sysManual = voice.buildMessages(manualCtx).find(m => m.role === 'system').content;
   const sysAuto = voice.buildMessages(autoCtx).find(m => m.role === 'system').content;
-  ok(/review and correct what was captured/.test(sysManual), 'step-by-step prompt: the manual closing line is unchanged when zero-touch is off');
+  ok(/download it as a PDF on screen/.test(sysManual) && !/review and correct/.test(sysManual), 'step-by-step prompt: with zero-touch off Nova closes on the on-screen PDF, never a review screen');
   ok(/will reach their inbox as a PDF/.test(sysAuto), 'step-by-step prompt: zero-touch closes on the emailed PDF');
   ok(!/review and correct what was captured/.test(sysAuto), 'zero-touch never promises a review screen');
   const manualFaq = voice.faqAnswerFor('what happens after the call?', {}).say;
   const autoFaq = voice.faqAnswerFor('what happens after the call?', { autoDeliver: true }).say;
-  ok(/review and correct/.test(manualFaq), 'FAQ "what happens after the call" stays manual when the switch is off');
+  ok(/download it as a PDF/.test(manualFaq) && !/review/.test(manualFaq), 'FAQ "what happens after the call" describes the on-screen PDF when the switch is off, with no review step');
   ok(/email it to you as a PDF/.test(autoFaq), 'FAQ answers with the automatic email in zero-touch');
   /* The guardrail is untouched: a missing required figure is still asked for, in both modes. */
   const cb = voice.nextStep(stateAll);

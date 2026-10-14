@@ -13,6 +13,7 @@ const CLIENT_STATUSES = new Set([
 ]);
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const body = bodyOf(event);
   let auth;

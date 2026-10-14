@@ -10,6 +10,7 @@ const consent = require('../../lib/consent');
 const autopilot = require('../../lib/autopilot');
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'GET' && event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const link = String(process.env.SCHEDULER_LINK || '').trim();
   const siteKey = turnstile.getSiteKey(process.env);
