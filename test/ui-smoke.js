@@ -160,18 +160,13 @@ async function passGate(page, details) {
   ok(!document.querySelector('#theme-toggle'), 'the dark-only neon theme offers no theme toggle');
   ok(document.body.dataset.theme === 'dark', 'the theme is the single dark neon canvas on a fresh visit');
 
-  // Entry notice must exist before submit (Nova is an AI assistant...)
-  const entryNoticePre = document.querySelector('#entry-consent-notice');
-  if (entryNoticePre) {
-    ok(/Nova is an AI assistant/.test(entryNoticePre.textContent), 'entry form shows AI disclosure notice');
-    ok(/saved to our CRM.*HubSpot/.test(entryNoticePre.textContent), 'entry notice says name/email saved to CRM (HubSpot)');
-    ok(/OpenAI/.test(entryNoticePre.textContent) && /Claude/.test(entryNoticePre.textContent), 'entry notice names OpenAI and Claude');
-    ok(/Audio is never stored/.test(entryNoticePre.textContent), 'entry notice says audio never stored');
-  } else {
-    // If no privacy URL set, notice still exists without link
-    const gateText = document.body.textContent;
-    ok(/Nova is an AI assistant/.test(gateText), 'entry form shows AI disclosure notice (fallback)');
-  }
+  // The entry gate asks for agreement to the Terms instead of showing the AI notice
+  // (the AI, CRM and audio disclosures are on the consent screen and the Terms page).
+  ok(!document.querySelector('#entry-consent-notice'), 'the entry gate no longer shows the AI notice');
+  const termsCb = document.getElementById('st-terms');
+  ok(!!termsCb && termsCb.type === 'checkbox' && termsCb.checked === false && termsCb.required, 'the gate has a required, unticked Terms checkbox');
+  const termsA = document.getElementById('terms-link');
+  ok(!!termsA && termsA.getAttribute('href') === '/terms.html' && !termsA.getAttribute('target'), 'the Terms link opens the Terms page in the same tab');
 
   if (details) {
     // An empty gate must not start a call: the error is inline and the client stays put.
@@ -181,6 +176,13 @@ async function passGate(page, details) {
     ok(!document.getElementById('start-error').hidden, 'the gate explains what is missing');
     document.getElementById('st-name').value = details.name;
     document.getElementById('st-email').value = details.email;
+    // Without the Terms box ticked the gate stays put and says why.
+    document.getElementById('start-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    await sleep(150);
+    ok(!document.querySelector('#consent-go') && /Terms and Conditions/.test(document.getElementById('start-error').textContent),
+      'the gate will not start until the Terms are agreed');
+    ok(document.getElementById('st-terms').getAttribute('aria-invalid') === 'true', 'the unticked Terms box is marked invalid');
+    document.getElementById('st-terms').click();
     document.getElementById('start-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   } else {
     document.getElementById('demo-btn').click();
@@ -631,8 +633,8 @@ async function reachCall(page, details) {
   const p5 = boot(false, srv3.base);
   await new Promise(r => setTimeout(r, 300));
   // Check entry notice link before passing gate
-  const entryLinkPre = p5.document.querySelector('#entry-consent-notice a');
-  ok(!!entryLinkPre && entryLinkPre.getAttribute('href') === 'https://example.com/privacy', 'entry notice shows Privacy Policy link when PRIVACY_POLICY_URL is set');
+  const entryLinkPre = p5.document.querySelector('#terms-check a[href="https://example.com/privacy"]');
+  ok(!!entryLinkPre && entryLinkPre.getAttribute('target') === '_blank', 'the Terms line also links the Privacy Policy when PRIVACY_POLICY_URL is set');
   // passGate will wait for consent screen, which should now have privacy link
   await passGate(p5, { name: 'Privacy Test', email: 'privacy@example.ph' });
   // Check consent notice link
