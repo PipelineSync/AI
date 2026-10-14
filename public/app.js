@@ -3585,7 +3585,8 @@ function animateNumbers() {
     const prefix = raw.startsWith('+') ? '+' : (raw.startsWith('-') ? '-' : (raw.startsWith('PHP') ? 'PHP ' : ''));
     const suffix = raw.endsWith('%') ? '%' : '';
     let start = 0;
-    const dur = 900;
+    // Count up over 1.6s; reduced motion shows the final figure at once.
+    const dur = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ? 0 : 1600;
     const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     function tick(now) {
       const p = Math.min((now - t0) / dur, 1);

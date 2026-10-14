@@ -112,9 +112,10 @@ ok(/var\(--brand-ink\)/.test((function btnColor(list) {
   }
   return null
 })(sheet.cssRules)), 'the primary button label is the deep warm ink, not white');
-ok(/--sync-orange:\s*#F97A1A/.test(css) && /--sky:\s*#4C8DFF/.test(css) && /--mist:\s*#F4F7FF/.test(css) && /--void:\s*#040B16/.test(css),
-  'the brand sheet tokens are declared (sync-orange #F97A1A, sky #4C8DFF, mist #F4F7FF, void #040B16)');
-ok(/--bg:\s*#040B16/i.test(css), 'the app background is the deep navy #040B16');
+ok(/--brand:\s*#ff7a1a/.test(css) && /--brand-2:\s*#ffab5e/.test(css) && /--blue:\s*#5b8cff/.test(css) && /--cyan:\s*#3fd0ee/.test(css) && /--green:\s*#34d399/.test(css),
+  'the PipelineSync brand tokens are declared (brand #ff7a1a, brand-2 #ffab5e, blue #5b8cff, cyan #3fd0ee, green #34d399)');
+ok(/--bg:\s*#05070c/i.test(css) && /--bg-elev:\s*#0a0e17/.test(css) && /--bg-elev-2:\s*#0f1522/.test(css), 'the surfaces are the brand near-black #05070c with #0a0e17 / #0f1522 elevations');
+ok(/--text:\s*#f1f4f9/.test(css) && /--text-2:\s*#aeb8c7/.test(css) && /--text-3:\s*#8591a3/.test(css), 'the text tokens are the brand #f1f4f9 / #aeb8c7 / #8591a3');
 
 /* ------------------------------------------------------------------ */
 section('design tokens clear WCAG AA on the dark neon canvas');
@@ -219,8 +220,8 @@ ok(/\.ps-mark-img\s*\{[^}]*brightness\(0\)[^}]*invert\(1\)[^}]*drop-shadow\(0 0 
   'the S-mark is rendered white with the site navbar ember glow');
 ok(/\.ps-wordmark-name\s*\{[^}]*font-weight: 700;/s.test(css) && /\.ps-wordmark-sub\s*\{[^}]*font-weight: 500;[^}]*letter-spacing: 0\.12em;[^}]*text-transform: uppercase;/s.test(css) && /font-weight:700">AI<\/span>/.test(logoJs) && brand.LOGO_COLORS.light.star === '#F97A1A' && brand.LOGO_COLORS.dark.star === '#F97A1A',
   'wordmark typography is 700 Nova, mono 500 uppercase subline and ember 700 AI');
-ok(/--display:\s*"Space Grotesk"/.test(css) && /Space\+Grotesk/.test(indexHtml) && /IBM\+Plex\+Mono/.test(indexHtml),
-  'the display and mono typefaces are Space Grotesk and IBM Plex Mono, wired into the stylesheet and the page');
+ok(/--font:\s*"Geist"/.test(css) && /--mono:\s*"Geist Mono"/.test(css) && /family=Geist:wght@400;500;600;700/.test(indexHtml) && /family=Geist\+Mono:wght@400;500;600/.test(indexHtml) && /display=swap/.test(indexHtml),
+  'the typefaces are Geist and Geist Mono, wired into the stylesheet and the page');
 const moving = parseSvg(brand.LogoMark({ variant: 'dark', animated: true }));
 ok(moving.querySelectorAll('.ps-flow-dot').length === 3 && [...moving.querySelectorAll('.ps-flow-dot')].every((c, i) => c.getAttribute('style').includes(expectedLines[i])), 'all three animated dots follow the actual incoming paths');
 ok(moving.querySelector('.ps-pulse-star') && /@keyframes ps-pulse/.test(logoJs), 'the star pulses after the dots arrive');
@@ -229,7 +230,7 @@ ok(/@media \(prefers-reduced-motion:reduce\)\{\.ps-flow-dot\{animation:none;offs
 ok(!/function logoMark\(/.test(appJs), 'the app uses the shared component rather than an inline duplicate');
 ok(/function brandVariant\(\) \{ return state\.theme === 'light' \? 'light' : 'dark'; \}/.test(appJs), 'theme-following surfaces select light only in light mode');
 ok(!/Logo(?:Mark)?\(\{[^}]*variant: 'light'/.test(appJs), 'no app call site places a fixed light mark on a potentially dark surface');
-ok(!/LogoMark\(/.test(appJs) && /rgba\(4, 11, 22, 0\.94\)/.test(css), 'the call orb is a plain deep navy disc (the Nova mark is removed)');
+ok(!/LogoMark\(/.test(appJs) && /rgba\(5, 7, 12, 0\.94\)/.test(css), 'the call orb is a plain deep navy disc (the Nova mark is removed)');
 ok(/Logo\(\{ variant: brandVariant\(\), size: 40 \}\)/.test(appJs) && /SMark\(\{ size: 40 \}\)/.test(appJs), 'the topbar uses the S-mark lockup and the login screen the S-mark alone');
 ok(!/nova-splash|novaSplashHtml/.test(appJs), 'the loader no longer renders the Nova mark');
 ok(!/logoTile|done-mark/.test(appJs), 'the done screen no longer renders the Nova mark');
@@ -407,19 +408,20 @@ ok(!/\bAlex\b/.test(appJs), 'the UI no longer calls the interviewer Alex');
 ok(/<b>Nova<\/b>/.test(appJs) && !/id="call-progress"/.test(appJs) && !/id="call-bar"/.test(appJs), 'the call screen names the AI, and the question counter is gone');
 
 /* ------------------------------------------------------------------ */
-section('the Ember/Navy neon canvas, glass surfaces and dark-only theme');
+section('the PipelineSync canvas, panels and dark-only theme');
 
 ok(!/data-theme/.test(css), 'the stylesheet has no theme selector left: one dark theme, no light variant');
 ok(/content="dark"/.test(indexHtml), 'the page declares the dark colour scheme');
-ok(/<meta name="theme-color" content="#040B16">/.test(indexHtml), 'the browser theme colour is the deep navy');
+ok(/<meta name="theme-color" content="#05070c">/.test(indexHtml), 'the browser theme colour is the brand near-black');
 ok(!/theme-toggle/.test(appJs) && !/ps_theme/.test(appJs) && !/initTheme/.test(appJs) && !/gate-corner/.test(appJs + css),
   'the theme toggle, its persistence and the gate corner slot are fully removed');
 ok(/theme: 'dark',/.test(appJs) && /function applyTheme\(\) \{\s*document\.body\.dataset\.theme = state\.theme;\s*\}/s.test(appJs),
   'state.theme is pinned to dark and applyTheme only marks the body dataset');
 ok(/body data-theme="dark"/.test(indexHtml) || /<body data-theme="dark">/.test(indexHtml), 'the page ships on the dark theme from first paint');
-/* Canvas: the blue top-glow, the 56px hairline grid and the two drifting aurora orbs. */
-ok(/radial-gradient\(1100px 720px at 50% -8%, rgba\(76, 141, 255, 0\.16\)/.test(css), 'the canvas carries the site\'s blue top-glow');
-ok(/background-size: 56px 56px/.test(css), 'the grid underlay is the site\'s 56px hairline grid');
+/* Canvas: three drifting orbs, the 64px masked grid and a faint noise layer. */
+ok(/background-size: 64px 64px/.test(css) && /rgba\(148, 163, 184, 0\.06\) 1px/.test(css), 'the grid underlay is the 64px hairline grid at 6% slate');
+ok(/\.grid-underlay::after\s*\{[^}]*opacity: 0\.035;[^}]*feTurbulence/s.test(css), 'a 3.5% noise texture sits over the canvas');
+ok(/body\.app-screen \.aurora \{ opacity: 0\.55; \}/.test(css), 'app screens quieten the orbs so data stays readable');
 const orbBgRules = (function gather(list) {
   let found = '';
   (function go(rules) {
@@ -430,23 +432,30 @@ const orbBgRules = (function gather(list) {
   })(list);
   return found;
 })(sheet.cssRules);
-ok(/72vmax/.test(orbBgRules) && /blur\(110px\)/.test(orbBgRules), 'the aurora orbs are 72vmax at blur(110px), like the site');
-ok(/nAuroraA 34s/.test(orbBgRules) && /nAuroraB 42s/.test(orbBgRules), 'the ember and blue orbs drift on the site\'s 34s/42s cycles');
-ok(/radial-gradient\(circle, rgba\(249, 122, 26, 0\.38\)/.test(orbBgRules) && /radial-gradient\(circle, rgba\(76, 141, 255, 0\.32\)/.test(orbBgRules),
-  'the orb colours match the site (ember 0.38, blue 0.32)');
-/* Glass: white-gradient panels over blur+saturate, hairline border, inset highlight, deep shadow. */
-ok(/linear-gradient\(160deg, rgba\(255, 255, 255, 0\.065\), rgba\(255, 255, 255, 0\.018\)\)/.test(css), 'glass panels use the site\'s white gradient');
-ok(/blur\(20px\) saturate\(150%\)/.test(css) && /backdrop-filter: var\(--glass-blur\)/.test(css), 'glass panels blur+saturate their backdrop');
-ok(/inset 0 1px 0 rgba\(255, 255, 255, 0\.06\), var\(--sh-3\)/.test(css) && /--sh-3: 0 26px 64px -26px rgba\(2, 8, 20, 0\.85\)/.test(css),
-  'glass panels keep the inset top highlight and the site\'s deep soft shadow');
-ok(/rgba\(4, 11, 22, 0\.55\)/.test(css) && /saturate\(160%\)/.test(css), 'the topbar is the site\'s translucent navy with saturate(160%)');
+ok(/blur\(90px\)/.test(orbBgRules) && /opacity: 0\.45/.test(orbBgRules), 'the orbs blur at 90px and sit at .45 opacity');
+ok(/nAuroraA 26s/.test(orbBgRules) && /nAuroraB 30s/.test(orbBgRules) && /nAuroraC 22s/.test(orbBgRules) && /alternate/.test(orbBgRules), 'the orbs drift on 22-30s alternate cycles');
+ok(/rgba\(255, 122, 26, 0\.55\)/.test(orbBgRules) && /rgba\(91, 140, 255, 0\.5\)/.test(orbBgRules) && /rgba\(63, 208, 238, 0\.4\)/.test(orbBgRules),
+  'the orbs are orange (top-left), blue (top-right) and faint cyan (lower)');
+/* Panels: white-gradient cards on --bg-elev, hairline border, deep shadow. */
+ok(/--glass: linear-gradient\(180deg, rgba\(255, 255, 255, 0\.035\), rgba\(255, 255, 255, 0\.012\)\)/.test(css), 'panels use the brand card gradient');
+ok(/--radius-lg: 24px/.test(css) && /--r-xl: 24px/.test(css), 'panels are 24px radius');
+ok(/--shadow: 0 24px 60px -24px rgba\(0, 0, 0, 0\.7\)/.test(css) && /var\(--shadow\);/.test(css), 'panels carry the brand deep shadow');
+ok(/rgba\(5, 7, 12, 0\.72\)/.test(css) && /blur\(18px\) saturate\(160%\)/.test(css) && /min-height: 72px/.test(css), 'the topbar is 72px, translucent near-black with blur(18px) saturate(160%)');
+ok(/--ease: cubic-bezier\(0\.22, 1, 0\.36, 1\)/.test(css), 'the brand easing curve is declared');
+ok(/\.btn-primary::after\s*\{[^}]*translateX\(-120%\)/s.test(css) && /\.btn-primary:hover:not\(:disabled\)::after \{ transform: translateX\(120%\); transition: transform 0\.7s/.test(css),
+  'the primary button sheen sweeps across on hover');
+ok(/:focus-visible \{ outline: 2px solid var\(--brand-2\); outline-offset: 3px;/.test(css), 'focus is always visible: 2px light-orange outline, 3px offset');
 ok(/\.accent\s*\{[^}]*-webkit-background-clip: text;[^}]*background-clip: text;[^}]*animation: accent-shift 8s/s.test(css),
-  'accent keywords ride the blue->ember->gold gradient on the 8s shift');
+  'the gradient phrase rides the brand gradient on the 8s shift');
 ok(/@keyframes accent-shift/.test(css) && /@keyframes nAuroraA/.test(css) && /@keyframes nAuroraB/.test(css), 'the neon motion keyframes are defined');
-ok(/h1 \{[^}]*text-shadow: 0 0 40px rgba\(76, 141, 255, 0\.25\)/s.test(css), 'h1 keeps the site\'s blue halo');
-ok(/\.orb\s*\{[^}]*radial-gradient\(circle at 50% 42%, rgba\(76, 141, 255, 0\.28\), rgba\(4, 11, 22, 0\.94\) 68%\)/s.test(css),
-  'the voice orb is the deep navy disc with a blue core');
-ok(/\.orb\.speaking[^{]*\{[^}]*rgba\(249, 122, 26, 0\.65\)/s.test(css), 'the orb glows ember while speaking');
+ok(/h1 \{[^}]*letter-spacing: -0\.045em/s.test(css), 'h1 uses the display tracking (-0.045em)');
+ok(/\.orb\s*\{[^}]*radial-gradient\(circle at 50% 42%, rgba\(91, 140, 255, 0\.26\), rgba\(5, 7, 12, 0\.94\) 68%\)/s.test(css),
+  'the voice orb is the near-black disc with a blue core');
+ok(/\.orb\.speaking[^{]*\{[^}]*rgba\(255, 122, 26, 0\.65\)/s.test(css), 'the orb glows orange while speaking');
+ok(/<script src="motion\.js"><\/script>/.test(indexHtml) && /rv-armed/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'motion.js'), 'utf8')),
+  'motion.js (spotlight, reveal, headline) is loaded and only arms the reveal itself');
+ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,800}\.rv-armed \.rv, \.hw \{ opacity: 1 !important/.test(css),
+  'reduced motion shows revealed content in its final state');
 ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,400}\.aurora \{ display: none/.test(css),
   'reduced motion removes the aurora drift');
 
