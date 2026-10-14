@@ -4,12 +4,9 @@ const path = require('path');
 const hubspot = require('../lib/hubspot');
 const core = require('../lib/core');
 process.env.DELIVER_PER_EMAIL_DAY = '1000';
-process.env.PDF_EMAIL_DAILY_MAX = '1000';
 process.env.DEMO_MODE = 'true';
-process.env.EMAIL_VERIFY = 'false';
 try { require('../lib/deliver-limits')._resetMemory(); } catch (e) {}
 try { require('../lib/deliver-idempotency')._resetMemory(); } catch (e) {}
-try { require('../lib/email-verify')._resetMemory(); } catch (e) {}
 try { require('../lib/job-store')._resetMemory(); } catch (e) {}
 const F = dir => require(path.join(__dirname, '..', 'netlify', 'functions', dir));
 const start = F('start.js').handler;
@@ -211,6 +208,46 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
   const badJob = await deliver({ httpMethod: 'POST', path: '/api/deliver', body: JSON.stringify({ token: T, jobId: 'deadbeefdeadbeef', consent: true, blueprint: { meta: { verticalLabel: 'Fake' } } }) });
   ok(badJob.statusCode === 404, 'hand-made blueprint without valid jobId gets 404');
   ok(!JSON.parse(badJob.body).pdf_base64, 'no PDF for invalid jobId');
+
+  /* The job store can miss a finished job (Netlify Blobs reads are eventually consistent; a
+     memory fallback is per process). The status endpoint hands out a server-signed copy, and
+     delivery accepts it only when the signature, the job id and the session email all match. */
+  // Each call carries its own client IP so the per-IP delivery limit never answers for the seal.
+  const seal = gen2.status && gen2.status.seal;
+  ok(typeof seal === 'string' && seal.split('.').length === 2, 'a finished job comes back from status with a signed seal');
+  try { jobs._resetMemory(); idempotency._resetMemory(); } catch (e) {}
+  const lost = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.1' }, path: '/api/deliver', body: JSON.stringify({ token: T, jobId: jobId2, consent: true }) });
+  ok(lost.statusCode === 404, 'without the seal, a job the store lost still cannot be delivered');
+  const sealed = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.2' }, path: '/api/deliver', body: JSON.stringify({ token: T, jobId: jobId2, consent: true, jobSeal: seal }) });
+  ok(sealed.statusCode === 200 && !!JSON.parse(sealed.body).pdf_base64, 'with the seal, the lost job is delivered as a PDF');
+  ok(!!(await jobs.get(jobId2)), 'delivering from the seal puts the job back in the store');
+  try { jobs._resetMemory(); idempotency._resetMemory(); } catch (e) {}
+  const [sb, ss] = seal.split('.');
+  const forged = JSON.parse(Buffer.from(sb, 'base64url').toString('utf8'));
+  forged.blueprint.meta.verticalLabel = 'Forged';
+  const forgedSeal = Buffer.from(JSON.stringify(forged)).toString('base64url') + '.' + ss;
+  const tampered = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.5' }, path: '/api/deliver', body: JSON.stringify({ token: T, jobId: jobId2, consent: true, jobSeal: forgedSeal }) });
+  ok(tampered.statusCode === 404, 'an edited seal is refused');
+  const otherT = core.signToken({ email: 'someone.else@example.ph', name: 'Other', exp: Date.now() + 60000 });
+  const otherUser = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.6' }, path: '/api/deliver', body: JSON.stringify({ token: otherT, jobId: jobId2, consent: true, jobSeal: seal }) });
+  ok(otherUser.statusCode === 404, "another session cannot use someone else's seal");
+  const tokenAsSeal = await deliver({ httpMethod: 'POST', headers: { 'x-nf-client-connection-ip': '10.9.0.7' }, path: '/api/deliver', body: JSON.stringify({ token: T, jobId: jobId2, consent: true, jobSeal: T }) });
+  ok(tokenAsSeal.statusCode === 404, 'a session token is not accepted as a seal');
+  ok(core.verifyToken(seal) === null, 'and a seal is not accepted as a session token');
+
+  // Every Lambda-style function connects the request's Netlify Blobs context before any store call.
+  const helpers = require('../lib/netlify-helpers');
+  helpers.connectBlobs({ headers: {} });
+  ok(!process.env.NETLIFY_BLOBS_CONTEXT, 'connectBlobs is a no-op when the request carries no blob context');
+  helpers.connectBlobs({ blobs: Buffer.from(JSON.stringify({ url: 'https://blobs.example', token: 't' })).toString('base64'), headers: { 'x-nf-deploy-id': 'd1', 'x-nf-site-id': 's1' } });
+  ok(!!process.env.NETLIFY_BLOBS_CONTEXT, 'connectBlobs hands a request blob context to @netlify/blobs');
+  delete process.env.NETLIFY_BLOBS_CONTEXT;
+  const fnDir = require('path').join(__dirname, '..', 'netlify', 'functions');
+  const unconnected = require('fs').readdirSync(fnDir).filter(f => {
+    const src = require('fs').readFileSync(require('path').join(fnDir, f), 'utf8');
+    return /exports\.handler = async \(event\)/.test(src) && !/connectBlobs\(event\)/.test(src);
+  });
+  ok(unconnected.length === 0, 'every function that receives the request connects Netlify Blobs' + (unconnected.length ? ': ' + unconnected.join(', ') : ''));
 
   const exB64 = await extract({ httpMethod: 'POST', path: '/api/extract', isBase64Encoded: true, body: Buffer.from(JSON.stringify({ token: T, answers })).toString('base64') });
   ok(exB64.statusCode === 200, 'extract handles base64-encoded body');
@@ -464,87 +501,34 @@ function patchContactCalls(calls) { return calls.filter(c => c.method === 'PATCH
     delete process.env.HUBSPOT_AUTO_CREATE_PROPS;
   }
 
-  function resendStub(res) {
-    const calls = [];
-    const impl = async (url, init) => {
-      let body = null;
-      try { body = init && init.body ? JSON.parse(init.body) : null; } catch (e) { body = init && init.body; }
-      calls.push({ url: String(url), method: (init && init.method) || 'GET', headers: (init && init.headers) || {}, body });
-      if (res && res.throw) throw res.throw;
-      return hsRes(res && res.status, res && res.body);
-    };
-    return { calls, fetchImpl: impl };
-  }
-
-  process.env.PDF_EMAIL_API_KEY = 're_sim_key';
+  /* The PDF is only ever downloaded in the web app: the deployed deliver function never emails,
+     even with an old email key still set, and the HubSpot note says how the PDF reached the lead. */
+  process.env.PDF_EMAIL_API_KEY = 're_leftover_key';
   process.env.PDF_EMAIL_FROM = 'PipelineSync <blueprints@pipelinesync.ai>';
-  process.env.SCHEDULER_LINK = 'https://meetings.hubspot.com/allen';
   process.env.DELIVER_RATE_PER_MIN = '1000';
   process.env.DELIVER_PER_EMAIL_DAY = '1000';
-  process.env.PDF_EMAIL_DAILY_MAX = '1000';
-  process.env.EMAIL_VERIFY = 'false';
+  process.env.HUBSPOT_ACCESS_TOKEN = 'pat-na1-test-token-xxxxxxxx';
   try { require('../lib/deliver-limits')._resetMemory(); require('../lib/deliver-idempotency')._resetMemory(); require('../lib/job-store')._resetMemory(); } catch (e) {}
-  const origFetchPhase3 = globalThis.fetch;
+  const origFetchNoMail = globalThis.fetch;
   try {
-    // Create a job for email tests
-    const emailGen = await runGenerate(T, fields);
-    const emailJobId = emailGen.jobId;
-
-    const sent = resendStub({ status: 200, body: { id: 're_sim_1' } });
-    globalThis.fetch = sent.fetchImpl;
-    const dvEmail = await deliver({ httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '192.0.2.50' }, body: JSON.stringify({ token: T, jobId: emailJobId, consent: true }) });
-    const djEmail = JSON.parse(dvEmail.body);
-    ok(dvEmail.statusCode === 200 && djEmail.email && djEmail.email.sent === true, 'deliver emails the PDF and reports email.sent:true');
-    ok(djEmail.email.to === 'allen@pipelinesync.ai', 'the recipient is the signed-in address (token email), not body');
-    ok(!!djEmail.pdf_base64, 'the PDF still comes back to the browser');
-    const mailCall = sent.calls[0];
-    ok(!!mailCall && mailCall.url === 'https://api.resend.com/emails' && mailCall.method === 'POST', 'the email goes out as POST https://api.resend.com/emails');
-    ok(mailCall.headers.authorization === 'Bearer re_sim_key', 'the key is read server-side and sent in the Authorization header');
-    ok(mailCall.body.to[0] === 'allen@pipelinesync.ai', 'Resend is asked to mail the token address');
-    const att = mailCall.body.attachments[0];
-    ok(att.filename === djEmail.filename && Buffer.from(att.content, 'base64').slice(0, 5).toString('latin1') === '%PDF-', 'the attachment is the same PDF the browser downloaded');
-    ok(/Hi Allen/.test(mailCall.body.html) && /Book your consultation/.test(mailCall.body.html) && /meetings\.hubspot\.com/.test(mailCall.body.html), 'the email body is the branded HTML, greeting the first name, with the SCHEDULER_LINK booking button');
-    ok(!JSON.stringify(djEmail).includes('re_sim_key'), 'no key material in the API response');
-
-    // Resend failure still returns PDF
-    const jobs = require('../lib/job-store');
-    const idem = require('../lib/deliver-idempotency');
-    try { jobs._resetMemory(); idem._resetMemory(); } catch (e) {}
-    const failGen = await runGenerate(T, fields);
-    const failJobId = failGen.jobId;
-    const refused = resendStub({ status: 422, body: { name: 'validation_error', message: 'The domain is not verified. Verify the domain and try again.' } });
-    globalThis.fetch = refused.fetchImpl;
-    const dvFail = await deliver({ httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '192.0.2.51' }, body: JSON.stringify({ token: T, jobId: failJobId, consent: true }) });
-    const djFail = JSON.parse(dvFail.body);
-    ok(dvFail.statusCode === 200, 'a Resend failure does not fail the request');
-    ok(djFail.email.sent === false && /not verified/.test(djFail.email.error), 'the failure is reported as sent:false with the reason');
-    ok(!!djFail.pdf_base64 && djFail.filename === djEmail.filename, 'the PDF is still returned: email failure never blocks the download');
-
-    // HubSpot note records email result
-    process.env.HUBSPOT_ACCESS_TOKEN = 'pat-na1-test-token-xxxxxxxx';
     const hsStub = makeHsStub();
-    const hsSent = resendStub({ status: 200, body: { id: 're_sim_note' } });
-    globalThis.fetch = async (url, init) => (String(url).indexOf('api.resend.com') >= 0 ? hsSent.fetchImpl(url, init) : hsStub.fetchImpl(url, init));
-    try { jobs._resetMemory(); idem._resetMemory(); } catch (e) {}
-    const noteGen = await runGenerate(T, fields);
-    const noteJobId = noteGen.jobId;
-    await deliver({ httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '192.0.2.52' }, body: JSON.stringify({ token: T, jobId: noteJobId, consent: true }) });
+    globalThis.fetch = hsStub.fetchImpl;
+    const noMailGen = await runGenerate(T, fields);
+    const dvNoMail = await deliver({ httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '192.0.2.50' }, body: JSON.stringify({ token: T, jobId: noMailGen.jobId, consent: true }) });
+    const djNoMail = JSON.parse(dvNoMail.body);
+    ok(dvNoMail.statusCode === 200 && !!djNoMail.pdf_base64 && !('email' in djNoMail), 'deliver returns the PDF to download and reports no email');
+    ok(!hsStub.calls.some(c => !/api\.hubapi\.com/.test(c.url)), 'no request goes to an email provider, even with a leftover key');
     const notePost = hsStub.calls.filter(c => c.method === 'POST' && c.url.indexOf('/objects/notes') >= 0)[0];
     const noteBody = notePost && notePost.body && notePost.body.properties && notePost.body.properties.hs_note_body;
-    ok(/Email: sent to allen@pipelinesync\.ai \(Resend re_sim_note\)/.test(noteBody || ''), 'the HubSpot note records the email result from Phase 1, with the Resend id');
-    ok(/audio_retained: false/.test(noteBody || '') || true, 'the note still records that no audio was retained');
+    ok(/PDF: downloaded by the lead in the web app \(not emailed\)/.test(noteBody || '') && !/Email: /.test(noteBody || ''),
+      'the HubSpot note says the PDF was downloaded in the app, with no email line');
   } finally {
-    globalThis.fetch = origFetchPhase3;
+    globalThis.fetch = origFetchNoMail;
     delete process.env.PDF_EMAIL_API_KEY;
     delete process.env.PDF_EMAIL_FROM;
-    delete process.env.SCHEDULER_LINK;
     delete process.env.DELIVER_RATE_PER_MIN;
     delete process.env.DELIVER_PER_EMAIL_DAY;
-    delete process.env.PDF_EMAIL_DAILY_MAX;
-    delete process.env.EMAIL_VERIFY;
     delete process.env.HUBSPOT_ACCESS_TOKEN;
-    delete process.env.HUBSPOT_API_KEY;
-    delete process.env.HUBSPOT_TOKEN;
     try { require('../lib/deliver-limits')._resetMemory(); require('../lib/deliver-idempotency')._resetMemory(); require('../lib/job-store')._resetMemory(); } catch (e) {}
   }
 

@@ -51,7 +51,8 @@ function saveJourneyState() {
       stage: state.stage,
       answers: state.answers,
       fields: state.fields,
-      jobId: state.jobId
+      jobId: state.jobId,
+      jobSeal: state.jobSeal
     };
     sessionStore.set('ps_journey', JSON.stringify(data));
   } catch (e) {}
@@ -76,6 +77,7 @@ function restoreJourneyState() {
       state.fields = data.fields;
       restored = true;
     }
+    if (data.jobSeal && typeof data.jobSeal === 'string') state.jobSeal = data.jobSeal;
     if (data.jobId && typeof data.jobId === 'string') {
       state.jobId = data.jobId;
       restored = true;
@@ -183,7 +185,8 @@ const state = {
   fields: null,          // Section 7 contract (from job record now)
   blueprint: null,
   jobId: null,           // server-side job id for blueprint
-  delivered: null,       // {contact_id, filename, pdf_base64, email, email_result, hubspot, duplicate, persistence}
+  jobSeal: null,         // server-signed copy of the finished job, used if the job store misses it
+  delivered: null,       // {contact_id, filename, pdf_base64, hubspot, duplicate, persistence}
   booking: null,         // {day, slot}
   schedulerLink: null, // from /api/config (SCHEDULER_LINK env)
   turnstileSiteKey: null, // from /api/config when TURNSTILE_SITE_KEY is set
@@ -200,14 +203,12 @@ const state = {
   fieldErrors: null,     // per-field errors returned by the server-side re-validation
   progress: null,        // real generation progress from /api/generate/status: {label, percent}
   blueprintSource: null,  // 'claude' | 'fallback', as reported by the API
-  emailVerify: { code: '', sending: false, sent: false, error: null }, // for EMAIL_VERIFY flow
   /* Zero-touch (AUTO_DELIVER, see lib/autopilot.js): the server decides it and /api/config
      reports it. When it is on, the call runs straight into the blueprint and the PDF is delivered
      without a review or unlock screen; the review screen survives only for the figures the call
      did not capture, and as an optional escape hatch. */
   auto: false,
   configReady: null,     // resolves when /api/config has answered (the autopilot waits for it)
-  autoFullReview: false, // the visitor chose "Review everything" in zero-touch mode
   deliverError: null     // why the automatic delivery failed, when it did
 };
 function saveAuth() {
@@ -221,8 +222,7 @@ function resetJourney() {
   state.hubspot = null;
   state.voice = null; state.showTranscript = false; state.sideOpen = false; state.fieldError = null;
   state.fieldErrors = null; state.progress = null; state.blueprintSource = null;
-  state.emailVerify = { code: '', sending: false, sent: false, error: null };
-  state.autoFullReview = false; state.deliverError = null;
+  state.deliverError = null; state.jobSeal = null;
   sessionStore.remove('ps_journey');
 }
 
@@ -2348,16 +2348,13 @@ function topbar() {
 /* The step rail doubles as the progress bar: a compact count on phones, the full rail on
    desktop. Labels are wrapped in .label so CSS can drop them at narrow widths. */
 function steps() {
-  /* The rail mirrors the journey order, not alphabetical stage names: the same
-     label has to light up for every stage inside one phase, and the progress
-     must never move backwards. consent/intake share "Discovery", extracting is
-     the gap-analysis pass, review is "Review signals", generating + blueprint
-     are "Blueprint", and booking + done are the final "Next Steps". */
-  const order = ['intake', 'extracting', 'review', 'blueprint', 'booking', 'done'];
-  const phaseOf = { consent: 0, intake: 0, extracting: 1, generating: 3 };
-  let idx = phaseOf[state.stage];
-  if (idx === undefined) idx = order.indexOf(state.stage);
-  const labels = ['Discovery', 'Gap Analysis', 'Review', 'Blueprint', 'Next Steps'];
+  /* The rail mirrors the journey, not the stage names: every stage inside one phase lights the same
+     label, and progress never moves backwards. consent/intake are "Discovery"; extracting (and the
+     short card that asks for a missing required figure) is "Gap Analysis"; generating and the
+     blueprint are "Blueprint"; booking and done are "Next Steps". There is no review step. */
+  const phaseOf = { consent: 0, intake: 0, extracting: 1, review: 1, generating: 2, blueprint: 2, booking: 3, done: 3 };
+  const idx = phaseOf[state.stage] != null ? phaseOf[state.stage] : 0;
+  const labels = ['Discovery', 'Gap Analysis', 'Blueprint', 'Next Steps'];
   const at = Math.max(0, Math.min(labels.length - 1, idx < 0 ? 0 : idx));
   const pct = Math.max(0, Math.min(100, Math.round(((at + 1) / labels.length) * 100)));
   let h = '<nav class="steps" aria-label="Progress">' +
@@ -2381,7 +2378,7 @@ function footer() {
 /* ---------------- the entry gate: name + email, then the AI voice call ----------------
  * There is no password and no account to create. The name is what the AI interviewer
  * calls the client on the call (sent as client_name on /api/voice/turn) and what lands
- * on the HubSpot lead. The email is where the finished blueprint PDF is delivered.
+ * on the HubSpot lead. The finished blueprint PDF is downloaded in the app, never emailed.
  * Production swaps this form for Supabase Auth (magic link or OTP) with the same shape. */
 function initialsFor(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -2563,9 +2560,8 @@ function consentView() {
     '<div class="notice info" id="consent-notice">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
       '<div>Your name, email and answers are saved to our CRM (HubSpot) so our team can follow up. The voice call is processed by OpenAI and your blueprint by Anthropic\'s Claude.' +
-      /* Zero-touch sends the finished PDF to this address as soon as the call ends, so say so
-         before the call starts rather than surprising them with an email afterwards. */
-      (state.auto ? ' When we finish, your blueprint PDF is emailed to ' + esc(state.user.email || 'your email') + '.' : '') +
+      /* Zero-touch downloads the finished PDF as soon as it is built, so say so before the call. */
+      (state.auto ? ' When we finish, your blueprint PDF downloads right here in the app.' : '') +
       ' Audio is never stored.' + privacyLink + '</div>' +
     '</div>' +
     '<label class="checkline"><input type="checkbox" id="consent-cb"> I agree to continue.</label>' +
@@ -2685,10 +2681,10 @@ function callControls(started, total) {
     h += '<button class="btn btn-ghost" id="type-btn">Type instead</button>';
     h += '</div>';
     if (!v.done) {
-      h += '<div class="call-row"><button class="btn btn-end" id="end-call-btn" type="button" title="' + (state.auto ? 'Stop the call - Nova writes the blueprint from what we captured' : 'Stop the call and review what we captured') + '">End conversation</button></div>';
+      h += '<div class="call-row"><button class="btn btn-end" id="end-call-btn" type="button" title="' + 'Stop the call - Nova writes the blueprint from what we captured' + '">End conversation</button></div>';
     }
     if (v.done) {
-      h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">' + (state.auto ? 'Build my blueprint' : 'Review what we heard') +'</button></div>';
+      h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">' + 'Build my blueprint' +'</button></div>';
     }
     if (v.typed) {
       h += '<div class="chat-input"><textarea id="intake-input" rows="1" placeholder="Type your answer..."></textarea>' +
@@ -2711,7 +2707,7 @@ function callControls(started, total) {
   if (v.currentQuestionId && !v.done) h += '<button class="btn btn-ghost" id="skip-btn">Skip</button>';
   h += '</div>';
   if (v.done) {
-    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">' + (state.auto ? 'Build my blueprint' : 'Review what we heard') +'</button></div>';
+    h += '<div class="call-row"><button class="btn btn-primary btn-lg" id="structure-btn">' + 'Build my blueprint' +'</button></div>';
   }
   if (v.typed) {
     h += '<div class="chat-input"><textarea id="intake-input" rows="1" placeholder="Type your answer..."></textarea>' +
@@ -2974,6 +2970,31 @@ async function startExtraction() {
   }
   await continueExtraction();
 }
+/* The whole conversation, both sides, as extra answers for the final structuring pass. The
+   realtime model only files an answer when it decides to call record_answer, so anything the
+   visitor said around a question (or that the model never filed) is missing from state.answers.
+   Claude reads this too (lib/prompts.js PROMPT_B) and takes values only from the client's lines.
+   Split at line breaks into chunks the server accepts (5000 chars, 20 answers in total). */
+const TRANSCRIPT_CHUNK = 4800;
+function transcriptAnswers() {
+  const v = voiceSync();
+  const room = 20 - state.answers.length;
+  if (room <= 0 || !v || !Array.isArray(v.transcript) || !v.transcript.length) return [];
+  const lines = v.transcript
+    .filter(t => t && String(t.text || '').trim())
+    .map(t => (t.role === 'ai' ? 'Nova: ' : 'Client: ') + String(t.text).replace(/\s+/g, ' ').trim().slice(0, TRANSCRIPT_CHUNK));
+  const chunks = [];
+  let cur = '';
+  lines.forEach(l => {
+    if (cur && cur.length + 1 + l.length > TRANSCRIPT_CHUNK) { chunks.push(cur); cur = ''; }
+    cur = cur ? cur + '\n' + l : l;
+  });
+  if (cur) chunks.push(cur);
+  // Too long for the room left: keep the start and the end of the call, where the figures and the
+  // closing summary usually are.
+  const keep = chunks.length <= room ? chunks : chunks.slice(0, Math.ceil(room / 2)).concat(chunks.slice(chunks.length - Math.floor(room / 2)));
+  return keep.map((text, i) => ({ id: i === 0 ? 'call_transcript' : 'call_transcript_' + (i + 1), text }));
+}
 /* The structuring pass itself (Function A), split out from startExtraction so a reload that lands
    on the "Structuring your signals" loader can pick the pass back up instead of hanging there. */
 async function continueExtraction() {
@@ -2982,7 +3003,7 @@ async function continueExtraction() {
   state.progress = { label: 'Structuring your answers', percent: null };
   render();
   try {
-    const j = await api.post('/api/extract', { answers: state.answers });
+    const j = await api.post('/api/extract', { answers: state.answers.concat(transcriptAnswers()) });
     state.fields = j.fields;
     await afterExtraction();
   } catch (e) {
@@ -3012,23 +3033,28 @@ async function continueExtraction() {
  * The mode comes from /api/config (AUTO_DELIVER). With it off, every function here returns early
  * and the manual review -> confirm -> unlock journey is byte-for-byte the one that came before.
  */
+/* The same checks the server's generate step makes (lib/blueprint-schema.js), so a blueprint is
+   only requested with figures it will accept, and anything it would refuse is asked for here. */
+function badFigure(f, k) {
+  const n = Number(f[k]);
+  return f[k] == null || f[k] === '' || isNaN(n) || n <= 0 || (k === 'close_rate' && n > 100);
+}
+function badCloseType(f) {
+  return ['one-call', 'two-call'].indexOf(String(f.close_type == null ? '' : f.close_type).trim().toLowerCase()) < 0;
+}
 function autoReady(f) {
   f = f || {};
-  const missing = REQUIRED.filter(k => f[k] == null || isNaN(f[k]) || f[k] <= 0);
-  return missing.length === 0 && f.close_type != null;
+  return REQUIRED.every(k => !badFigure(f, k)) && !badCloseType(f);
 }
 function autoMissing(f) {
   f = f || {};
-  return {
-    numbers: REQUIRED.filter(k => f[k] == null || isNaN(f[k]) || f[k] <= 0),
-    closeType: f.close_type == null
-  };
+  return { numbers: REQUIRED.filter(k => badFigure(f, k)), closeType: badCloseType(f) };
 }
 /* What Nova says happens next, matching the journey the browser is actually running. */
 function closeNextSpoken() {
   return state.auto
-    ? 'the blueprint is being written from everything they gave and will reach their inbox as a PDF in the next few minutes, with a human review before anything is used'
-    : 'they will review and correct what we captured on screen, and a human reviews the blueprint';
+    ? 'the blueprint is being written from everything they gave and will download as a PDF on screen in a moment, with a human review before anything is used'
+    : 'the blueprint is being built from everything they gave and they can download it as a PDF on screen in a moment, with a human review before anything is used';
 }
 /* The zero-touch decision needs the server's answer, and the visitor can reach the end of a call
    long before a slow /api/config lands. Wait for it - but never on the network: a config that never
@@ -3040,7 +3066,6 @@ async function awaitConfig() {
 /* The call is over and the answers are structured. In zero-touch this is the hand-off: build it. */
 async function afterExtraction() {
   await awaitConfig();
-  if (!state.auto) { state.stage = 'review'; render(); return; }
   const f = state.fields || {};
   if (autoReady(f)) { startGeneration(f); return; }
   state.stage = 'review';
@@ -3048,34 +3073,26 @@ async function afterExtraction() {
 }
 /* Zero-touch: deliver the PDF without making the visitor find the unlock button. The recipient is
    the address the session was created with - never one typed again on the page. Delivery is
-   idempotent server-side, so a reload or a retry returns the same PDF instead of a second email.
+   idempotent server-side, so a reload or a retry returns the same PDF instead of a second CRM record.
    A failure is survivable: the blueprint stays on screen and the manual unlock stays available. */
 async function autoDeliverNow() {
   if (!state.auto || !state.jobId) { render(); return; }
   state.stage = 'generating';
-  state.progress = { label: 'Delivering your PDF', percent: null };
+  state.progress = { label: 'Preparing your PDF', percent: null };
   state.deliverError = null;
   render();
   try {
     const consent = state.consent || {};
     const j = await api.post('/api/deliver', {
       jobId: state.jobId,
+          jobSeal: state.jobSeal,
       consent: true,          // given on the consent screen, carried through with its timestamp
-      auto: true,             // first delivery to the session address; no code step, no click
+      auto: true,             // consent was given on the consent screen; no unlock click
       consent_at: consent.at || null,
       consent_version: consent.version || state.consentVersion || null,
       voice_meta: voiceMeta()
     });
-    const emailResult = j.email || null;
-    state.delivered = {
-      contact_id: j.contact_id, filename: j.filename,
-      pdf_base64: j.pdf_base64,
-      email: (emailResult && emailResult.to) || state.user.email,
-      email_result: emailResult,
-      hubspot: j.hubspot || { mocked: true, ok: false },
-      duplicate: !!j.duplicate,
-      persistence: j.persistence || { ok: true }
-    };
+    state.delivered = deliveredFrom(j);
     state.stage = 'blueprint';
     state.progress = null;
     render();
@@ -3085,7 +3102,7 @@ async function autoDeliverNow() {
     state.deliverError = e.message;
     state.stage = 'blueprint';
     render();
-    toast('The blueprint is ready, but it could not be sent automatically. ' + e.message, true);
+    toast('The blueprint is ready, but the PDF could not be prepared automatically. ' + e.message, true);
   }
 }
 
@@ -3098,12 +3115,13 @@ async function resumeGeneration(jobId, thenStage) {
   try {
     const bp = await pollGeneration(jobId);
     state.blueprint = bp.blueprint;
+    state.jobSeal = bp.seal || state.jobSeal || null;
     state.blueprintSource = bp.source || null;
     if (bp.fields) state.fields = bp.fields;
     state.stage = (thenStage === 'booking' || thenStage === 'done') ? thenStage : 'blueprint';
     state.progress = null;
     /* Zero-touch after a reload: the job record still has the document, and the deliver endpoint is
-       idempotent, so this returns the same PDF without sending a second email. */
+       idempotent, so this returns the same PDF without a second CRM record. */
     await awaitConfig();
     if (state.auto && !state.delivered) { autoDeliverNow(); return; }
     render();
@@ -3127,13 +3145,9 @@ function resumeJourneyAfterReload() {
   if (state.stage === 'intake') { refreshFieldStatus(); return; }
   if (state.stage === 'extracting') { continueExtraction(); return; }
   if (state.stage === 'review' && !state.fields && state.answers.length) { continueExtraction(); return; }
-  /* A reload that lands on the review screen while zero-touch is on must not stall the journey on a
-     screen the visitor never asked for: continue the hand-off the reload interrupted. The mode
-     arrives with /api/config, so wait for it before deciding. */
-  if (state.stage === 'review' && !state.autoFullReview) {
-    awaitConfig().then(() => { if (state.auto) afterExtraction(); });
-    return;
-  }
+  /* A reload that lands on the missing-figures card with everything already there continues the
+     hand-off the reload interrupted, instead of stalling on a card with nothing to ask. */
+  if (state.stage === 'review' && state.fields && autoReady(state.fields)) { afterExtraction(); return; }
   const needsBlueprint = state.stage === 'generating' || state.stage === 'blueprint' ||
     state.stage === 'booking' || state.stage === 'done';
   if (needsBlueprint && !state.blueprint) {
@@ -3175,8 +3189,10 @@ function autoNeedsView() {
   const f = state.fields || {};
   const miss = autoMissing(f);
   const labels = miss.numbers.map(k => FIELD_LABELS[k] || k);
-  const title = labels.length + (miss.closeType ? 1 : 0) === 1
-    ? 'One thing Nova still needs' : 'A couple of things Nova still needs';
+  const count = labels.length + (miss.closeType ? 1 : 0);
+  // Nothing missing means the build itself failed (a network or server error): offer a retry.
+  const title = count === 0 ? 'Ready to build your blueprint'
+    : count === 1 ? 'One thing Nova still needs' : 'A couple of things Nova still needs';
   const captured = Object.keys(FIELD_LABELS)
     .filter(k => k !== 'current_tools' && f[k] != null && f[k] !== '' && !miss.numbers.includes(k) && !(k === 'close_type' && miss.closeType))
     .slice(0, 8)
@@ -3198,11 +3214,12 @@ function autoNeedsView() {
     : '';
   return '<div class="card hud-frame">' +
     '<div class="review-header"><h2>' + title + '</h2></div>' +
-    '<p>The call is done and Nova has written up everything else. These are the figures the ' +
-      'blueprint has to be built on, and Nova will not guess them: ' + esc(labels.concat(miss.closeType ? [FIELD_LABELS.close_type] : []).join(', ')) + '.</p>' +
+    (count === 0
+      ? '<p>Everything Nova needs from the call is here. Building the blueprint did not finish, so try again.</p>'
+      : '<p>The call is done and Nova has written up everything else. These are the figures the ' +
+        'blueprint has to be built on, and Nova will not guess them: ' + esc(labels.concat(miss.closeType ? [FIELD_LABELS.close_type] : []).join(', ')) + '.</p>') +
     '<div class="grid-2">' + numFields + closeField + '</div>' +
-    '<div class="btn-row"><button class="btn btn-primary" id="auto-needs-go" disabled>Build my blueprint</button>' +
-      '<button class="btn btn-ghost" id="auto-needs-review">Review everything</button></div>' +
+    '<div class="btn-row"><button class="btn btn-primary" id="auto-needs-go" disabled>' + (count === 0 ? 'Try again' : 'Build my blueprint') + '</button></div>' +
     '<p class="small muted mt8" id="auto-needs-hint" role="status"></p>' +
     (captured ? '<details class="mt8"><summary>What Nova captured on the call</summary><div class="kv-list">' + captured + '</div></details>' : '') +
     '</div>';
@@ -3235,7 +3252,6 @@ function bindAutoNeeds() {
     el.addEventListener('change', () => { state.fields = collectFields(); check(); });
   });
   const go = $('#auto-needs-go');
-  const review = $('#auto-needs-review');
   check();
   if (go) go.onclick = () => {
     const f = collectFields();
@@ -3243,139 +3259,16 @@ function bindAutoNeeds() {
     if (!check()) return;
     startGeneration(f);
   };
-  if (review) review.onclick = () => { state.fields = collectFields(); state.autoFullReview = true; render(); };
   const firstEmpty = inputs.filter(el => !String(el.value || '').trim())[0];
   if (firstEmpty) firstEmpty.focus();
 }
+/* There is no review screen. After the call the blueprint is built straight from what Claude
+   structured out of the whole conversation. This stage survives only as the guardrail: a required
+   figure the visitor never stated (or the server rejected) is asked for on one short card, never
+   guessed. */
 function reviewView() {
-  /* Zero-touch never lands here with everything it needs; when a required figure is missing this
-     is the short card instead of the full editable contract. "Review everything" opens the full
-     form, which is the original manual screen - one link away, never in the way. */
-  if (state.auto && !state.autoFullReview && !autoReady(state.fields || {})) return autoNeedsView();
-  const f = state.fields;
-  // Nothing captured yet (a session opened without a call): say so and offer the way in,
-  // rather than the screen reading a field set that does not exist.
-  if (!f) return emptyHtml();
-  const isNull = v => v === null || v === '' || (Array.isArray(v) && !v.length);
-  // What the voice model says it heard on the call, used only to help fill gaps the parser missed.
-  const heard = (state.voice && state.voice.capture && state.voice.capture.heard) || {};
-  const heardNote = k => {
-    const h = heard[k];
-    if (!h) return '';
-    return '<div class="heard">Heard: <b>' + esc(h.value) + '</b>' +
-      (h.evidence ? ' <span>("' + esc(String(h.evidence).slice(0, 110)) + '")</span>' : '') +
-      '<button class="btn btn-ghost btn-sm" data-heard="' + k + '">Use</button></div>';
-  };
-  const groupHtml = (title, fields) => {
-    let h = '<div class="review-group hud-frame"><h3>' + esc(title) + '</h3><div class="review-grid">';
-    fields.forEach(cfg => {
-      const v = f[cfg.k];
-      const nullish = isNull(v);
-      const req = cfg.required ? ' <span class="req">REQUIRED</span>' : '';
-      const badge = nullish ? '<span class="nullbadge">Missing</span>' : '';
-      const full = cfg.full ? ' review-full' : '';
-      if (cfg.type === 'products') {
-        const rows = (f.products || []).map((p, i) =>
-          '<tr><td><input type="text" data-prod="' + i + '" data-pk="name" value="' + esc(p.name) + '" maxlength="200" aria-label="Product name"></td>' +
-          '<td class="col-price"><input type="number" inputmode="decimal" step="any" data-prod="' + i + '" data-pk="price" value="' + esc(p.price) + '" placeholder="PHP" aria-label="Product price"></td>' +
-          '<td class="col-pre"><input type="text" data-prod="' + i + '" data-pk="prerequisite" value="' + esc(p.prerequisite) + '" placeholder="Needs..." maxlength="200" aria-label="Prerequisite"></td>' +
-          '<td><button class="del" data-del-prod="' + i + '" title="Remove row" aria-label="Remove product">&times;</button></td></tr>'
-        ).join('');
-        h += '<div class="field review-full' + (nullish ? ' is-null' : '') + '"><label>Products and services ' + badge + '</label>' +
-          '<div class="tbl-wrap"><table class="tbl tbl-edit"><tr><th>Product / service</th><th>Price</th><th>Prerequisite</th><th class="col-del"><span class="sr-only">Remove</span></th></tr>' + rows + '</table></div>' +
-          '<button class="btn btn-ghost btn-sm mt8" id="add-prod">Add product</button></div>';
-      } else if (cfg.type === 'sources') {
-        const rows = (f.lead_sources || []).map((s, i) =>
-          '<tr><td><input type="text" data-src="' + i + '" data-sk="source" value="' + esc(s.source) + '" maxlength="100" aria-label="Lead source"></td>' +
-          '<td class="col-vol"><input type="number" inputmode="numeric" step="1" data-src="' + i + '" data-sk="monthly_volume" value="' + esc(s.monthly_volume) + '" placeholder="per month" aria-label="Monthly volume"></td>' +
-          '<td class="col-tracked"><select data-src="' + i + '" data-sk="tracked" aria-label="Tracked?">' +
-          '<option value="unknown"' + (s.tracked == null ? ' selected' : '') + '>Unknown</option>' +
-          '<option value="yes"' + (s.tracked === true ? ' selected' : '') + '>Tracked</option>' +
-          '<option value="no"' + (s.tracked === false ? ' selected' : '') + '>Not tracked</option></select></td>' +
-          '<td><button class="del" data-del-src="' + i + '" title="Remove row" aria-label="Remove source">&times;</button></td></tr>'
-        ).join('');
-        h += '<div class="field review-full' + (nullish ? ' is-null' : '') + '"><label>Lead sources ' + badge + '</label>' +
-          '<div class="tbl-wrap"><table class="tbl tbl-edit"><tr><th>Source</th><th>Monthly volume</th><th>Tracked?</th><th class="col-del"><span class="sr-only">Remove</span></th></tr>' + rows + '</table></div>' +
-          '<button class="btn btn-ghost btn-sm mt8" id="add-src">Add source</button></div>';
-      } else if (cfg.type === 'tags') {
-        h += '<div class="field' + full + '"><label>Current tools ' + badge + '</label>' +
-          '<input data-key="' + cfg.k + '" type="text" value="' + esc(Array.isArray(v) ? v.join(', ') : (v || '')) + '" placeholder="Comma separated" maxlength="500"></div>';
-      } else if (cfg.type === 'select') {
-        const opts = cfg.options.map(o => '<option value="' + o + '"' + (v === o ? ' selected' : '') + '>' + o + '</option>').join('');
-        h += '<div class="field' + (nullish ? ' is-null' : '') + full + '"><label>' + esc(cfg.label) + req + badge + '</label>' +
-          '<select data-key="' + cfg.k + '" data-type="select"' + (v == null ? ' data-nullsel="1"' : '') + ' aria-label="' + esc(cfg.label) + '">' + (v == null ? '<option value="" selected>We didn&#39;t capture this yet - please select</option>' : '') + opts + '</select>' +
-          (cfg.k === 'close_type' && nullish ? '<div class="small field-warn">Please select how you close - this affects pipeline stages</div>' : '') +
-          (nullish ? heardNote(cfg.k) : '') + '</div>';
-      } else if (cfg.type === 'textarea') {
-        h += '<div class="field' + (nullish ? ' is-null' : '') + ' review-full"><label>' + esc(cfg.label) + req + badge + '</label>' +
-          '<textarea data-key="' + cfg.k + '" data-type="text" maxlength="2000">' + esc(v) + '</textarea>' +
-          (nullish ? heardNote(cfg.k) : '') + '</div>';
-      } else {
-        const numeric = cfg.type === 'money' || cfg.type === 'number';
-        const ph = cfg.type === 'money' ? 'PHP amount' : cfg.type === 'number' ? 'Number' : 'Text';
-        // Keep the native type in sync with data-type. Without an explicit type these controls
-        // fall back to the browser's unstyled default input, because the design-system rules
-        // target .field input[type=text] and .field input[type=number]. inputmode keeps the
-        // numeric keypad consistent with the native numeric control.
-        const inputType = numeric ? 'number' : 'text';
-        const inputMode = numeric ? ' inputmode="decimal" step="any"' : '';
-        h += '<div class="field' + (nullish ? ' is-null' : '') + full + '"><label>' + esc(cfg.label) + req + badge + '</label>' +
-          '<input data-key="' + cfg.k + '" data-type="' + (numeric ? 'number' : 'text') + '" type="' + inputType + '"' + inputMode + ' value="' + esc(v) + '" placeholder="' + ph + '" maxlength="200">' +
-          (nullish ? heardNote(cfg.k) : '') + '</div>';
-      }
-    });
-    return h + '</div></div>';
-  };
-  const groups = [
-    ['1. Deal economics', [
-      { k: 'typical_deal_size', label: 'Typical deal size', type: 'money', required: true },
-      { k: 'monthly_lead_volume', label: 'Monthly lead volume', type: 'number', required: true },
-      { k: 'close_rate', label: 'Close rate (%)', type: 'number', required: true },
-      { k: 'monthly_deal_volume', label: 'Monthly deal volume', type: 'number' },
-      { k: 'sales_cycle_length', label: 'Sales cycle length (weeks)', type: 'number' }
-    ]],
-    ['2. Sales motion', [
-      { k: 'close_type', label: 'Close type', type: 'select', options: ['one-call', 'two-call'] },
-      { k: 'sales_reps_on_calls', label: 'Sales reps on calls', type: 'number' },
-      { k: 'sales_process_notes', label: 'Sales process notes', type: 'textarea' }
-    ]],
-    ['3. Lead channels & stack', [
-      { k: 'lead_sources', label: '', type: 'sources', full: true },
-      { k: 'lead_capture_method', label: 'Lead capture method', type: 'text' },
-      { k: 'current_crm', label: 'Current CRM', type: 'text' },
-      { k: 'current_hubspot_tier', label: 'Current HubSpot tier', type: 'text' },
-      { k: 'current_tools', label: '', type: 'tags', full: true }
-    ]],
-    ['4. Operations', [
-      { k: 'industry', label: 'Industry (vertical)', type: 'text' },
-      { k: 'business_description', label: 'Business description', type: 'textarea' },
-      { k: 'products', label: '', type: 'products', full: true },
-      { k: 'fulfilment_headcount', label: 'Fulfilment headcount', type: 'number' },
-      { k: 'fulfilment_method', label: 'Fulfilment method', type: 'text' },
-      { k: 'marketing_ops_owner', label: 'Marketing and ops owner', type: 'text' }
-    ]],
-    ['5. Growth targets', [
-      { k: 'biggest_headache', label: 'Biggest headache', type: 'textarea' },
-      { k: 'six_month_goal', label: 'Six-month goal', type: 'textarea' },
-      { k: 'monthly_marketing_spend', label: 'Monthly marketing spend', type: 'money' },
-      { k: 'monthly_software_budget', label: 'Monthly software budget', type: 'money' }
-    ]]
-  ];
-  const v = state.voice;
-  /* main's review screen grew a local `callModeLabel` string for the same three cases. It shadowed
-     the module-level callModeLabel(v) that the call head also uses, and the review screen called
-     that shadow as a function - a guaranteed TypeError the moment a call was reviewed. One label
-     function, shared by the call head and the review screen, is the merge of the two intents. */
-  const callLine = v && v.startedAt
-    ? '<div class="call-summary">' + providerBadge() + ' <span class="small muted">' + callModeLabel(v) +
-      ' &bull; ' + v.turns + ' turns &bull; audio not retained</span></div>'
-    : '';
-  let h = '<div class="card hud-frame"><div class="review-header"><h2>Review signals</h2>' + callLine + '</div>';
-  groups.forEach(g => { h += groupHtml(g[0], g[1]); });
-  h += '<div class=\"btn-row\"><button class=\"btn btn-primary\" id=\"confirm-fields\">Review my plan</button>' +
-    '<button class=\"btn btn-ghost\" id=\"back-intake\">Back to call</button></div>' +
-    '<p class=\"small muted mt8\" id=\"confirm-hint\" role=\"status\"></p></div>';
-  return h;
+  if (!state.fields) return emptyHtml();
+  return autoNeedsView();
 }
 function collectFields() {
   const f = JSON.parse(JSON.stringify(state.fields));
@@ -3398,7 +3291,8 @@ function collectFields() {
     if (pk === 'price') prods[i].price = v === '' ? null : parseFloat(String(v).replace(/[^0-9.]/g, ''));
     else prods[i][pk] = v;
   });
-  f.products = prods.filter(p => p && p.name);
+  // The short card has no product or source inputs: keep what the call captured.
+  if (document.querySelector('[data-prod]')) f.products = prods.filter(p => p && p.name);
   // sources
   const srcs = [];
   document.querySelectorAll('[data-src]').forEach(el => {
@@ -3409,115 +3303,8 @@ function collectFields() {
     else if (sk === 'tracked') srcs[i].tracked = el.value === 'yes' ? true : el.value === 'no' ? false : null;
     else srcs[i][sk] = v;
   });
-  f.lead_sources = srcs.filter(s => s && s.source);
+  if (document.querySelector('[data-src]')) f.lead_sources = srcs.filter(s => s && s.source);
   return f;
-}
-function bindReview() {
-  const hint = $('#confirm-hint');
-  const check = () => {
-    const f = collectFields();
-    const missing = REQUIRED.filter(k => f[k] == null || isNaN(f[k]) || f[k] <= 0);
-    const missingClose = f.close_type == null;
-    let msg = '';
-    if (missing.length) msg += 'Still needed before we can generate: ' + missing.map(k => FIELD_LABELS[k]).join(', ') + '. ';
-    if (missingClose) msg += 'Please select Close type (one-call or two-call). ';
-    if (!msg) msg = 'All required numbers are set. The blueprint will be grounded in these figures.';
-    hint.textContent = msg;
-    hint.style.color = (missing.length || missingClose) ? 'var(--amber)' : 'var(--green)';
-    const btn = $('#confirm-fields');
-    if (btn) btn.disabled = missing.length > 0 || missingClose;
-  };
-  check();
-  $('#confirm-fields').onclick = () => {
-    const f = collectFields();
-    if (f.close_type == null) {
-      toast('Please select Close type before generating', true);
-      return;
-    }
-    startGeneration(f);
-  };
-  $('#back-intake').onclick = () => { state.stage = 'intake'; render(); };
-  const addProd = $('#add-prod');
-  if (addProd) addProd.onclick = () => {
-    const f = collectFields();
-    state.fields = f;
-    state.fields.products.push({ name: '', price: null, prerequisite: null });
-    render();
-    setTimeout(() => {
-      const last = document.querySelector('[data-prod]:last-of-type');
-      if (last) last.focus();
-      checkRefocus('confirm-fields');
-    }, 0);
-  };
-  const addSrc = $('#add-src');
-  if (addSrc) addSrc.onclick = () => {
-    const f = collectFields();
-    state.fields = f;
-    state.fields.lead_sources.push({ source: '', monthly_volume: null, tracked: null });
-    render();
-    setTimeout(() => {
-      const last = document.querySelector('[data-src]:last-of-type');
-      if (last) last.focus();
-      checkRefocus('confirm-fields');
-    }, 0);
-  };
-  document.querySelectorAll('[data-del-prod]').forEach(b => b.onclick = () => {
-    const i = b.getAttribute('data-del-prod');
-    const f = collectFields();
-    f.products.splice(+i, 1);
-    state.fields = f; render(); check();
-  });
-  document.querySelectorAll('[data-del-src]').forEach(b => b.onclick = () => {
-    const i = b.getAttribute('data-del-src');
-    const f = collectFields();
-    f.lead_sources.splice(+i, 1);
-    state.fields = f; render(); check();
-  });
-  document.querySelectorAll('[data-heard]').forEach(b => b.onclick = () => {
-    const k = b.getAttribute('data-heard');
-    const raw = (((state.voice || {}).capture || {}).heard || {})[k];
-    const el = document.querySelector('[data-key="' + k + '"]');
-    if (!raw || !el) return;
-    const type = el.getAttribute('data-type') || 'text';
-    if (type === 'number') { const n = looseNumber(raw.value); el.value = n == null ? '' : n; }
-    else if (type === 'select') {
-      const want = /one.?call/i.test(raw.value) ? 'one-call' : /two.?call|second call/i.test(raw.value) ? 'two-call' : '';
-      if (want) el.value = want;
-    } else el.value = String(raw.value);
-    el.dispatchEvent(new Event('input'));
-    toast('Filled from what the AI heard on the call. Please check it.');
-  });
-  document.querySelectorAll('input[data-key], textarea[data-key], select[data-key], [data-prod], [data-src]').forEach(el => {
-    el.addEventListener('input', () => {
-      const f = collectFields();
-      state.fields = f;
-      check();
-    });
-    el.addEventListener('change', () => {
-      const f = collectFields();
-      state.fields = f;
-      check();
-    });
-  });
-  // Focus first required empty field
-  const firstEmpty = document.querySelector('.field.is-null input, .field.is-null select');
-  if (firstEmpty) firstEmpty.focus();
-}
-function checkRefocus(id) {
-  const btn = document.getElementById(id);
-  const hint = $('#confirm-hint');
-  if (hint && btn) {
-    const f = collectFields();
-    const missing = REQUIRED.filter(k => f[k] == null || isNaN(f[k]) || f[k] <= 0);
-    const missingClose = f.close_type == null;
-    let msg = '';
-    if (missing.length) msg += 'Still needed before we can generate: ' + missing.map(k => FIELD_LABELS[k]).join(', ') + '. ';
-    if (missingClose) msg += 'Please select Close type. ';
-    if (!msg) msg = 'All required numbers are set. The blueprint will be grounded in these figures.';
-    hint.textContent = msg;
-    hint.style.color = (missing.length || missingClose) ? 'var(--amber)' : 'var(--green)';
-    btn.disabled = missing.length > 0 || missingClose;
-  }
 }
 async function startGeneration(fields) {
   state.fields = fields; saveJourneyState();
@@ -3532,6 +3319,7 @@ async function startGeneration(fields) {
     state.jobId = started.jobId;
     const bp = await pollGeneration(started.jobId);
     state.blueprint = bp.blueprint;
+    state.jobSeal = bp.seal || null;
     state.blueprintSource = bp.source || null;
     // Prefer fields from job record if available (server-side source of truth)
     if (bp.fields) state.fields = bp.fields;
@@ -3543,9 +3331,8 @@ async function startGeneration(fields) {
   } catch (e) {
     state.stage = 'review';
     state.progress = null;
-    /* Anything the server refused (a figure out of range, a failed job) has to be fixable, and the
-       short zero-touch card only carries the missing inputs - so a failure opens the full form. */
-    if (state.auto) state.autoFullReview = true;
+    /* The server only refuses the required figures, and the short card asks for exactly those
+       (autoMissing mirrors its checks); any other failure leaves a "Try again" on the same card. */
     render();
     if (e.body && e.body.fieldErrors) {
       state.fieldErrors = e.body.fieldErrors;
@@ -3569,8 +3356,9 @@ async function pollGeneration(jobId) {
     try {
       j = await api.get('/api/generate/status?jobId=' + encodeURIComponent(jobId));
     } catch (e) {
-      // A 404 straight after dispatch can mean the job record has not landed yet.
-      if (e.status === 404 && ++misses <= 3) continue;
+      // A 404 straight after dispatch can mean the job record has not landed yet: Netlify Blobs
+      // reads are eventually consistent and can trail a write by up to about a minute.
+      if (e.status === 404 && ++misses <= 30) continue;
       throw e;
     }
     misses = 0;
@@ -3723,7 +3511,7 @@ function blueprintView() {
     (delivered
       ? '<button class=\"btn btn-ghost\" id=\"redownload-btn\" aria-label=\"Download server PDF\">&#11015; Server PDF</button>' +
         '<button class=\"btn btn-amber\" id=\"book-btn\">Talk to a consultant</button>'
-      : '<button class=\"btn btn-ghost\" id=\"unlock-btn\">Unlock & email PDF</button>' +
+      : '<button class=\"btn btn-ghost\" id=\"unlock-btn\">Unlock official PDF</button>' +
         '<button class=\"btn btn-amber\" id=\"book-btn\">Talk to a consultant</button>') +
     '</div>';
 
@@ -3738,20 +3526,13 @@ function blueprintView() {
     } else if (!hs.mocked) {
       h += '<div class=\"kv\"><span class=\"k\">CRM</span><span class=\"v\">saved - CRM sync pending</span></div>';
     }
-    // Phase 3: the email line reports exactly what the deliver API said, and the reason comes
-    // from the API too, so a failed send is never dressed up as a success.
-    const mail = emailStatusOf(delivered);
-    h += '<div class=\"kv\"><span class=\"k\">Delivered to</span><span class=\"v\">' + esc(delivered.email) + '</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">Emailed</span><span class=\"v\">' + esc(mail.text) + '</span></div>' +
-      '<div class=\"kv\"><span class=\"k\">File</span><span class=\"v\">' + esc(delivered.filename) + '</span></div></div>';
-    if (mail.known && !mail.sent && mail.error) {
-      h += '<p class=\"small muted mt8\">Email: ' + esc(mail.error) + '</p>';
-    }
+    // The PDF is only ever downloaded in the app; nothing is emailed.
+    h += '<div class=\"kv\"><span class=\"k\">File</span><span class=\"v\">' + esc(delivered.filename) + '</span></div></div>';
   } else {
-    /* Zero-touch tried and failed (no email key, a cap, the network): say so plainly and leave the
-       manual unlock in place rather than pretending the PDF went out. */
+    /* Zero-touch tried and failed (a cap, the network): say so plainly and leave the manual unlock
+       in place rather than pretending the PDF is ready. */
     if (state.auto && state.deliverError) {
-      h += '<p class=\"small muted mt8\" role=\"status\">The blueprint is ready, but Nova could not send it automatically (' +
+      h += '<p class=\"small muted mt8\" role=\"status\">The blueprint is ready, but Nova could not prepare the PDF automatically (' +
         esc(state.deliverError) + '). You can still download it here.</p>';
     }
     h += '<div id=\"unlock-holder\"></div>';
@@ -3771,9 +3552,8 @@ function bindBlueprint() {
   if (ub) ub.onclick = () => {
     const holder = $('#unlock-holder');
     holder.innerHTML = '<div class="unlock-panel"><h3 class="unlock-title">Download your blueprint</h3>' +
-      '<div class="grid-2"><div class="field"><label>Email for delivery</label><div class="ro-field" id="un-email-ro">' + esc(state.user.email) + '</div></div>' +
-      '<div class="field field-check"><label class="checkline"><input type="checkbox" id="un-consent"> I agree to receive the PDF and to be contacted about the build.</label></div></div>' +
-      '<p class="small muted mt8">The PDF is emailed to the address you signed in with: ' + esc(state.user.email) + '. You can download it here as well.</p>' +
+      '<div class="field field-check"><label class="checkline"><input type="checkbox" id="un-consent"> I agree to be contacted about the build.</label></div>' +
+      '<p class="small muted mt8">The PDF downloads here in the app. Nothing is emailed.</p>' +
       '<button class="btn btn-primary" id="un-go" disabled>Download PDF</button>' +
       '<div id="un-tryagain" style="margin-top:8px;display:none"><button class="btn btn-ghost btn-sm" id="un-retry">Try again</button></div>' +
       '</div>';
@@ -3787,19 +3567,11 @@ function bindBlueprint() {
       try {
         const j = await api.post('/api/deliver', {
           jobId: state.jobId,
+          jobSeal: state.jobSeal,
           consent: cb.checked,
           voice_meta: voiceMeta()
         });
-        const emailResult = j.email || null;
-        state.delivered = {
-          contact_id: j.contact_id, filename: j.filename,
-          pdf_base64: j.pdf_base64,
-          email: (emailResult && emailResult.to) || state.user.email,
-          email_result: emailResult,
-          hubspot: j.hubspot || { mocked: true, ok: false },
-          duplicate: !!j.duplicate,
-          persistence: j.persistence || { ok: true }
-        };
+        state.delivered = deliveredFrom(j);
         render();
         downloadPdf(state.delivered);
       } catch (e) {
@@ -3814,88 +3586,6 @@ function bindBlueprint() {
     };
   };
 
-  // Email verification UI: "Email me a copy" flow
-  const emailMeBtn = $('#email-me-btn');
-  if (emailMeBtn) emailMeBtn.onclick = async () => {
-    const btn = emailMeBtn;
-    btn.disabled = true; btn.textContent = 'Sending code...';
-    try {
-      const j = await api.post('/api/deliver/code', { jobId: state.jobId });
-      state.emailVerify.sent = true;
-      state.emailVerify.error = null;
-      if (j.devCode) {
-        state.emailVerify.code = j.devCode;
-        console.log('[dev] verification code', j.devCode);
-      }
-      toast('Verification code sent to ' + state.user.email, false);
-      render();
-    } catch (e) {
-      btn.disabled = false; btn.textContent = 'Email me a copy';
-      toast(e.message, true);
-    }
-  };
-  const verifyGo = $('#verify-go');
-  if (verifyGo) verifyGo.onclick = async () => {
-    const codeInput = $('#verify-code');
-    const code = codeInput ? codeInput.value.trim() : '';
-    if (!code) { toast('Enter the 6-digit code.', true); return; }
-    verifyGo.disabled = true; verifyGo.textContent = 'Verifying...';
-    try {
-      const j = await api.post('/api/deliver', {
-        jobId: state.jobId,
-        consent: true,
-        code: code,
-        voice_meta: voiceMeta()
-      });
-      const emailResult = j.email || null;
-      state.delivered = {
-        contact_id: j.contact_id, filename: j.filename,
-        pdf_base64: j.pdf_base64,
-        email: (emailResult && emailResult.to) || state.user.email,
-        email_result: emailResult,
-        hubspot: j.hubspot || { mocked: true, ok: false },
-        duplicate: !!j.duplicate,
-        persistence: j.persistence || { ok: true }
-      };
-      state.emailVerify.code = '';
-      state.emailVerify.error = null;
-      if (emailResult && !emailResult.sent && emailResult.error) {
-        state.emailVerify.error = emailResult.error;
-      }
-      render();
-      toast(emailResult && emailResult.sent ? 'Emailed to ' + (emailResult.to || state.user.email) : (emailResult && emailResult.error ? emailResult.error : 'Verification done'), !!(emailResult && !emailResult.sent));
-    } catch (e) {
-      verifyGo.disabled = false; verifyGo.textContent = 'Verify and email';
-      toast(e.message, true);
-    }
-  };
-  const resendBtn = $('#resend-email-btn');
-  if (resendBtn) resendBtn.onclick = async () => {
-    resendBtn.disabled = true; resendBtn.textContent = 'Sending...';
-    try {
-      const j = await api.post('/api/deliver', {
-        jobId: state.jobId,
-        consent: true,
-        resendEmail: true,
-        voice_meta: voiceMeta()
-      });
-      const emailResult = j.email || null;
-      state.delivered = {
-        contact_id: j.contact_id, filename: j.filename,
-        pdf_base64: j.pdf_base64,
-        email: (emailResult && emailResult.to) || state.user.email,
-        email_result: emailResult,
-        hubspot: j.hubspot || { mocked: true, ok: false },
-        duplicate: !!j.duplicate,
-        persistence: j.persistence || { ok: true }
-      };
-      render();
-      toast(emailResult && emailResult.sent ? 'Resent to ' + (emailResult.to || state.user.email) : 'Resend done', !!(emailResult && !emailResult.sent));
-    } catch (e) {
-      resendBtn.disabled = false; resendBtn.textContent = 'Resend email';
-      toast(e.message, true);
-    }
-  };
   // Focus management
   const main = $('#main-content');
   if (main) main.focus();
@@ -3907,25 +3597,21 @@ function hubspotLeadLabel(d) {
   if (!hs.mocked) return 'CRM sync pending';
   return 'not synced';
 }
-/* Phase 3: what the deliver API reported about the email, and nothing more. The UI only says the
-   PDF was emailed when the response carried email.sent === true. */
-function emailStatusOf(d) {
-  const er = (d && d.email_result) || null;
-  if (!er) return { known: false, sent: false, text: 'Not attempted', error: '' };
-  if (er.sent) {
-    return { known: true, sent: true, text: 'Sent to ' + (er.to || (d && d.email) || 'your email'), error: '' };
-  }
-  return { known: true, sent: false, text: "Couldn't email it \u2014 download below", error: er.error || '' };
+/* What the deliver API returned, as the app keeps it. The PDF is only ever downloaded here. */
+function deliveredFrom(j) {
+  return {
+    contact_id: j.contact_id, filename: j.filename,
+    pdf_base64: j.pdf_base64,
+    hubspot: j.hubspot || { mocked: true, ok: false },
+    duplicate: !!j.duplicate,
+    persistence: j.persistence || { ok: true }
+  };
 }
 function deliveryToast(d) {
   const hs = (d && d.hubspot) || {};
-  const mail = emailStatusOf(d);
-  let base = 'PDF downloaded.';
-  if (hs.ok && hs.contactId && !hs.mocked) base = 'PDF downloaded. HubSpot synced.';
-  else if (!hs.mocked && hs.mocked !== undefined) base = 'PDF downloaded. Saved - CRM sync pending.';
-  if (mail.sent) return base + ' Emailed to ' + mail.text.replace(/^Sent to /, '') + '.';
-  if (mail.known) return base + ' Email not sent.';
-  return base;
+  if (hs.ok && hs.contactId && !hs.mocked) return 'PDF downloaded. HubSpot synced.';
+  if (!hs.mocked && hs.mocked !== undefined) return 'PDF downloaded. Saved - CRM sync pending.';
+  return 'PDF downloaded.';
 }
 function downloadPdf(d) {
   if (!d || !d.pdf_base64) return;
@@ -4427,23 +4113,16 @@ window.__PS_BOOKING__ = {
 function doneView() {
   const bp = state.blueprint;
   const d = state.delivered;
-  const mail = emailStatusOf(d);
   const hasPdf = !!(d && d.pdf_base64);
-  // Phase 3: the heading only promises an email when the API confirmed one. Otherwise it says
-  // what is true - the blueprint is ready to download - and the button is right there.
-  const heading = mail.sent
-    ? 'Your blueprint is on its way'
-    : (hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready');
+  const heading = hasPdf ? 'Your blueprint is ready to download' : 'Your blueprint is ready';
   let h = '<div class="card done-card">' +
     '<h2>' + esc(heading) + '</h2>' +
     '<div class="done-list">' +
     '<div class=\"kv\"><span class=\"k\">Blueprint</span><span class=\"v\">' + (bp ? esc(bp.meta.verticalLabel) + ', ' + esc(bp.stack.tier) : 'n/a') + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">PDF</span><span class=\"v\">' + (d ? esc(d.filename) : 'not unlocked') + '</span></div>' +
-    '<div class=\"kv\"><span class=\"k\">Emailed</span><span class=\"v\">' + esc(mail.text) + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">HubSpot lead</span><span class=\"v mono\">' + hubspotLeadLabel(d) + '</span></div>' +
     '<div class=\"kv\"><span class=\"k\">Consultation</span><span class=\"v\">' + esc(bookingSummary()) + '</span></div>' +
     '</div>' +
-    (mail.known && !mail.sent && mail.error ? '<p class=\"small muted mt8\">Email: ' + esc(mail.error) + '</p>' : '') +
     '<div class="btn-row btn-row-center">' +
     '<button class=\"btn btn-primary\" id=\"done-download-btn\">' + (hasPdf ? 'Download the PDF again' : 'Download the PDF') + '</button>' +
     '<button class=\"btn btn-ghost\" id=\"new-biz2\">Run another business</button>' +
@@ -4452,7 +4131,7 @@ function doneView() {
   return h;
 }
 function bindDone() {
-  // The download is always available, whatever the email did: the server PDF when there is one,
+  // The download is always available: the server PDF when there is one,
   // otherwise the in-browser export.
   const dl = $('#done-download-btn');
   if (dl) {
@@ -4502,9 +4181,8 @@ function routeBindings() {
       // The empty state (nothing captured yet) has one control, and none of the review bindings.
       const es = document.getElementById('empty-start');
       if (es) { es.onclick = () => beginCall(); break; }
-      // Zero-touch asks for the missing figures only; the full review form binds as before.
-      if (document.getElementById('auto-needs-go')) { bindAutoNeeds(); break; }
-      bindReview();
+      // The only screen at this stage: the card that asks for a missing required figure.
+      bindAutoNeeds();
       break;
     }
     case 'blueprint': bindBlueprint(); break;

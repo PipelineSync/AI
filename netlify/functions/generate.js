@@ -33,6 +33,7 @@ function siteBase(event) {
 }
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   let body;
   try { body = bodyOf(event); } catch (e) { return json(413, { error: 'Request body too large.' }); }
@@ -50,7 +51,7 @@ exports.handler = async (event) => {
   const v = schema.validateGenerateFields(fields);
   if (!v.ok) {
     return json(400, {
-      error: 'Some required answers are missing or invalid. Correct them on the review screen and try again.',
+      error: 'Some required answers are missing or invalid. Add them and try again.',
       fieldErrors: v.fieldErrors
     });
   }

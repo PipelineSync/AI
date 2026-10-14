@@ -8,6 +8,7 @@ const booked = require('../../lib/booked-core');
 const { bodyOf, json, checkRateLimit, getClientIp } = require('../../lib/netlify-helpers');
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const ip = getClientIp(event);
   const rl = checkRateLimit('booked:' + ip, 20, 60 * 1000);

@@ -4,7 +4,6 @@
  *  - Demo mode behind DEMO_MODE flag
  *  - Shared limits in Netlify Blobs with fallback (deliver-limits)
  *    - per-email daily cap
- *    - global daily cap
  *  - Idempotency and server-side blueprint (Phase 6)
  */
 
@@ -109,23 +108,7 @@ function stubRes(status, body) {
 
   deliverLimits._resetMemory();
 
-  section('Deliver limits - global daily cap');
-
-  const envGlobal = { PDF_EMAIL_DAILY_MAX: '2' };
-  {
-    const check = await deliverLimits.checkGlobal(envGlobal);
-    ok(check.allowed && check.count === 0, 'global: 0 count allowed');
-    await deliverLimits.incrementGlobal(envGlobal);
-    const check2 = await deliverLimits.checkGlobal(envGlobal);
-    ok(check2.allowed && check2.count === 1, 'global: 1 count allowed');
-    await deliverLimits.incrementGlobal(envGlobal);
-    const check3 = await deliverLimits.checkGlobal(envGlobal);
-    ok(!check3.allowed && check3.count === 2, 'global: 2 count blocks (limit 2)');
-  }
-
-  deliverLimits._resetMemory();
-
-  section('Deliver integration - per-email and global caps via function (jobId flow)');
+  section('Deliver integration - per-email cap via function (jobId flow)');
 
   const deliverFn = require('../netlify/functions/deliver.js').handler;
   const jobs = require('../lib/job-store');
@@ -150,7 +133,6 @@ function stubRes(status, body) {
       let body = null;
       try { body = init && init.body ? JSON.parse(init.body) : null; } catch (e) { body = init && init.body; }
       calls.push({ url: u, body });
-      if (u.includes('api.resend.com')) return stubRes(200, { id: 're_test_1' });
       if (u.includes('api.hubapi.com')) {
         if (u.includes('/contacts/search')) return stubRes(200, { total: 0, results: [] });
         if (u.includes('/objects/contacts') && init.method === 'POST') return stubRes(200, { id: '101', properties: {} });
@@ -169,7 +151,6 @@ function stubRes(status, body) {
     idem._resetMemory();
     jobs._resetMemory();
     process.env.DELIVER_PER_EMAIL_DAY = '2';
-    process.env.PDF_EMAIL_DAILY_MAX = '1000';
     process.env.EMAIL_VERIFY = 'false';
     const stub = makeFetchStub();
     const origFetch = globalThis.fetch;
@@ -193,7 +174,6 @@ function stubRes(status, body) {
     } finally {
       globalThis.fetch = origFetch;
       delete process.env.DELIVER_PER_EMAIL_DAY;
-      delete process.env.PDF_EMAIL_DAILY_MAX;
       delete process.env.EMAIL_VERIFY;
       deliverLimits._resetMemory();
       idem._resetMemory();
@@ -201,42 +181,31 @@ function stubRes(status, body) {
     }
   }
 
-  // Global cap via deliver function: past cap, deliver still returns PDF with email error, use fresh jobs
+  // The PDF is only ever downloaded in the app: delivery never emails, even when an old email
+  // key is still configured on the server.
   {
     deliverLimits._resetMemory();
     idem._resetMemory();
     jobs._resetMemory();
     process.env.DELIVER_PER_EMAIL_DAY = '1000';
-    process.env.PDF_EMAIL_DAILY_MAX = '1';
-    process.env.PDF_EMAIL_API_KEY = 're_test_key';
+    process.env.PDF_EMAIL_API_KEY = 're_leftover_key';
     process.env.PDF_EMAIL_FROM = 'Test <test@example.com>';
-    process.env.EMAIL_VERIFY = 'false';
-    const stub = makeFetchStub();
+    const calls = [];
     const origFetch = globalThis.fetch;
-    globalThis.fetch = stub.fetchImpl;
+    globalThis.fetch = async (url, init) => { calls.push(String(url)); return stubRes(200, { total: 0, results: [] }); };
     try {
-      const createJob = async () => {
-        const jid = jobs.newJobId();
-        await jobs.put(jid, { status: 'done', blueprint, fields, email: 'cap-test@example.com', lead_id: null }, { env: process.env });
-        return jid;
-      };
-      const j1 = await createJob();
-      const r1 = await deliverFn({ httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '2.2.2.2' }, body: JSON.stringify({ token, jobId: j1, consent: true }) });
-      const j1b = JSON.parse(r1.body);
-      ok(r1.statusCode === 200 && j1b.email && j1b.email.sent === true, 'global via deliver: 1st email sent');
-
-      const j2 = await createJob();
-      const r2 = await deliverFn({ httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '2.2.2.2' }, body: JSON.stringify({ token, jobId: j2, consent: true }) });
-      const j2b = JSON.parse(r2.body);
-      ok(r2.statusCode === 200 && j2b.pdf_base64, 'global via deliver: 2nd still returns PDF past cap');
-      ok(j2b.email && j2b.email.sent === false && j2b.email.error === 'daily email limit reached', 'global past cap: email:{sent:false,error:"daily email limit reached"}');
+      const jid = jobs.newJobId();
+      await jobs.put(jid, { status: 'done', blueprint, fields, email: 'cap-test@example.com', lead_id: null }, { env: process.env });
+      const r = await deliverFn({ httpMethod: 'POST', path: '/api/deliver', headers: { 'x-nf-client-connection-ip': '2.2.2.2' }, body: JSON.stringify({ token, jobId: jid, consent: true }) });
+      const jb = JSON.parse(r.body);
+      ok(r.statusCode === 200 && !!jb.pdf_base64, 'deliver returns the PDF for the browser to download');
+      ok(!('email' in jb), 'the deliver response carries no email result');
+      ok(!calls.some(u => /resend\.com/.test(u)), 'nothing is sent to an email provider, even with a leftover key');
     } finally {
       globalThis.fetch = origFetch;
       delete process.env.DELIVER_PER_EMAIL_DAY;
-      delete process.env.PDF_EMAIL_DAILY_MAX;
       delete process.env.PDF_EMAIL_API_KEY;
       delete process.env.PDF_EMAIL_FROM;
-      delete process.env.EMAIL_VERIFY;
       deliverLimits._resetMemory();
       idem._resetMemory();
       jobs._resetMemory();
@@ -248,11 +217,7 @@ function stubRes(status, body) {
     deliverLimits._resetMemory();
     const srv = await startServer(8094, {
       DELIVER_PER_EMAIL_DAY: '1000',
-      PDF_EMAIL_DAILY_MAX: '1000',
-      PDF_EMAIL_API_KEY: 're_test_key',
-      PDF_EMAIL_FROM: 'Test <test@example.com>',
-      DEMO_MODE: 'true',
-      EMAIL_VERIFY: 'false'
+      DEMO_MODE: 'true'
     });
     try {
       const login = await (await fetch(srv.base + '/api/auth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Server Cap', email: 'server-cap@example.com' }) })).json();

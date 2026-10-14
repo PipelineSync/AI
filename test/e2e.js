@@ -76,12 +76,8 @@ async function get(p) {
     ok(dv.code === 200 && dv.j.contact_id, 'deliver returns hubspot contact id: ' + (dv.j.contact_id || ''));
     ok(!!dv.j.pdf_base64 && dv.j.filename.endsWith('.pdf'), 'deliver returns base64 pdf + filename');
     if (key === 'solar') {
-      // Phase 3: this server has no PDF_EMAIL_API_KEY, so the API has to say the email did not go
-      // out and say why - and still hand back the PDF. The UI is only allowed to repeat this.
-      // With EMAIL_VERIFY=false (harness), it still reports PDF_EMAIL_API_KEY missing.
-      ok(dv.j.email && dv.j.email.sent === false, 'no Resend key: deliver reports email.sent=false, never a fake success');
-      ok(/PDF_EMAIL_API_KEY is not set/.test((dv.j.email && dv.j.email.error) || ''), 'the email result carries the reason the send did not happen');
-      ok(dv.j.email.to === 'allen@pipelinesync.ai', 'the reported recipient is the session address (token email), not body');
+      // The PDF is only ever downloaded in the app: the response carries the PDF and no email result.
+      ok(!('email' in dv.j), 'deliver reports no email: the PDF is downloaded in the app');
     }
     // Idempotency: repeat call returns duplicate:true without new deal/email
     const dv2 = await post('/api/deliver', { token: T, jobId: gen.jobId, consent: true });

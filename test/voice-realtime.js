@@ -848,11 +848,14 @@ async function browserTests(token) {
   ok(/refused as not said on the call: [1-9]/.test(document.body.textContent), 'the screen reports the values that were refused for not being said');
   ok(errors.length === 0, 'no runtime errors on the continuous path' + (errors.length ? ': ' + errors[0] : ''));
 
-  // Carry on into the review screen: the continuous call feeds the same Function A.
+  // Carry on: the continuous call feeds the same Function A, then straight into the blueprint.
   document.querySelector('#structure-btn').click();
-  for (let i = 0; i < 60 && !document.querySelector('#confirm-fields'); i++) await sleep(100);
-  ok(!!document.querySelector('#confirm-fields'), 'the live call structures into the review screen');
-  ok((document.querySelector('.call-summary .badge-mode') || {}).textContent === 'Live voice', 'the review screen records the exact live mode badge');
+  for (let i = 0; i < 120 && !document.querySelector('#unlock-btn'); i++) await sleep(100);
+  ok(!!document.querySelector('#unlock-btn') && !document.querySelector('#confirm-fields'), 'the live call structures straight into the blueprint (no review screen)');
+  const liveDone = page.apiRequests.find(r => /\/api\/lead\/progress$/.test(r.url) && r.body && r.body.status === 'discovery_completed');
+  ok(liveDone && liveDone.body.voice_meta && liveDone.body.voice_meta.mode === 'realtime', 'the call is recorded with the exact live mode');
+  const liveExtract = page.apiRequests.filter(r => /\/api\/extract$/.test(r.url)).pop();
+  ok(liveExtract && liveExtract.body.answers.some(a => a.id === 'call_transcript' && /Client: /.test(a.text)), 'the live call hands its whole transcript to the structuring pass');
 
   const outboxFields = await (await fetch(APP + '/api/extract', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -991,14 +994,15 @@ async function controlsTests() {
   ok(!document.querySelector('audio'), 'ending the call removes the AI audio element');
   ok(page.audio.closed >= 1, 'ending the call closes the analyser context');
   ok(page.fetched.some(p => /\/api\/voice\/realtime\/end/.test(p)), 'ending the call reports the hang-up to the server');
-  for (let i = 0; i < 120 && !document.querySelector('#confirm-fields'); i++) await sleep(100);
+  for (let i = 0; i < 120 && !document.querySelector('#unlock-btn') && !document.querySelector('#auto-needs-go'); i++) await sleep(100);
   await sleep(400);
   ok(page.audio.frames === framesAtEnd, 'no orphaned animation loop keeps reading the microphone after the call (' + page.audio.frames + ' frames)');
-  ok(!!document.querySelector('#confirm-fields'), 'ending the call by hand carries on into the review screen');
+  ok(!!(document.querySelector('#unlock-btn') || document.querySelector('#auto-needs-go')) && !document.querySelector('#confirm-fields'),
+    'ending the call by hand carries on to the blueprint (or asks only for a missing required figure)');
   const completedProgress = page.apiRequests.find(request => /\/api\/lead\/progress$/.test(request.url) && request.body && request.body.status === 'discovery_completed');
   const latencyMeta = completedProgress && completedProgress.body && completedProgress.body.voice_meta;
   ok(latencyMeta && Number.isFinite(latencyMeta.median_ms) && Number.isFinite(latencyMeta.p90_ms) && latencyMeta.turns_measured === 3, 'the completion metadata carries median, p90, and the measured-turn count');
-  ok((document.querySelector('.call-summary .badge-mode') || {}).textContent === 'Live voice', 'a call ended by hand is still recorded with the exact live mode badge');
+  ok(completedProgress && completedProgress.body.voice_meta && completedProgress.body.voice_meta.mode === 'realtime', 'a call ended by hand is still recorded with the exact live mode');
   ok(page.errors.length === 0, 'no runtime errors on the controls path' + (page.errors.length ? ': ' + page.errors[0] : ''));
 }
 

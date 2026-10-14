@@ -358,7 +358,7 @@ ok(!Object.keys(pkg.dependencies || {}).some(k => /resvg|playwright|chromium/.te
 
 ok(/<title>Nova PipelineSync AI \|/.test(indexHtml), 'the page title uses the full product name');
 ok(/text: 'Nova PipelineSync AI', style: 'headerBrand'/.test(appJs) && /Tm \(Nova PipelineSync AI\) Tj/.test(fs.readFileSync(path.join(__dirname, '..', 'lib', 'core.js'), 'utf8')), 'browser and server PDF headers use the full product name');
-ok(/>Nova PipelineSync AI<\/div>/.test(fs.readFileSync(path.join(__dirname, '..', 'lib', 'pdf-email.js'), 'utf8')), 'the email header uses the full product name');
+ok(!fs.existsSync(path.join(__dirname, '..', 'lib', 'pdf-email.js')), 'there is no email sender: the PDF is only downloaded in the app');
 
 /* ------------------------------------------------------------------ */
 section('the mascot is recoloured with the brand, unchanged in geometry');

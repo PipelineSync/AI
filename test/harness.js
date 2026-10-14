@@ -3,7 +3,7 @@
  * dedicated port, started with the per-IP voice rate limit relaxed (VOICE_RATE_PER_MIN) and
  * the per-IP deliver limit relaxed the same way (DELIVER_RATE_PER_MIN; pass extraEnv to
  * startServer to put either back to its production default), with all OpenAI, HubSpot and
- * Resend credentials stripped. That makes `npm run test:all` repeatable:
+ * old email-delivery settings stripped. That makes `npm run test:all` repeatable:
  * a full suite run drives ~40 voice turns per minute from one IP, which would trip the
  * anti-runaway limiter (default 40/min per IP) if the tests shared the developer's
  * server. The production default in server.js is unchanged; the limiter still protects
@@ -25,8 +25,8 @@ async function startServer(port, extraEnv) {
   delete env.HUBSPOT_ACCESS_TOKEN;
   delete env.HUBSPOT_API_KEY;
   delete env.HUBSPOT_TOKEN;
-  // No Resend credentials either: a real PDF_EMAIL_API_KEY in the shell must never make a test
-  // send a real email. Tests that exercise the send stub fetch itself.
+  // The app no longer emails anything; the old email settings are stripped anyway so a leftover
+  // key in the shell can never change what a test sees. test/deliver.js sets one on purpose.
   delete env.PDF_EMAIL_API_KEY;
   delete env.PDF_EMAIL_FROM;
   Object.assign(env, {
@@ -37,9 +37,7 @@ async function startServer(port, extraEnv) {
     // production default back through extraEnv.
     DELIVER_RATE_PER_MIN: '1000',
     DELIVER_PER_EMAIL_DAY: '1000',
-    PDF_EMAIL_DAILY_MAX: '1000',
     DEMO_MODE: 'true',
-    EMAIL_VERIFY: 'false',
     PS_TOKEN_SECRET: 'test-secret-0123456789abcdef',
     /* Zero-touch (AUTO_DELIVER) is the product default, but the manual review -> confirm -> unlock
        journey still has to be tested exactly as it was, so the shared harness pins it off. The

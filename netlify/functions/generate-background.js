@@ -15,6 +15,7 @@ const schema = require('../../lib/blueprint-schema');
 const { bodyOf, json } = require('../../lib/netlify-helpers');
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   let body;
   try { body = bodyOf(event); } catch (e) { return json(413, { error: 'Request body too large.' }); }

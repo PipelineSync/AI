@@ -1304,6 +1304,8 @@ body.entry-screen .gate-card { max-height: 100%; overflow-y: auto; overscroll-be
 /* Horizontal check field variant */
 .field-check { flex-direction: row; align-items: center; }
 .field-check label { margin-bottom: 0; }
+/* A checkbox line inside a field keeps its text next to the box, not spread to the far edge. */
+.field .checkline { justify-content: flex-start; font-weight: 400; color: var(--text-2); }
 /* Placeholders so every runtime class the app toggles has a rule */
 .filled {}
 .null {}

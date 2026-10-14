@@ -43,6 +43,7 @@ function subRoute(event) {
 }
 
 exports.handler = async (event) => {
+  require('../../lib/netlify-helpers').connectBlobs(event);
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const sub = subRoute(event);
   // Voice turns spend OpenAI credit, so rate limit per IP per minute (in-memory, per warm instance).
