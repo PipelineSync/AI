@@ -1189,11 +1189,13 @@ function stopMicLevel() {
 function paintMicLevel(v) {
   const wave = document.querySelector('#orb .wave');
   if (!wave) return;
+  const orb = document.getElementById('orb');
   // Hand the bars back from the CSS keyframes: an animation outranks an inline height.
   if (wave.className.indexOf('level') < 0) wave.className += ' level';
   const bars = wave.children;
   const norm = Math.max(0, Math.min(1, (v - LEVEL.floor) / (LEVEL.ceiling - LEVEL.floor)));
   const opacity = (0.45 + 0.55 * Math.min(1, norm * 1.4)).toFixed(2);
+  if (orb) orb.setAttribute('data-level', norm.toFixed(3));   // the particle globe's voice level
   for (let i = 0; i < bars.length; i++) {
     const w = LEVEL_WEIGHTS[i % LEVEL_WEIGHTS.length];
     const h = LEVEL.minBar + (LEVEL.maxBar - LEVEL.minBar) * Math.min(1, norm * w * (0.75 + 0.5 * Math.random()));
@@ -1201,6 +1203,8 @@ function paintMicLevel(v) {
   }
 }
 function clearMicLevelBars() {
+  const orb = document.getElementById('orb');
+  if (orb) orb.removeAttribute('data-level');
   const wave = document.querySelector('#orb .wave');
   if (!wave) return;
   wave.className = wave.className.replace(/\s*\blevel\b/g, '');
@@ -2618,15 +2622,9 @@ function voiceOrbHtml(status, listening) {
     '</div>';
   return '<div class="voice-orb-container">' +
     '<div class="orb ' + st + (listening ? ' live' : '') + '" id="orb" role="img" aria-label="Call state: ' + st + '">' +
-      '<div class="gyro-sphere" aria-hidden="true">' +
-        '<div class="gyro-ring ring-cyan"></div>' +
-        '<div class="gyro-ring ring-rose"></div>' +
-        '<div class="gyro-ring ring-amber"></div>' +
-        '<div class="gyro-ring ring-dashed"></div>' +
-        '<div class="gyro-ring ring-violet"></div>' +
-        '<div class="gyro-core"></div>' +
-      '</div>' +
-      '<div class="reticle" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
+      // The particle globe is drawn by public/orb.js; the hidden bars below still carry the
+      // measured microphone level (paintMicLevel), which the globe reads from #orb[data-level].
+      '<canvas class="orb-globe" aria-hidden="true"></canvas>' +
       '<div class="orb-center">' +
         waveHtml +
       '</div>' +
