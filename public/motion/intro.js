@@ -32,13 +32,20 @@
     document.body.appendChild(sp);
     return sp;
   }
+  /* Safety timers count from the first frame the browser actually draws. While the page is not
+     on screen (a background tab, a frame still loading) animations are paused, and a plain
+     timer would skip the intro before anyone saw it. */
+  function afterFirstFrame(fn, ms) {
+    var tick = function () { gsap.ticker.remove(tick); window.setTimeout(fn, ms); };
+    gsap.ticker.add(tick);
+  }
   /* Click or any key jumps the splash to its end; it is never in the way for long. */
   function skippable(sp, tl) {
     var skip = function () { if (tl.progress() < 1) tl.progress(1); };
     sp.addEventListener('pointerdown', skip);
     document.addEventListener('keydown', skip, { once: true, capture: true });
     tl.eventCallback('onComplete', function () { document.removeEventListener('keydown', skip, true); });
-    window.setTimeout(skip, 4000);                          // the sign-in screen is always up by 5s
+    afterFirstFrame(skip, 4000);                            // the sign-in screen is always up by 5s
   }
 
   if (html.classList.contains('m-fade')) {
@@ -186,5 +193,5 @@
   // Start states are set: let the shell paint, then play (about 1.8s end to end).
   html.classList.remove('intro');
   // If anything stalls, jump to the end within 5s so nothing is left hidden.
-  window.setTimeout(function () { watch.disconnect(); if (tl.progress() < 1) tl.progress(1); }, 5000);
+  afterFirstFrame(function () { watch.disconnect(); if (tl.progress() < 1) tl.progress(1); }, 5000);
 })();
