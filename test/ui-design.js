@@ -460,7 +460,7 @@ ok(/prefers-reduced-motion: reduce/.test(orbJs) && /if \(!reduced\) raf = window
   'reduced motion draws the globe as a still frame instead of animating');
 ok(/<script src="motion\.js"><\/script>/.test(indexHtml) && /rv-armed/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'motion.js'), 'utf8')),
   'motion.js (spotlight, reveal, headline) is loaded and only arms the reveal itself');
-ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,800}\.rv-armed \.rv, \.hw \{ opacity: 1 !important/.test(css),
+ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,800}\.rv-armed \.rv \{ opacity: 1 !important/.test(css),
   'reduced motion shows revealed content in its final state');
 ok(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,400}\.aurora \{ display: none/.test(css),
   'reduced motion removes the aurora drift');

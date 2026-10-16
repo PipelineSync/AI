@@ -1,5 +1,5 @@
-/* PipelineSync theme motion: pointer spotlight on tiles, scroll reveal, and the
-   entry headline's word-by-word fade. No dependencies. app.js re-renders #app with
+/* PipelineSync theme motion: pointer spotlight on tiles and scroll reveal. No dependencies.
+   (Headline letter-rolls, the intro and transitions live in public/motion/.) app.js re-renders #app with
    innerHTML, so this watches #app and re-applies after each render.
    Reduced motion turns all of it off. Reveal is only armed when IntersectionObserver
    exists, and print / reduced motion force everything visible in CSS. */
@@ -60,40 +60,7 @@
     });
   }
 
-  // Entry headline: words fade up, ~55ms apart, on first load only.
-  let headlineDone = false;
-  function headline() {
-    if (headlineDone) return;
-    const h1 = document.querySelector('.gate-brand h1');
-    if (!h1) return;
-    headlineDone = true;
-    let i = 0;
-    const wrap = node => {
-      const s = document.createElement('span');
-      s.className = 'hw';
-      s.style.setProperty('--hw-d', (i++ * 55) + 'ms');
-      node.parentNode.insertBefore(s, node);
-      s.appendChild(node);
-    };
-    [...h1.childNodes].forEach(node => {
-      if (node.nodeType === 3) {
-        const parts = node.textContent.split(/(\s+)/);
-        const frag = document.createDocumentFragment();
-        parts.forEach(p => {
-          if (!p) return;
-          const t = document.createTextNode(p);
-          frag.appendChild(t);
-        });
-        const kids = [...frag.childNodes];
-        node.replaceWith(frag);
-        kids.forEach(t => { if (t.textContent.trim()) wrap(t); });
-      } else {
-        wrap(node); // the gradient phrase moves as one unit so its clip stays intact
-      }
-    });
-  }
-
-  function onRender() { headline(); reveal(); }
+  function onRender() { reveal(); }
   new MutationObserver(onRender).observe(document.getElementById('app'), { childList: true });
   onRender();
 })();
