@@ -1382,6 +1382,27 @@ html.m-fade #app, html.m-fade .legal-wrap { opacity: 0; }
 }
 html.wipe-in::after { content: ""; position: fixed; inset: 0; z-index: 9990; background: var(--bg); }
 
+/* First-load text splash on the sign-in page (intro.js): "Nova AI" rolls in, the line rises,
+   then the panel wipes up and the sign-in screen enters. Click or any key skips it. */
+.intro-splash {
+  position: fixed; inset: 0; z-index: 9991; display: grid; place-items: center;
+  padding: 24px; text-align: center; background: var(--bg); will-change: transform;
+}
+.intro-splash::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: min(80vw, 720px); aspect-ratio: 1;
+  transform: translate(-50%, -50%); pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 122, 26, 0.16), rgba(255, 122, 26, 0) 70%);
+}
+.intro-splash-inner { position: relative; }
+.intro-splash-title {
+  margin: 0; color: var(--text); font-size: clamp(3rem, 1.6rem + 7vw, 7.5rem); font-weight: 700;
+  line-height: 1; letter-spacing: -0.05em;
+}
+.intro-splash-tag {
+  margin: 18px 0 0; font-size: clamp(1rem, 0.85rem + 0.8vw, 1.375rem); color: var(--text-2);
+  letter-spacing: -0.01em;
+}
+
 /* Letter-roll splitter (titles only): one-line, overflow-hidden boxes holding two copies.
    --lr-lh is the heading's own line height; the extra .2em keeps descenders unclipped. */
 .lr { display: inline; }
@@ -1435,5 +1456,5 @@ html.glow-on .call-body :is(.nova-live, .line) { cursor: text; }
   html.glow-on body { cursor: auto; }
 }
 @media print, (forced-colors: active) {
-  .wipe-panel, .glow-cursor, html.wipe-in::after { display: none !important; }
+  .wipe-panel, .glow-cursor, .intro-splash, html.wipe-in::after { display: none !important; }
 }
