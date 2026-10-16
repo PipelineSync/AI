@@ -1115,9 +1115,6 @@ details.mt8 > .kv-list { padding: 0 16px 8px; }
 /* Scroll reveal — only armed by public/motion.js, so content is never left hidden */
 .rv-armed .rv { opacity: 0; transform: translateY(28px); }
 .rv-armed .rv.in { opacity: 1; transform: none; transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); transition-delay: var(--rv-d, 0ms); }
-/* Headline words fade up from a slight blur */
-.hw { display: inline-block; opacity: 0; filter: blur(6px); transform: translateY(0.35em); animation: hw-in 0.8s var(--ease) forwards; animation-delay: var(--hw-d, 0ms); }
-@keyframes hw-in { to { opacity: 1; filter: none; transform: none; } }
 
 /* =============================================================================
    Centered, quiet workspace — the app shell.
@@ -1249,7 +1246,7 @@ body.entry-screen .gate-card { max-height: 100%; overflow-y: auto; overscroll-be
   html { scroll-behavior: auto; }
   .aurora { display: none; }
   .accent, .stat .k, .code { animation: none; background-position: 0% 50%; }
-  .rv-armed .rv, .hw { opacity: 1 !important; transform: none !important; filter: none !important; }
+  .rv-armed .rv { opacity: 1 !important; transform: none !important; filter: none !important; }
   .btn-primary::after, .nova-celebrate::before { display: none; }
 }
 @media (forced-colors: active) {
@@ -1265,7 +1262,7 @@ body.entry-screen .gate-card { max-height: 100%; overflow-y: auto; overscroll-be
   .stat::before, .stat::after, .priority-action::before, .priority-action::after { display: none; }
 }
 @media print {
-  .rv-armed .rv, .hw { opacity: 1 !important; transform: none !important; filter: none !important; }
+  .rv-armed .rv { opacity: 1 !important; transform: none !important; filter: none !important; }
   .aurora, .grid-underlay, .topbar, .footer, .steps, .steps-bar, .btn-row, .call-controls, .toast { display: none !important; }
   body.app-screen, body.app-screen #app, body.app-screen .main { height: auto; overflow: visible; display: block; }
   .card, .doc { background: #fff; color: #111; border: 1px solid #999; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -1362,4 +1359,81 @@ body.entry-screen .gate-card { max-height: 100%; overflow-y: auto; overscroll-be
 @media print {
   .legal-top, .legal-toc, .legal-foot { display: none !important; }
   .legal-body { background: #fff; color: #111; border: 0; box-shadow: none; }
+}
+
+/* =============================================================================
+   Motion system (public/motion/*.js). Only transform and opacity move.
+   Every hiding rule below hangs off a class that boot.js removes within 5s.
+   ========================================================================== */
+/* GSAP owns the element while it animates: its CSS transitions are switched off. */
+.m-busy, .m-busy::before, .m-busy::after { transition: none !important; }
+
+/* First-load intro: the shell is hidden until intro.js has set its start states. The sign-in
+   form is only faded (not visibility:hidden), so it can take focus and typing from frame one. */
+html.intro :is(.topbar, .steps, .steps-bar, .main, .footer, .gate-logo, .gate-brand, .legal-top, .legal-wrap) { opacity: 0; visibility: hidden; }
+html.intro .gate-side { opacity: 0; }
+/* Later loads and reduced motion: a 0.3s fade of the page (opacity only). */
+html.m-fade #app, html.m-fade .legal-wrap { opacity: 0; }
+
+/* Page wipe: a full-screen panel in the app background colour. */
+.wipe-panel {
+  position: fixed; inset: 0; z-index: 9990; pointer-events: none;
+  background: var(--bg); visibility: hidden; will-change: transform;
+}
+html.wipe-in::after { content: ""; position: fixed; inset: 0; z-index: 9990; background: var(--bg); }
+
+/* Letter-roll splitter (titles only): one-line, overflow-hidden boxes holding two copies.
+   --lr-lh is the heading's own line height; the extra .2em keeps descenders unclipped. */
+.lr { display: inline; }
+.lr-w { display: inline-block; white-space: nowrap; }
+.lr-c { display: inline-block; vertical-align: top; overflow: hidden; height: calc(var(--lr-lh, 1.2em) + 0.2em); margin-bottom: -0.2em; }
+.lr-s { display: block; will-change: transform; }
+.lr-a, .lr-b { display: block; height: calc(var(--lr-lh, 1.2em) + 0.2em); line-height: var(--lr-lh, 1.2em); }
+
+/* Nav hover: each label letter-rolls on hover and keyboard focus. Pure CSS. */
+.nr { display: inline; }
+.nr-w { display: inline-block; white-space: nowrap; }
+.nr-c { display: inline-block; vertical-align: top; height: 1.25em; line-height: 1.25em; overflow: hidden; }
+.nr-a, .nr-b {
+  display: block; height: 1.25em;
+  transition: transform 0.55s cubic-bezier(0.19, 1, 0.22, 1);
+  transition-delay: calc(var(--i, 0) * 15ms);
+}
+.nr-host:hover, .nr-host:focus-visible { text-decoration: none; }
+.nr-host:hover :is(.nr-a, .nr-b), .nr-host:focus-visible :is(.nr-a, .nr-b) { transform: translateY(-100%); }
+@media (hover: none), (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .nr-a, .nr-b { transition: none; }
+  .nr-host:hover :is(.nr-a, .nr-b), .nr-host:focus-visible :is(.nr-a, .nr-b) { transform: none; }
+}
+
+/* Glow cursor (cursor.js adds html.glow-on on fine pointers only). The glow shows only where
+   the cursor is "none": clickables get the pointer, readable text and inputs the text cursor. */
+.glow-cursor {
+  position: fixed; left: 0; top: 0; z-index: 9999; pointer-events: none;
+  width: 140px; height: 140px; margin: -70px 0 0 -70px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 122, 26, 0.3) 0%, rgba(255, 122, 26, 0) 72%);
+  filter: blur(6px); visibility: hidden; opacity: 0; will-change: transform;
+}
+html.glow-on body { cursor: none; }
+html.glow-on :is(a, button, [role="button"], select, summary, label, .day, .slot, input[type="checkbox"], input[type="radio"]) { cursor: pointer; }
+html.glow-on :is(input:not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable], .doc, .nova-live, .line, .call-status, .legal-body, .legal-head, .lede, .notice, .kv, .success-card, .consent-card > p, .done-card, iframe) { cursor: text; }
+html.glow-on :is(.doc, .legal-body) :is(a, button) { cursor: pointer; }
+html.glow-on .call-body { cursor: default; }
+html.glow-on .call-body :is(.nova-live, .line) { cursor: text; }
+
+/* Success confirmation: a small check that scales in (chat.js). */
+.toast-check {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 18px; height: 18px; margin-right: 8px; vertical-align: -3px; border-radius: 50%;
+  background: var(--green); color: #052e1f; font-size: 11px; font-weight: 700; line-height: 1;
+}
+/* The send button's hover sheen only when there is something to send. */
+.chat-input:has(textarea:placeholder-shown) .btn-primary::after { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .glow-cursor { display: none; }
+  html.glow-on body { cursor: auto; }
+}
+@media print, (forced-colors: active) {
+  .wipe-panel, .glow-cursor, html.wipe-in::after { display: none !important; }
 }
